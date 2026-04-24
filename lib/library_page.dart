@@ -14,6 +14,7 @@ class LibraryPage extends StatefulWidget {
 
 class _LibraryPageState extends State<LibraryPage> {
   final FlutterTts _tts = FlutterTts();
+  final ScrollController _scrollController = ScrollController();
   List<Song> _songs = [];
   Map<String, int> _alphabetIndex = {};
 
@@ -21,6 +22,12 @@ class _LibraryPageState extends State<LibraryPage> {
   void initState() {
     super.initState();
     _tts.setLanguage("cs-CZ");
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _scanFolder() async {
@@ -33,12 +40,16 @@ class _LibraryPageState extends State<LibraryPage> {
 
     for (var file in files) {
       if (file is File && (file.path.endsWith('.mp3') || file.path.endsWith('.m4a'))) {
-        final metadata = await readMetadata(file, getImage: false);
-        loadedSongs.add(Song(
-          artist: metadata.artist ?? "Neznámý interpret",
-          title: metadata.title ?? "Neznámý název",
-          filePath: file.path,
-        ));
+        try {
+          final metadata = await readMetadata(file, getImage: false);
+          loadedSongs.add(Song(
+            artist: metadata.artist ?? "Neznámý interpret",
+            title: metadata.title ?? "Neznámý název",
+            filePath: file.path,
+          ));
+        } catch (e) {
+          debugPrint("Chyba čtení metadat: $e");
+        }
       }
     }
 
@@ -56,24 +67,71 @@ class _LibraryPageState extends State<LibraryPage> {
       _songs = loadedSongs;
       _alphabetIndex = index;
     });
+    
+    _tts.speak("Načteno ${_songs.length} skladeb.");
+  }
+
+  void _jumpToLetter(String letter) {
+    if (_alphabetIndex.containsKey(letter)) {
+      int index = _alphabetIndex[letter]!;
+      _scrollController.animateTo(
+        index * 72.0, // Průměrná výška ListTile
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+      _tts.speak("Skočeno na písmeno $letter. První je ${_songs[index].artist}");
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    List<String> sortedLetters = _alphabetIndex.keys.toList()..sort();
+
     return Scaffold(
       appBar: AppBar(title: const Text("Knihovna")),
-      body: ListView.builder(
-        itemCount: _songs.length,
-        itemBuilder: (context, index) {
-          final song = _songs[index];
-          return ListTile(
-            title: Text("${song.artist} - ${song.title}"),
-            onTap: () => _tts.speak("${song.artist}, ${song.title}"),
-          );
-        },
+      body: Column(
+        children: [
+          if (sortedLetters.isNotEmpty)
+            Container(
+              height: 50,
+              color: Theme.of(context).primaryColor.withOpacity(0.1),
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: sortedLetters.length,
+                itemBuilder: (context, i) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: ActionChip(
+                      label: Text(sortedLetters[i]),
+                      onPressed: () => _jumpToLetter(sortedLetters[i]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          Expanded(
+            child: _songs.isEmpty
+                ? const Center(child: Text("Knihovna je prázdná. Vyberte složku."))
+                : ListView.builder(
+                    controller: _scrollController,
+                    itemCount: _songs.length,
+                    itemExtent: 72.0, // Pevná výška pro přesný skok
+                    itemBuilder: (context, index) {
+                      final song = _songs[index];
+                      return ListTile(
+                        leading: const Icon(Icons.music_note),
+                        title: Text(song.artist),
+                        subtitle: Text(song.title),
+                        onTap: () => _tts.speak("${song.artist}, ${song.title}"),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _scanFolder,
+        tooltip: "Vybrat složku s hudbou",
         child: const Icon(Icons.folder_open),
       ),
     );

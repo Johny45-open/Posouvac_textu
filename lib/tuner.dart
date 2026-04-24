@@ -216,22 +216,24 @@ class _TunerPageState extends State<TunerPage> {
             ),
             const SizedBox(height: 40),
             Center(
-              child: Column(
-                children: [
-                  Text(
-                    _note,
-                    style: const TextStyle(fontSize: 80, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    _status,
-                    style: TextStyle(
-                      fontSize: 24,
-                      color: _status == "V pořádku" ? Colors.green : Colors.orange,
+              child: MergeSemantics(
+                child: Column(
+                  children: [
+                    Text(
+                      _note,
+                      style: const TextStyle(fontSize: 80, fontWeight: FontWeight.bold),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text("${_frequency.toStringAsFixed(1)} Hz"),
-                ],
+                    Text(
+                      _status,
+                      style: TextStyle(
+                        fontSize: 24,
+                        color: _status == "V pořádku" ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text("${_frequency.toStringAsFixed(1)} Hz"),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 60),
