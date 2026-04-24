@@ -1,0 +1,544 @@
+class _ScrollerHomePageState extends State<ScrollerHomePage> {
+  final ScrollController _scrollController = ScrollController();
+  final FlutterTts _flutterTts = FlutterTts();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  
+  List<Song> _playlist = [];
+  int _currentSongIndex = -1;
+  bool _isScrolling = false;
+  bool _isListening = false;  
+  bool _isHandsFree = false;   
+  bool _isWaitingForCommand = false; 
+  String? _wakeWord;           
+  bool _isSettingWakeWord = false; 
+  
+  bool _onlyFavorites = false; 
+  String _searchQuery = "";    
+  Timer? _timer;
+  Timer? _promptTimer; 
+  Timer? _listeningWatchdog;
+  bool _isTtsSpeaking = false; 
+  bool _isManualPlaying = false;
+
+  int _countdownRemaining = 0;
+  Timer? _countdownTimer;
+  bool _isGoSignal = false;
+  bool _isPulseActive = false;
+
+  List<DateTime> _tapTimes = [];
+
+  @override
+  void initState() { super.initState(); _initTts(); _initSpeech(); _loadPlaylist(); _loadWakeWord(); }
+
+  @override
+  void dispose() { _stopScrolling(); _scrollController.dispose(); _flutterTts.stop(); _speech.stop(); _audioPlayer.dispose(); _listeningWatchdog?.cancel(); _countdownTimer?.cancel(); super.dispose(); }
+
+  Future<void> _loadWakeWord() async { setState(() { _wakeWord = widget.prefs.getString('wakeWord'); }); }
+  Future<void> _saveWakeWord(String word) async { await widget.prefs.setString('wakeWord', word); setState(() { _wakeWord = word; _isSettingWakeWord = false; }); }
+
+  Future<void> _speak(String text) async {
+    setState(() => _isTtsSpeaking = true);
+    await _flutterTts.speak(text);
+  }
+
+  void _playVoiceManual() async {
+    if (_isManualPlaying) { await _flutterTts.stop(); setState(() => _isManualPlaying = false); return; }
+    setState(() => _isManualPlaying = true);
+    String manual = widget.locale?.languageCode == 'en' 
+      ? "Welcome to Lyric Scroller! Tap the text once to pause or start. Tap rhythmically during scrolling to sync the speed. You can control me by voice: call my name and say commands like 'Find song' or 'Note lyrics'. In the playlist dialog, use the disk icon to save your sets. Finally, tap the 'Done' button at the end of a song to hear what's next. Enjoy!"
+      : "Vítej v Posouvači textu! Jsem tvůj hudební parťák. Tady je pár tipů: Ťukni na text jednou pro pauzu nebo start. Pokud ti text utíká, ťukej na něj v rytmu písně a já se přizpůsobím. Můžeš mě ovládat i hlasem – stačí mě oslovit jménem a pak říct třeba Najdi písničku nebo Zapiš si text. V playlistu si můžeš své seznamy ukládat i načítat přes ikonky diskety a složky. A na konci písně ťukni na zelené tlačítko a já ti pošeptám, co hraješ dál. Tak ať to ladí!";
+    await _speak(manual);
+    setState(() => _isManualPlaying = false);
+  }
+
+  void _playBeep({double? frequency, int durationMs = 150}) async {
+    if (_isTtsSpeaking) return;
+    final freq = frequency ?? widget.beepFrequency;
+    final int sampleRate = 22050;
+    final int numSamples = (sampleRate * durationMs / 1000).round();
+    final int fileSize = 44 + numSamples * 2;
+    final bytes = Uint8List(fileSize);
+    final data = ByteData.view(bytes.buffer);
+    bytes.setRange(0, 4, ascii.encode('RIFF'));
+    data.setUint32(4, fileSize - 8, Endian.little);
+    bytes.setRange(8, 12, ascii.encode('WAVE'));
+    bytes.setRange(12, 16, ascii.encode('fmt '));
+    data.setUint32(16, 16, Endian.little);
+    data.setUint16(20, 1, Endian.little);
+    data.setUint16(22, 1, Endian.little);
+    data.setUint32(24, sampleRate, Endian.little);
+    data.setUint32(28, sampleRate * 2, Endian.little);
+    data.setUint16(32, 2, Endian.little);
+    data.setUint16(34, 16, Endian.little);
+    bytes.setRange(36, 40, ascii.encode('data'));
+    data.setUint32(40, numSamples * 2, Endian.little);
+    for (int i = 0; i < numSamples; i++) {
+      double t = i / sampleRate;
+      double sample = math.sin(2 * math.pi * freq * t);
+      double envelope = 1.0;
+      if (i < 100) envelope = i / 100;
+      if (i > numSamples - 100) envelope = (numSamples - i) / 100;
+      int val = (sample * 32767 * envelope).round();
+      data.setInt16(44 + i * 2, val, Endian.little);
+    }
+    await _audioPlayer.play(BytesSource(bytes));
+  }
+
+  void _playDoubleBeep() async {
+    _playBeep(frequency: widget.beepFrequency * 0.8, durationMs: 100);
+    await Future.delayed(const Duration(milliseconds: 200));
+    _playBeep(frequency: widget.beepFrequency * 0.8, durationMs: 100);
+  }
+
+  void _onTapTempo(void Function(void Function()) setDialogState) {
+    final now = DateTime.now();
+    _tapTimes.add(now);
+    if (_tapTimes.length > 8) _tapTimes.removeAt(0);
+    if (_tapTimes.length >= 2) {
+      final differences = <int>[];
+      for (int i = 1; i < _tapTimes.length; i++) differences.add(_tapTimes[i].difference(_tapTimes[i - 1]).inMilliseconds);
+      final double avg = differences.reduce((a, b) => a + b) / differences.length;
+      final int bpm = (60000 / avg).round();
+      if (_currentSongIndex != -1) {
+        final currentSong = _playlist[_currentSongIndex];
+        setState(() { currentSong.bpm = bpm.toDouble(); });
+        _savePlaylist();
+        _speak("Mám to, tempo je $bpm.");
+        setDialogState(() {});
+      }
+    }
+  }
+
+  void _syncTempoOnTheFly() {
+    final now = DateTime.now();
+    _tapTimes.add(now);
+    if (_tapTimes.length > 4) _tapTimes.removeAt(0);
+    setState(() => _isPulseActive = true);
+    Future.delayed(const Duration(milliseconds: 100), () => setState(() => _isPulseActive = false));
+    if (_tapTimes.length >= 2 && _currentSongIndex != -1) {
+      final currentSong = _playlist[_currentSongIndex];
+      final differences = <int>[];
+      for (int i = 1; i < _tapTimes.length; i++) differences.add(_tapTimes[i].difference(_tapTimes[i - 1]).inMilliseconds);
+      final double avg = differences.reduce((a, b) => a + b) / differences.length;
+      final int newBpm = (60000 / avg).round();
+      setState(() { if (currentSong.bpm != null) { currentSong.bpm = newBpm.toDouble(); _startScrolling(); } });
+    }
+  }
+
+  Future<void> _initTts() async {
+    String lang = widget.locale?.languageCode ?? Localizations.maybeLocaleOf(context)?.languageCode ?? 'cs';
+    await _flutterTts.setLanguage(lang == 'en' ? "en-US" : "cs-CZ");
+    await _flutterTts.setSpeechRate(0.5);
+    _flutterTts.setCompletionHandler(() { setState(() => _isTtsSpeaking = false); });
+  }
+
+  Future<void> _initSpeech() async {
+    try {
+      var status = await Permission.microphone.status;
+      if (status.isDenied) status = await Permission.microphone.request();
+      if (status.isPermanentlyDenied) { _flutterTts.speak("Povol prosím mikrofon."); return; }
+      await _speech.initialize(
+        onStatus: (status) {
+          if (status == 'done' || status == 'notListening') {
+            if (_isHandsFree && !_isSettingWakeWord) Future.delayed(const Duration(milliseconds: 500), _startListening);
+            else if (_isSettingWakeWord && status == 'notListening' && _isListening) { setState(() => _isListening = false); _retryVoiceSetup(); }
+            else setState(() => _isListening = false);
+          }
+        },
+        onError: (error) { setState(() => _isListening = false); if (_isSettingWakeWord) _retryVoiceSetup(); },
+      );
+    } catch (e) { debugPrint("Init speech error: $e"); }
+  }
+
+  void _retryVoiceSetup() {
+    if (!_isSettingWakeWord) return;
+    _flutterTts.speak("Zkusíme to znovu. Jak mi chceš říkat?");
+    Future.delayed(const Duration(seconds: 4), () => _startListening(isSetup: true));
+  }
+
+  void _startVoiceSetup() async {
+    setState(() { _isSettingWakeWord = true; _wakeWord = null; });
+    await _flutterTts.speak("Ahoj! Jak mi chceš říkat?");
+    Future.delayed(const Duration(seconds: 5), () { if (_isSettingWakeWord) _startListening(isSetup: true); });
+  }
+
+  void _startListening({bool isSetup = false}) async {
+    if (_isListening && !isSetup) return;
+    if (_isTtsSpeaking) { Future.delayed(const Duration(milliseconds: 500), () => _startListening(isSetup: isSetup)); return; }
+    try {
+      if (await Permission.microphone.isGranted) {
+        bool available = await _speech.initialize();
+        if (available) {
+          if (!isSetup && !_isHandsFree) _playBeep();
+          setState(() => _isListening = true);
+          String lang = widget.locale?.languageCode == 'en' ? "en-US" : "cs-CZ";
+          _speech.listen(localeId: lang, listenFor: const Duration(seconds: 12), onResult: (result) {
+            if (result.finalResult) {
+              if (!_isHandsFree || _isWaitingForCommand) _playDoubleBeep();
+              if (_isSettingWakeWord) _handleNewWakeWord(result.recognizedWords);
+              else _processVoiceCommand(result.recognizedWords.toLowerCase());
+            }
+          });
+        }
+      }
+    } catch (e) { debugPrint("Start listening error: $e"); }
+  }
+
+  void _handleNewWakeWord(String recognized) async {
+    String word = recognized.trim().toLowerCase();
+    if (word.isEmpty || word.length < 3) { _retryVoiceSetup(); return; }
+    await _saveWakeWord(recognized.trim());
+    await _flutterTts.speak("Paráda! Odteď mi stačí říct '$recognized'.");
+    setState(() { _isSettingWakeWord = false; _isHandsFree = true; });
+    _startListening();
+  }
+
+  void _processVoiceCommand(String command) {
+    if (_wakeWord != null && _isHandsFree) {
+      String lowWake = _wakeWord!.toLowerCase();
+      bool isWakeWordMatch = command == lowWake || (command.contains(lowWake) && command.length < lowWake.length + 3);
+      if (isWakeWordMatch || _isWaitingForCommand) {
+        if (isWakeWordMatch) {
+          _promptTimer?.cancel(); setState(() => _isWaitingForCommand = true);
+          _speak("Ano?");
+          _promptTimer = Timer(const Duration(seconds: 8), () { if (_isWaitingForCommand) { setState(() => _isWaitingForCommand = false); _speech.stop(); } });
+          return;
+        }
+        if (command.startsWith(lowWake)) command = command.replaceFirst(lowWake, "").trim();
+      } else { if (!_isWaitingForCommand) return; }
+    }
+
+    bool handled = false;
+    String cmd = command.toLowerCase();
+
+    if (cmd.contains("najdi") || cmd.contains("hledat")) {
+      String q = cmd.replaceAll("najdi písničku", "").replaceAll("najdi", "").replaceAll("hledat", "").trim();
+      if (q.isNotEmpty) { _searchAndAddSong(q); handled = true; }
+    } else if (cmd.contains("zapiš si") || cmd.contains("poznámka")) {
+      String text = cmd.replaceAll("zapiš si", "").replaceAll("poznámka", "").trim();
+      if (text.length > 5) { _createQuickNote(text); handled = true; }
+    } else if (cmd.contains("spustit") || cmd.contains("start") || cmd.contains("hraj")) {
+      if (!_isScrolling) { _toggleScrolling(); _speak("Jasně."); } handled = true;
+    } else if (cmd.contains("zastavit") || cmd.contains("stop") || cmd.contains("stůj")) {
+      if (_isScrolling) { _toggleScrolling(); _speak("Rozumím."); } handled = true;
+    } else if (cmd.contains("další") || cmd.contains("next")) { _nextSong(); handled = true;
+    } else if (cmd.contains("zpět") || cmd.contains("předchozí")) { _previousSong(); handled = true; }
+
+    if (handled) { setState(() => _isWaitingForCommand = false); _promptTimer?.cancel(); }
+  }
+
+  void _createQuickNote(String text) {
+    setState(() {
+      final newSong = Song(title: "Rychlá poznámka", content: text);
+      _playlist.add(newSong); _currentSongIndex = _playlist.length - 1;
+      _isScrolling = false; _stopScrolling(); _countdownRemaining = 0; _isGoSignal = false; _countdownTimer?.cancel();
+    });
+    _savePlaylist(); _speak("Zapsáno. Startuju.");
+    Future.delayed(const Duration(seconds: 1), () => _toggleScrolling());
+  }
+
+  Future<void> _searchAndAddSong(String query) async {
+    final localMatch = _playlist.where((s) => s.title.toLowerCase().contains(query.toLowerCase()) || s.content.toLowerCase().contains(query.toLowerCase())).toList();
+    if (localMatch.isNotEmpty) {
+      setState(() { _currentSongIndex = _playlist.indexOf(localMatch.first); _isScrolling = false; _stopScrolling(); _countdownRemaining = 0; _isGoSignal = false; });
+      _speak("Mám ji v seznamu."); Future.delayed(const Duration(seconds: 1), () => _toggleScrolling());
+      return;
+    }
+    _speak("Kouknu se na net...");
+    try {
+      final resp = await http.get(Uri.parse('https://api.lyrics.ovh/suggest/${Uri.encodeComponent(query)}')).timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        if (data['data'] != null && (data['data'] as List).isNotEmpty) {
+          final first = data['data'][0];
+          final artist = first['artist']['name'];
+          final title = first['title'];
+          final lyrResp = await http.get(Uri.parse('https://api.lyrics.ovh/v1/${Uri.encodeComponent(artist)}/${Uri.encodeComponent(title)}')).timeout(const Duration(seconds: 5));
+          if (lyrResp.statusCode == 200) {
+            final lyrData = jsonDecode(lyrResp.body);
+            final String lyrics = lyrData['lyrics'] ?? "";
+            if (lyrics.isNotEmpty) {
+              setState(() { _playlist.add(Song(title: "$artist - $title", content: lyrics)); _currentSongIndex = _playlist.length - 1; _isScrolling = false; _stopScrolling(); _countdownRemaining = 0; _isGoSignal = false; });
+              _savePlaylist(); _speak("Mám ji! Jdeme na to.");
+              Future.delayed(const Duration(seconds: 2), () => _toggleScrolling());
+              return;
+            }
+          }
+        }
+      }
+      _speak("Nic jsem nenašla. Zkus mi ten text nadiktovat.");
+    } catch (e) { _speak("Jsi bez internetu. Ale klidně mi text nadiktuj."); }
+  }
+
+  Future<void> _savePlaylist() async {
+    final List<String> playlistJson = _playlist.map((s) => jsonEncode(s.toJson())).toList();
+    await widget.prefs.setStringList('playlist', playlistJson);
+    await widget.prefs.setInt('currentSongIndex', _currentSongIndex);
+  }
+
+  Future<void> _loadPlaylist() async {
+    final List<String>? playlistJson = widget.prefs.getStringList('playlist');
+    if (playlistJson != null) {
+      setState(() { _playlist = playlistJson.map((s) => Song.fromJson(jsonDecode(s))).toList(); _currentSongIndex = widget.prefs.getInt('currentSongIndex') ?? -1; });
+    }
+  }
+
+  void _toggleScrolling() {
+    if (_countdownRemaining > 0) { _countdownTimer?.cancel(); setState(() { _countdownRemaining = 0; _isGoSignal = false; }); return; }
+    bool isAtEnd = false;
+    if (_scrollController.hasClients) isAtEnd = _scrollController.offset >= _scrollController.position.maxScrollExtent - 10;
+    if (isAtEnd && !_isScrolling) {
+      String next = _getNextSongTitle();
+      if (next.isNotEmpty) { _speak("Další písnička je $next."); _nextSong(); }
+      else { _speak("To byla poslední písnička v seznamu."); }
+      return;
+    }
+    if (!_isScrolling) {
+      final currentSong = _currentSongIndex != -1 ? _playlist[_currentSongIndex] : null;
+      int delay = (currentSong?.startDelay ?? 0) > 0 ? currentSong!.startDelay : widget.startDelay;
+      if (delay > 0) { _startCountdown(delay, currentSong?.bpm); return; }
+    }
+    setState(() { _isScrolling = !_isScrolling; if (_isScrolling) _startScrolling(); else _stopScrolling(); });
+  }
+
+  void _startCountdown(int amount, double? bpm) {
+    setState(() { _countdownRemaining = amount; _isGoSignal = false; _isPulseActive = true; });
+    _countdownTimer?.cancel();
+    final duration = bpm != null && bpm > 0 ? Duration(milliseconds: (60000 / bpm).round()) : const Duration(seconds: 1);
+    _playBeep(frequency: widget.beepFrequency * 1.2);
+    _countdownTimer = Timer.periodic(duration, (timer) {
+      if (_countdownRemaining > 1) {
+        setState(() { _countdownRemaining--; _isPulseActive = true; });
+        _playBeep(frequency: widget.beepFrequency * (_countdownRemaining % 4 == 0 ? 1.4 : 1.2));
+        Future.delayed(const Duration(milliseconds: 100), () => setState(() => _isPulseActive = false));
+      } else {
+        timer.cancel(); _playDoubleBeep();
+        setState(() { _countdownRemaining = 0; _isGoSignal = true; _isPulseActive = true; });
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (mounted) { setState(() { _isGoSignal = false; _isPulseActive = false; _isScrolling = true; }); _startScrolling(); }
+        });
+      }
+    });
+    Future.delayed(const Duration(milliseconds: 100), () => setState(() => _isPulseActive = false));
+  }
+
+  void _startScrolling() {
+    _timer?.cancel();
+    final currentSong = _currentSongIndex != -1 ? _playlist[_currentSongIndex] : null;
+    double speed;
+    if (currentSong != null && currentSong.bpm != null && currentSong.bpm! > 0) {
+      speed = (widget.fontSize * 1.3) / ((60.0 / currentSong.bpm!) * currentSong.beatsPerLine) / 10.0 * (currentSong.scrollSpeed ?? 1.0);
+    } else {
+      speed = (currentSong?.scrollSpeed ?? widget.scrollSpeed) * (widget.fontSize / 24.0);
+    }
+    _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (_scrollController.hasClients) {
+        double current = _scrollController.offset;
+        if (current < _scrollController.position.maxScrollExtent) _scrollController.jumpTo(current + (speed * 0.5));
+        else { _stopScrolling(); setState(() { _isScrolling = false; }); }
+      }
+    });
+  }
+
+  void _stopScrolling() { _timer?.cancel(); _timer = null; }
+
+  void _nextSong() {
+    List<Song> effective = _onlyFavorites ? _playlist.where((s) => s.isFavorite).toList() : _playlist;
+    if (_currentSongIndex == -1 || _playlist.isEmpty) return;
+    int currentIdxInEffective = effective.indexOf(_playlist[_currentSongIndex]);
+    int nextIdx = currentIdxInEffective + 1;
+    if (nextIdx >= 0 && nextIdx < effective.length) {
+      setState(() { _currentSongIndex = _playlist.indexOf(effective[nextIdx]); _isScrolling = false; _stopScrolling(); _countdownRemaining = 0; });
+      _savePlaylist(); if (_scrollController.hasClients) _scrollController.jumpTo(0);
+    }
+  }
+
+  void _previousSong() {
+    List<Song> effective = _onlyFavorites ? _playlist.where((s) => s.isFavorite).toList() : _playlist;
+    if (_currentSongIndex == -1 || _playlist.isEmpty) return;
+    int currentIdxInEffective = effective.indexOf(_playlist[_currentSongIndex]);
+    int prevIdx = currentIdxInEffective - 1;
+    if (prevIdx >= 0) {
+      setState(() { _currentSongIndex = _playlist.indexOf(effective[prevIdx]); _isScrolling = false; _stopScrolling(); _countdownRemaining = 0; });
+      _savePlaylist(); if (_scrollController.hasClients) _scrollController.jumpTo(0);
+    }
+  }
+
+  Future<void> _pickFiles() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(allowMultiple: true, type: FileType.custom, allowedExtensions: ['txt']);
+    if (result != null) {
+      for (var path in result.paths.whereType<String>()) {
+        final content = await File(path).readAsString();
+        setState(() { _playlist.add(Song(title: p.basenameWithoutExtension(path), content: content)); if (_currentSongIndex == -1) _currentSongIndex = 0; });
+      }
+      _savePlaylist();
+    }
+  }
+
+  String _getNextSongTitle() {
+    List<Song> effective = _onlyFavorites ? _playlist.where((s) => s.isFavorite).toList() : _playlist;
+    if (_currentSongIndex == -1 || _playlist.isEmpty) return "";
+    int currentIdxInEffective = effective.indexOf(_playlist[_currentSongIndex]);
+    if (currentIdxInEffective != -1 && currentIdxInEffective < effective.length - 1) return effective[currentIdxInEffective + 1].title;
+    return "";
+  }
+
+  DateTime? _lastTapTime;
+  void _handleTextTap() {
+    final now = DateTime.now();
+    if (_lastTapTime != null) {
+      final diff = now.difference(_lastTapTime!).inMilliseconds;
+      if (diff > 200 && diff < 1000) {
+        if (!_isScrolling) _toggleScrolling();
+        _syncTempoOnTheFly(); _lastTapTime = now; return;
+      }
+    }
+    _lastTapTime = now; _toggleScrolling();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Song? currentSong = _currentSongIndex != -1 ? _playlist[_currentSongIndex] : null;
+    bool isAtEnd = false;
+    if (_scrollController.hasClients) isAtEnd = _scrollController.offset >= _scrollController.position.maxScrollExtent - 10;
+    String next = _getNextSongTitle();
+    String fabLabel = _countdownRemaining > 0 ? 'Zrušit' : (_isScrolling ? 'Zastavit' : (isAtEnd ? (next.isNotEmpty ? 'DOHRÁL JSEM / Další: $next' : 'KONEC SEZNAMU') : 'Spustit'));
+    
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(currentSong?.title ?? 'Posouvač textu'),
+        actions: [
+          IconButton(icon: Icon(_isManualPlaying ? Icons.help : Icons.help_outline), color: _isManualPlaying ? Colors.orange : null, onPressed: _playVoiceManual, tooltip: 'Hlasový návod'),
+          IconButton(icon: Icon(_isHandsFree ? Icons.hearing : (_isListening ? Icons.mic : Icons.mic_none)), color: _isHandsFree ? Colors.green : (_isListening ? Colors.red : null), onPressed: () { if (_wakeWord == null) _startVoiceSetup(); else setState(() { _isHandsFree = !_isHandsFree; if (_isHandsFree) { _startListening(); } else { _speech.stop(); } }); }, onLongPress: _startVoiceSetup),
+          if (currentSong != null) IconButton(icon: Icon(currentSong.isFavorite ? Icons.favorite : Icons.favorite_border), color: currentSong.isFavorite ? Colors.red : null, onPressed: () { setState(() => currentSong.isFavorite = !currentSong.isFavorite); _savePlaylist(); }),
+          IconButton(icon: const Icon(Icons.playlist_play), onPressed: () => _showPlaylistDialog(context)),
+          IconButton(icon: const Icon(Icons.settings), onPressed: () => _showSettingsDialog(context)),
+        ],
+      ),
+      body: currentSong == null
+          ? Center(child: ElevatedButton.icon(onPressed: _pickFiles, icon: const Icon(Icons.file_open), label: const Text('Importovat soubory')))
+          : Stack(children: [
+              GestureDetector(onTap: _handleTextTap, behavior: HitTestBehavior.opaque, child: SingleChildScrollView(controller: _scrollController, padding: const EdgeInsets.fromLTRB(20, 20, 20, 100), child: _buildLyricContent(currentSong.content))),
+              if (_countdownRemaining > 0 || _isGoSignal) Center(child: AnimatedScale(scale: _isPulseActive ? 1.2 : 1.0, duration: const Duration(milliseconds: 100), child: Container(padding: const EdgeInsets.all(40), decoration: BoxDecoration(color: _isGoSignal ? (currentSong.isVocalStart ? Colors.orange : Colors.green) : Colors.black54, shape: BoxShape.circle), child: Text(_isGoSignal ? (currentSong.isVocalStart ? 'ZPĚV!' : 'HRAJ!') : '$_countdownRemaining', style: const TextStyle(fontSize: 100, fontWeight: FontWeight.bold, color: Colors.white))))),
+            ]),
+      floatingActionButton: currentSong != null ? FloatingActionButton.extended(
+        backgroundColor: isAtEnd && !_isScrolling ? Colors.green : null,
+        onPressed: _toggleScrolling, label: Text(fabLabel), icon: Icon(_countdownRemaining > 0 ? Icons.cancel : (_isScrolling ? Icons.pause : (isAtEnd ? Icons.skip_next : Icons.play_arrow)))
+      ) : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    );
+  }
+
+  Widget _buildLyricContent(String content) {
+    return RichText(text: TextSpan(style: TextStyle(fontSize: widget.fontSize, color: Theme.of(context).textTheme.bodyLarge?.color, fontFamily: widget.useMonospace ? 'monospace' : null), children: content.split('\n').map((l) => TextSpan(text: l + '\n')).toList()));
+  }
+
+  void _showPlaylistDialog(BuildContext context) {
+    showModalBottomSheet(context: context, isScrollControlled: true, builder: (context) => StatefulBuilder(builder: (context, setPlaylistState) {
+      List<Song> filtered = _playlist.where((s) => (!_onlyFavorites || s.isFavorite) && (_searchQuery.isEmpty || s.title.toLowerCase().contains(_searchQuery.toLowerCase()))).toList();
+      return DraggableScrollableSheet(expand: false, initialChildSize: 0.8, builder: (context, scrollController) => Column(children: [
+        Padding(padding: const EdgeInsets.all(16), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const Text('Playlist', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          Row(children: [
+            IconButton(icon: Icon(_onlyFavorites ? Icons.favorite : Icons.favorite_border, color: _onlyFavorites ? Colors.red : null), onPressed: () { setState(() => _onlyFavorites = !_onlyFavorites); setPlaylistState(() {}); }),
+            IconButton(icon: const Icon(Icons.save), onPressed: () => _saveNamedPlaylist(context)),
+            IconButton(icon: const Icon(Icons.folder_special), onPressed: () => _loadNamedPlaylist(context, setPlaylistState)),
+            IconButton(icon: const Icon(Icons.edit_note), onPressed: () => _showAddManualSongDialog(context, () => setPlaylistState(() {}))),
+            IconButton(icon: const Icon(Icons.add), onPressed: () async { await _pickFiles(); setPlaylistState(() {}); }),
+          ])
+        ])),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: TextField(decoration: const InputDecoration(hintText: 'Hledat...', prefixIcon: Icon(Icons.search)), onChanged: (v) { setState(() => _searchQuery = v); setPlaylistState(() {}); })),
+        Expanded(child: ListView.builder(itemCount: filtered.length, itemBuilder: (context, i) {
+          final s = filtered[i]; return ListTile(title: Text(s.title), selected: _currentSongIndex == _playlist.indexOf(s), onTap: () { setState(() { _currentSongIndex = _playlist.indexOf(s); _isScrolling = false; _stopScrolling(); }); Navigator.pop(context); });
+        }))
+      ]));
+    }));
+  }
+
+  void _saveNamedPlaylist(BuildContext context) {
+    String name = "";
+    showDialog(context: context, builder: (context) => AlertDialog(
+      title: const Text('Uložit playlist jako...'), content: TextField(onChanged: (v) => name = v, decoration: const InputDecoration(hintText: 'Název')),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Zrušit')), ElevatedButton(onPressed: () async {
+        if (name.isNotEmpty) {
+          final saved = widget.prefs.getStringList('saved_playlists') ?? [];
+          if (!saved.contains(name)) { saved.add(name); await widget.prefs.setStringList('saved_playlists', saved); }
+          final listJson = _playlist.map((s) => jsonEncode(s.toJson())).toList();
+          await widget.prefs.setStringList('playlist_$name', listJson); Navigator.pop(context); _speak("Uloženo.");
+        }
+      }, child: const Text('Uložit'))],
+    ));
+  }
+
+  void _loadNamedPlaylist(BuildContext context, void Function(void Function()) setPlaylistState) {
+    final saved = widget.prefs.getStringList('saved_playlists') ?? [];
+    showDialog(context: context, builder: (context) => AlertDialog(
+      title: const Text('Moje playlisty'),
+      content: SizedBox(width: double.maxFinite, child: ListView.builder(shrinkWrap: true, itemCount: saved.length, itemBuilder: (context, i) => ListTile(
+        title: Text(saved[i]),
+        onTap: () {
+          final listJson = widget.prefs.getStringList('playlist_${saved[i]}');
+          if (listJson != null) {
+            setState(() { _playlist = listJson.map((s) => Song.fromJson(jsonDecode(s))).toList(); _currentSongIndex = _playlist.isNotEmpty ? 0 : -1; });
+            _savePlaylist(); setPlaylistState(() {}); Navigator.pop(context); _speak("Načteno.");
+          }
+        },
+        trailing: IconButton(icon: const Icon(Icons.delete), onPressed: () async { saved.removeAt(i); await widget.prefs.setStringList('saved_playlists', saved); Navigator.pop(context); }),
+      ))),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Zavřít'))],
+    ));
+  }
+
+  void _showAddManualSongDialog(BuildContext context, VoidCallback onAdded) {
+    String t = ""; String c = ""; bool dict = false;
+    showDialog(context: context, builder: (context) => StatefulBuilder(builder: (context, setD) => AlertDialog(
+      title: const Text('Nová píseň'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(decoration: const InputDecoration(labelText: 'Název'), onChanged: (v) => t = v),
+        const SizedBox(height: 10),
+        Stack(alignment: Alignment.bottomRight, children: [
+          TextField(decoration: const InputDecoration(labelText: 'Text', border: OutlineInputBorder()), maxLines: 5, onChanged: (v) => c = v),
+          IconButton(icon: Icon(dict ? Icons.stop : Icons.mic, color: dict ? Colors.red : null), onPressed: () async {
+            if (dict) { _speech.stop(); setD(() => dict = false); }
+            else { if (await _speech.initialize()) { setD(() => dict = true); _speech.listen(onResult: (r) => setD(() { c = r.recognizedWords; if (r.finalResult) dict = false; })); } }
+          }),
+        ]),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Zavřít')), ElevatedButton(onPressed: () { if (t.isNotEmpty && c.isNotEmpty) { setState(() { _playlist.add(Song(title: t, content: c)); if (_currentSongIndex == -1) _currentSongIndex = _playlist.length - 1; }); _savePlaylist(); onAdded(); Navigator.pop(context); } }, child: const Text('Uložit'))],
+    )));
+  }
+
+  void _showSettingsDialog(BuildContext context) {
+    final currentSong = _currentSongIndex != -1 ? _playlist[_currentSongIndex] : null;
+    showDialog(context: context, builder: (context) => StatefulBuilder(builder: (context, setD) {
+      final bool isBpm = currentSong?.bpm != null && currentSong!.bpm! > 0;
+      final String unit = isBpm ? 'údery' : 's';
+      return AlertDialog(
+        title: const Text('Nastavení'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(title: Text('Písmo: ${widget.fontSize.round()}')),
+          Slider(value: widget.fontSize, min: 16, max: 100, onChanged: (v) { widget.onFontSizeChanged(v); setD(() {}); }),
+          if (currentSong != null) ...[
+            const Divider(),
+            ListTile(title: const Text('Tempo'), subtitle: Text(isBpm ? 'BPM' : 'Manuální')),
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Row(children: [
+              Expanded(child: TextField(decoration: const InputDecoration(labelText: 'BPM'), keyboardType: TextInputType.number, onChanged: (v) { final n = double.tryParse(v); if (n != null) { setState(() => currentSong.bpm = n); _savePlaylist(); setD(() {}); } })),
+              const SizedBox(width: 8),
+              ElevatedButton(onPressed: () { setState(() => currentSong.bpm = 120); _savePlaylist(); setD(() {}); }, child: const Text('120')),
+              if (isBpm) IconButton(icon: const Icon(Icons.clear), onPressed: () { setState(() => currentSong.bpm = null); _savePlaylist(); setD(() {}); }),
+            ])),
+            ElevatedButton.icon(onPressed: () => _onTapTempo(setD), icon: const Icon(Icons.touch_app), label: const Text('TAP TEMPO')),
+            SwitchListTile(title: const Text('Zpěv na startu'), value: currentSong.isVocalStart, onChanged: (v) { setState(() => currentSong.isVocalStart = v); _savePlaylist(); setD(() {}); }),
+            ListTile(title: Text('Odpočet: ${currentSong.startDelay} $unit')),
+            Slider(value: currentSong.startDelay.toDouble(), min: 0, max: 16, divisions: 16, onChanged: (v) { setState(() => currentSong.startDelay = v.round()); _savePlaylist(); setD(() {}); }),
+          ],
+          const Divider(),
+          ListTile(title: Text('Globální odpočet: ${widget.startDelay} s')),
+          Slider(value: widget.startDelay.toDouble(), min: 0, max: 16, divisions: 16, onChanged: (v) { widget.onStartDelayChanged(v.round()); setD(() {}); }),
+        ])),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Zavřít'))],
+      );
+    }));
+  }
+}
