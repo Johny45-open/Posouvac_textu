@@ -364,7 +364,34 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
           minChildSize: 0.4,
           maxChildSize: 0.95,
           builder: (ctx, sc) {
-            final filtered = _playlist.where((s) => (!_onlyFavorites || s.isFavorite) && (_searchQuery.isEmpty || s.title.toLowerCase().contains(_searchQuery.toLowerCase()))).toList();
+            // Seřadíme seznam abecedně pro snadnější navigaci v dialogu
+            final filtered = _playlist
+                .where((s) => (!_onlyFavorites || s.isFavorite) && (_searchQuery.isEmpty || s.title.toLowerCase().contains(_searchQuery.toLowerCase())))
+                .toList();
+            filtered.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+
+            // Vytvoření mapy indexů pro abecedu
+            final Map<String, int> indexMap = {};
+            for (int i = 0; i < filtered.length; i++) {
+              String letter = filtered[i].title.isNotEmpty ? filtered[i].title[0].toUpperCase() : "?";
+              if (!indexMap.containsKey(letter)) {
+                indexMap[letter] = i;
+              }
+            }
+            final sortedLetters = indexMap.keys.toList()..sort();
+
+            void _jumpToLetter(String letter) {
+              if (indexMap.containsKey(letter)) {
+                int index = indexMap[letter]!;
+                sc.animateTo(
+                  index * 70.0, // Musí odpovídat itemExtent níže
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeInOut,
+                );
+                _speak("Písmeno $letter. První je ${filtered[index].title}");
+              }
+            }
+
             return Column(
               children: [
                 Padding(
@@ -396,9 +423,27 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
                     },
                   ),
                 ),
+                if (sortedLetters.isNotEmpty)
+                  Container(
+                    height: 50,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: sortedLetters.length,
+                      itemBuilder: (ctx, i) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ActionChip(
+                          label: Text(sortedLetters[i]),
+                          onPressed: () => _jumpToLetter(sortedLetters[i]),
+                        ),
+                      ),
+                    ),
+                  ),
                 Expanded(
                   child: ListView.builder(
                     controller: sc,
+                    itemExtent: 70.0, // Pevná výška pro přesný skok
                     itemCount: filtered.length,
                     itemBuilder: (ctx, i) {
                       final s = filtered[i];
