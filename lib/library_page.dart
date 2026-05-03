@@ -30,6 +30,35 @@ class _LibraryPageState extends State<LibraryPage> {
     super.dispose();
   }
 
+  Future<double?> _promptForTempo(Song song) async {
+    final controller = TextEditingController();
+    return showDialog<double>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text("Tempo pro ${song.title}"),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(hintText: "Zadejte BPM (např. 120)"),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Přeskočit"),
+          ),
+          TextButton(
+            onPressed: () {
+              final tempo = double.tryParse(controller.text);
+              Navigator.pop(context, tempo);
+            },
+            child: const Text("Potvrdit"),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _scanFolder() async {
     String? path = await FilePicker.platform.getDirectoryPath();
     if (path == null) return;
@@ -42,16 +71,25 @@ class _LibraryPageState extends State<LibraryPage> {
       if (file is File && (file.path.endsWith('.mp3') || file.path.endsWith('.m4a'))) {
         try {
           final metadata = await readMetadata(file, getImage: false);
-          loadedSongs.add(Song(
+          final song = Song(
             artist: metadata.artist ?? "Neznámý interpret",
             title: metadata.title ?? "Neznámý název",
             filePath: file.path,
+          );
+          
+          final tempo = await _promptForTempo(song);
+          loadedSongs.add(Song(
+            artist: song.artist,
+            title: song.title,
+            filePath: song.filePath,
+            tempo: tempo,
           ));
         } catch (e) {
           debugPrint("Chyba čtení metadat: $e");
         }
       }
     }
+
 
     loadedSongs.sort((a, b) => a.artist.toLowerCase().compareTo(b.artist.toLowerCase()));
     
@@ -121,7 +159,7 @@ class _LibraryPageState extends State<LibraryPage> {
                       return ListTile(
                         leading: const Icon(Icons.music_note),
                         title: Text(song.artist),
-                        subtitle: Text(song.title),
+                        subtitle: Text("${song.title}${song.tempo != null ? ' (${song.tempo!.toInt()} BPM)' : ''}"),
                         onTap: () => _tts.speak("${song.artist}, ${song.title}"),
                       );
                     },
