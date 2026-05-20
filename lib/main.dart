@@ -514,16 +514,46 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
           content = await File(file.path!).readAsString();
         }
         if (content.isNotEmpty) {
+          final newSong = Song.fromImportedTextFile(fileName: file.name, content: content);
           setState(() {
-            _playlist.add(
-              Song.fromImportedTextFile(fileName: file.name, content: content),
-            );
+            _playlist.add(newSong);
             if (_currentSongIndex == -1) _currentSongIndex = 0;
           });
+          _savePlaylist();
+          if (context.mounted) {
+            _showSetTempoDialog(context, newSong);
+          }
         }
       }
       _savePlaylist();
     }
+  }
+
+  void _showSetTempoDialog(BuildContext context, Song song) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Tempo pro: ${song.title}'),
+        content: TextField(
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'BPM'),
+          keyboardType: TextInputType.number,
+          onChanged: (v) {
+            final n = double.tryParse(v);
+            if (n != null) {
+              song.bpm = n;
+              _savePlaylist();
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _saveNamedPlaylist(BuildContext context) {
