@@ -9,6 +9,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path/path.dart' as p;
 import 'tuner.dart';
 import 'library_page.dart';
+import 'chord_display_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -888,16 +889,20 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
     );
   }
 
-  Widget _buildLyricContent(String c) => RichText(
-    text: TextSpan(
-      style: TextStyle(
+  Widget _buildLyricContent(String content) {
+    return ChordDisplayWidget(
+      content: content,
+      textStyle: TextStyle(
         fontSize: widget.fontSize,
         color: Theme.of(context).textTheme.bodyLarge?.color,
-        fontFamily: widget.useMonospace ? 'monospace' : null,
       ),
-      children: c.split('\n').map((l) => TextSpan(text: l + '\n')).toList(),
-    ),
-  );
+      chordStyle: TextStyle(
+        fontSize: widget.fontSize * 0.9,
+        color: Colors.blue,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+  }
 
   void _showPlaylistDialog(BuildContext context) {
     final searchController = TextEditingController(text: _searchQuery);
