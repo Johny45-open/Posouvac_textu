@@ -1429,6 +1429,22 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
                     ),
                   ],
                   const Divider(),
+                  ListTile(title: const Text('Motiv')),
+                  DropdownButton<ThemeMode>(
+                    value: widget.themeMode,
+                    items: const [
+                      DropdownMenuItem(value: ThemeMode.system, child: Text('Systémový')),
+                      DropdownMenuItem(value: ThemeMode.light, child: Text('Světlý')),
+                      DropdownMenuItem(value: ThemeMode.dark, child: Text('Tmavý')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) {
+                        widget.onThemeModeChanged(v);
+                        setD(() {});
+                      }
+                    },
+                  ),
+                  const Divider(),
                   ListTile(
                     title: Text('Globální odpočet: ${widget.startDelay} s'),
                   ),
