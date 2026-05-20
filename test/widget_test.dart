@@ -12,6 +12,26 @@ void main() {
     expect(song.toJson()['artist'], Song.unknownArtist);
   });
 
+  test('Song rozpozná interpreta a název z importovaného souboru', () {
+    final song = Song.fromImportedTextFile(
+      fileName: 'Ellie - Párty v domě hrůzy.txt',
+      content: 'Text písně',
+    );
+
+    expect(song.artist, 'Ellie');
+    expect(song.title, 'Párty v domě hrůzy');
+  });
+
+  test('Song ponechá celý název souboru, když neobsahuje oddělovač', () {
+    final song = Song.fromImportedTextFile(
+      fileName: 'Samostatný název.txt',
+      content: 'Text písně',
+    );
+
+    expect(song.artist, Song.unknownArtist);
+    expect(song.title, 'Samostatný název');
+  });
+
   testWidgets('Aplikace načte píseň a zobrazí tlačítko Spustit', (
     WidgetTester tester,
   ) async {

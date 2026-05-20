@@ -43,10 +43,36 @@ class Song {
     this.isVocalStart = false,
   }) : artist = normalizeArtist(artist);
 
+  factory Song.fromImportedTextFile({
+    required String fileName,
+    required String content,
+  }) {
+    final parsed = parseImportedFileName(fileName);
+    return Song(title: parsed.title, content: content, artist: parsed.artist);
+  }
+
   static String normalizeArtist(Object? value) {
     if (value is! String) return unknownArtist;
     final trimmed = value.trim();
     return trimmed.isEmpty ? unknownArtist : trimmed;
+  }
+
+  static ({String title, String? artist}) parseImportedFileName(
+    String fileName,
+  ) {
+    final baseName = p.basenameWithoutExtension(fileName).trim();
+    final separator = RegExp(r'\s+[-–—]\s+').firstMatch(baseName);
+
+    if (separator == null) return (title: baseName, artist: null);
+
+    final artist = baseName.substring(0, separator.start).trim();
+    final title = baseName.substring(separator.end).trim();
+
+    if (artist.isEmpty || title.isEmpty) {
+      return (title: baseName, artist: null);
+    }
+
+    return (title: title, artist: artist);
   }
 
   Map<String, dynamic> toJson() => {
@@ -489,10 +515,7 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
         if (content.isNotEmpty) {
           setState(() {
             _playlist.add(
-              Song(
-                title: p.basenameWithoutExtension(file.name),
-                content: content,
-              ),
+              Song.fromImportedTextFile(fileName: file.name, content: content),
             );
             if (_currentSongIndex == -1) _currentSongIndex = 0;
           });
