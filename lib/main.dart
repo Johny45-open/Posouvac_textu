@@ -506,6 +506,7 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
       withData: true,
     );
     if (result != null) {
+      List<String> importedTitles = [];
       for (var file in result.files) {
         String content = "";
         if (file.bytes != null) {
@@ -519,13 +520,17 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
             _playlist.add(newSong);
             if (_currentSongIndex == -1) _currentSongIndex = 0;
           });
+          importedTitles.add("${newSong.title}${newSong.artist != Song.unknownArtist ? ' od ${newSong.artist}' : ''}");
           _savePlaylist();
           if (context.mounted) {
             _showSetTempoDialog(context, newSong);
           }
         }
       }
-      _savePlaylist();
+      if (importedTitles.isNotEmpty) {
+        String msg = "Importováno ${importedTitles.length} ${importedTitles.length == 1 ? 'píseň' : (importedTitles.length < 5 ? 'písně' : 'písní')}: ${importedTitles.join(', ')}.";
+        await _speak(msg);
+      }
     }
   }
 
