@@ -463,7 +463,7 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
     double speed = (current?.bpm != null)
         ? (widget.fontSize * 1.3) /
               ((60.0 / current!.bpm!) * current.beatsPerLine) /
-              10.0
+              5.0
         : (current?.scrollSpeed ?? widget.scrollSpeed) *
               (widget.fontSize / 24.0);
     _timer = Timer.periodic(const Duration(milliseconds: 50), (t) {
