@@ -7,6 +7,7 @@ import 'package:drift/drift.dart' show InsertMode;
 import 'database.dart';
 import 'song_entry.dart';
 import 'playlists_page.dart';
+import 'player_page.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -105,7 +106,10 @@ class _LibraryPageState extends State<LibraryPage> {
                   ),
                   title: Text(song.artist),
                   subtitle: Text(song.title),
-                  onTap: () => _editSong(song),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: _db)),
+                  ),
                 ),
               );
             },

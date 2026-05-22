@@ -4,6 +4,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:drift/drift.dart' show InsertMode;
 import 'database.dart';
 import 'tuner.dart';
 import 'library_page.dart';
@@ -103,8 +107,9 @@ class Song {
 }
 
 class LyricScrollerApp extends StatefulWidget {
+  final AppDatabase db;
   final SharedPreferences prefs;
-  const LyricScrollerApp({super.key, required this.prefs});
+  const LyricScrollerApp({super.key, required this.db, required this.prefs});
   @override
   State<LyricScrollerApp> createState() => _LyricScrollerAppState();
 }
@@ -195,9 +200,11 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     );
   }
 }
-
 class ScrollerHomePage extends StatefulWidget {
+  final AppDatabase db;
   final SharedPreferences prefs;
+// ...
+
   final double fontSize;
   final double scrollSpeed;
   final ThemeMode themeMode;
