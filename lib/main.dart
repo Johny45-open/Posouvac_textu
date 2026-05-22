@@ -4,17 +4,16 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter_tts/flutter_tts.dart';
-import 'package:path/path.dart' as p;
+import 'database.dart';
 import 'tuner.dart';
 import 'library_page.dart';
 import 'chord_display_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final db = AppDatabase();
   final prefs = await SharedPreferences.getInstance();
-  runApp(LyricScrollerApp(prefs: prefs));
+  runApp(LyricScrollerApp(db: db, prefs: prefs));
 }
 
 class Song {
@@ -192,22 +191,7 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('cs', 'CZ'), Locale('en', 'US')],
-      home: ScrollerHomePage(
-        prefs: widget.prefs,
-        fontSize: _fontSize,
-        scrollSpeed: _scrollSpeed,
-        themeMode: _themeMode,
-        useMonospace: _useMonospace,
-        locale: _locale,
-        startDelay: _defaultStartDelay,
-        onFontSizeChanged: _updateFontSize,
-        onScrollSpeedChanged: _updateScrollSpeed,
-        onThemeModeChanged: _updateThemeMode,
-        onMonospaceChanged: _updateMonospace,
-        onLocaleChanged: _updateLocale,
-        onBeepFrequencyChanged: _updateBeepFrequency,
-        onStartDelayChanged: _updateDefaultStartDelay,
-      ),
+      home: const LibraryPage(),
     );
   }
 }
@@ -515,21 +499,20 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
           content = await File(file.path!).readAsString();
         }
         if (content.isNotEmpty) {
-          final newSong = Song.fromImportedTextFile(fileName: file.name, content: content);
-          setState(() {
-            _playlist.add(newSong);
-            if (_currentSongIndex == -1) _currentSongIndex = 0;
-          });
-          importedTitles.add("${newSong.title}${newSong.artist != Song.unknownArtist ? ' od ${newSong.artist}' : ''}");
-          _savePlaylist();
-          if (context.mounted) {
-            _showSetTempoDialog(context, newSong);
-          }
+          final parsed = Song.parseImportedFileName(file.name);
+          final id = await widget.db.into(widget.db.songs).insert(
+            SongsCompanion.insert(
+              filePath: file.path ?? 'imported_${file.name}',
+              artist: parsed.artist ?? Song.unknownArtist,
+              title: parsed.title,
+            ),
+            mode: InsertMode.insertOrIgnore,
+          );
+          importedTitles.add("${parsed.title}${parsed.artist != null ? ' od ${parsed.artist}' : ''}");
         }
       }
       if (importedTitles.isNotEmpty) {
-        String msg = "Importováno ${importedTitles.length} ${importedTitles.length == 1 ? 'píseň' : (importedTitles.length < 5 ? 'písně' : 'písní')}: ${importedTitles.join(', ')}.";
-        await _speak(msg);
+        await _speak("Importováno ${importedTitles.length} písní.");
       }
     }
   }
