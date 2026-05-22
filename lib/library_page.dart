@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
-import 'song_model.dart';
+import 'package:drift/drift.dart' show InsertMode;
+import 'database.dart';
+import 'song_entry.dart';
+import 'playlists_page.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -14,47 +17,105 @@ class LibraryPage extends StatefulWidget {
 
 class _LibraryPageState extends State<LibraryPage> {
   final FlutterTts _tts = FlutterTts();
-  final ScrollController _scrollController = ScrollController();
-  List<Song> _songs = [];
-  Map<String, int> _alphabetIndex = {};
+  late AppDatabase _db;
+  bool _onlyFavorites = false;
 
   @override
   void initState() {
     super.initState();
+    _db = AppDatabase();
     _tts.setLanguage("cs-CZ");
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _db.close();
     super.dispose();
   }
 
-  Future<double?> _promptForTempo(Song song) async {
-    final controller = TextEditingController();
-    return showDialog<double>(
+  Future<void> _editSong(SongEntry song) async {
+    final artistController = TextEditingController(text: song.artist);
+    final titleController = TextEditingController(text: song.title);
+    
+    await showDialog(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text("Tempo pro ${song.title}"),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(hintText: "Zadejte BPM (např. 120)"),
+        title: const Text("Upravit píseň"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: artistController, decoration: const InputDecoration(labelText: "Interpret")),
+            TextField(controller: titleController, decoration: const InputDecoration(labelText: "Název")),
+          ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Přeskočit"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
           TextButton(
             onPressed: () {
-              final tempo = double.tryParse(controller.text);
-              Navigator.pop(context, tempo);
+              _db.updateSong(song.id, artistController.text, titleController.text);
+              _tts.speak("Píseň upravena");
+              Navigator.pop(context);
             },
-            child: const Text("Potvrdit"),
+            child: const Text("Uložit"),
           ),
         ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Knihovna"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.playlist_add),
+            tooltip: "Spravovat playlisty",
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => PlaylistsPage(db: _db)),
+            ),
+          ),
+          FilterChip(
+            label: const Text("Oblíbené"),
+            selected: _onlyFavorites,
+            onSelected: (val) => setState(() => _onlyFavorites = val),
+          ),
+        ],
+      ),
+      body: StreamBuilder<List<SongEntry>>(
+        stream: _db.watchAllSongs(onlyFavorites: _onlyFavorites),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          final songs = snapshot.data!;
+
+          return ListView.builder(
+            itemCount: songs.length,
+            itemBuilder: (context, index) {
+              final song = songs[index];
+              return Semantics(
+                label: "${song.artist}, ${song.title}${song.isFavorite ? ', oblíbená' : ''}",
+                button: true,
+                child: ListTile(
+                  leading: IconButton(
+                    icon: Icon(song.isFavorite ? Icons.favorite : Icons.favorite_border),
+                    tooltip: "Přepnout oblíbené",
+                    onPressed: () => _db.toggleFavorite(song.id, !song.isFavorite),
+                  ),
+                  title: Text(song.artist),
+                  subtitle: Text(song.title),
+                  onTap: () => _editSong(song),
+                ),
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _scanFolder,
+        tooltip: "Vybrat složku s hudbou",
+        child: const Icon(Icons.folder_open),
       ),
     );
   }
@@ -65,113 +126,26 @@ class _LibraryPageState extends State<LibraryPage> {
 
     final dir = Directory(path);
     final List<FileSystemEntity> files = dir.listSync(recursive: true);
-    List<Song> loadedSongs = [];
 
     for (var file in files) {
       if (file is File && (file.path.endsWith('.mp3') || file.path.endsWith('.m4a'))) {
         try {
           final metadata = await readMetadata(file, getImage: false);
-          final song = Song(
-            artist: metadata.artist ?? "Neznámý interpret",
-            title: metadata.title ?? "Neznámý název",
-            filePath: file.path,
+
+          await _db.into(_db.songs).insert(
+            SongsCompanion.insert(
+              filePath: file.path,
+              artist: metadata.artist ?? "Neznámý interpret",
+              title: metadata.title ?? "Neznámý název",
+            ),
+            mode: InsertMode.insertOrIgnore,
           );
-          
-          final tempo = await _promptForTempo(song);
-          loadedSongs.add(Song(
-            artist: song.artist,
-            title: song.title,
-            filePath: song.filePath,
-            tempo: tempo,
-          ));
         } catch (e) {
           debugPrint("Chyba čtení metadat: $e");
         }
       }
     }
-
-
-    loadedSongs.sort((a, b) => a.artist.toLowerCase().compareTo(b.artist.toLowerCase()));
-    
-    Map<String, int> index = {};
-    for (int i = 0; i < loadedSongs.length; i++) {
-      String letter = loadedSongs[i].artist[0].toUpperCase();
-      if (!index.containsKey(letter)) {
-        index[letter] = i;
-      }
-    }
-
-    setState(() {
-      _songs = loadedSongs;
-      _alphabetIndex = index;
-    });
-    
-    _tts.speak("Načteno ${_songs.length} skladeb.");
+    _tts.speak("Knihovna byla aktualizována.");
+  }
   }
 
-  void _jumpToLetter(String letter) {
-    if (_alphabetIndex.containsKey(letter)) {
-      int index = _alphabetIndex[letter]!;
-      _scrollController.animateTo(
-        index * 72.0, // Průměrná výška ListTile
-        duration: const Duration(milliseconds: 500),
-        curve: Curves.easeInOut,
-      );
-      _tts.speak("Skočeno na písmeno $letter. První je ${_songs[index].artist}");
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    List<String> sortedLetters = _alphabetIndex.keys.toList()..sort();
-
-    return Scaffold(
-      appBar: AppBar(title: const Text("Knihovna")),
-      body: Column(
-        children: [
-          if (sortedLetters.isNotEmpty)
-            Container(
-              height: 50,
-              color: Theme.of(context).primaryColor.withOpacity(0.1),
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: sortedLetters.length,
-                itemBuilder: (context, i) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: ActionChip(
-                      label: Text(sortedLetters[i]),
-                      onPressed: () => _jumpToLetter(sortedLetters[i]),
-                    ),
-                  );
-                },
-              ),
-            ),
-          Expanded(
-            child: _songs.isEmpty
-                ? const Center(child: Text("Knihovna je prázdná. Vyberte složku."))
-                : ListView.builder(
-                    controller: _scrollController,
-                    itemCount: _songs.length,
-                    itemExtent: 72.0, // Pevná výška pro přesný skok
-                    itemBuilder: (context, index) {
-                      final song = _songs[index];
-                      return ListTile(
-                        leading: const Icon(Icons.music_note),
-                        title: Text(song.artist),
-                        subtitle: Text("${song.title}${song.tempo != null ? ' (${song.tempo!.toInt()} BPM)' : ''}"),
-                        onTap: () => _tts.speak("${song.artist}, ${song.title}"),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _scanFolder,
-        tooltip: "Vybrat složku s hudbou",
-        child: const Icon(Icons.folder_open),
-      ),
-    );
-  }
-}
