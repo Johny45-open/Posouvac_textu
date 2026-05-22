@@ -1213,21 +1213,6 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
       });
 
       final bytes = utf8.encode(exportData);
-  Future<void> _exportPlaylist(BuildContext context) async {
-    try {
-      final exportData = jsonEncode({
-        'playlist': _playlist.map((s) => s.toJson()).toList(),
-        'currentSongIndex': _currentSongIndex,
-        'settings': {
-          'fontSize': widget.fontSize,
-          'scrollSpeed': widget.scrollSpeed,
-          'themeMode': widget.themeMode.index,
-          'useMonospace': widget.useMonospace,
-          'startDelay': widget.startDelay,
-        },
-      });
-
-      final bytes = utf8.encode(exportData);
       String? output = await FilePicker.saveFile(
         dialogTitle: 'Exportovat playlist a nastavení',
         fileName: 'posouvac_export.json',
