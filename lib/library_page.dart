@@ -130,26 +130,50 @@ class _LibraryPageState extends State<LibraryPage> {
 
     final dir = Directory(path);
     final List<FileSystemEntity> files = dir.listSync(recursive: true);
+    final totalFiles = files.where((f) => f is File && (f.path.endsWith('.txt'))).length;
+    int processed = 0;
+
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 20),
+              Text("Probíhá import souborů..."),
+            ],
+          ),
+        ),
+      );
+    }
 
     for (var file in files) {
-      if (file is File && (file.path.endsWith('.mp3') || file.path.endsWith('.m4a'))) {
+      if (file is File && file.path.endsWith('.txt')) {
         try {
-          final metadata = await readMetadata(file, getImage: false);
+          final content = await file.readAsString();
+          final parsed = Song.parseImportedFileName(file.path);
 
           await _db.into(_db.songs).insert(
             SongsCompanion.insert(
               filePath: file.path,
-              artist: metadata.artist ?? "Neznámý interpret",
-              title: metadata.title ?? "Neznámý název",
+              artist: parsed.artist ?? "Neznámý interpret",
+              title: parsed.title,
             ),
             mode: InsertMode.insertOrIgnore,
           );
+          processed++;
         } catch (e) {
-          debugPrint("Chyba čtení metadat: $e");
+          debugPrint("Chyba čtení souboru: $e");
         }
       }
     }
-    _tts.speak("Knihovna byla aktualizována.");
+
+    if (context.mounted) Navigator.pop(context); // Zavřít dialog
+    _tts.speak("Import dokončen. Načteno $processed souborů.");
   }
+
   }
 
