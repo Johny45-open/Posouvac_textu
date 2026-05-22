@@ -203,8 +203,6 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
 class ScrollerHomePage extends StatefulWidget {
   final AppDatabase db;
   final SharedPreferences prefs;
-// ...
-
   final double fontSize;
   final double scrollSpeed;
   final ThemeMode themeMode;
@@ -218,8 +216,10 @@ class ScrollerHomePage extends StatefulWidget {
   final ValueChanged<Locale?> onLocaleChanged;
   final ValueChanged<double> onBeepFrequencyChanged;
   final ValueChanged<int> onStartDelayChanged;
+
   const ScrollerHomePage({
     super.key,
+    required this.db,
     required this.prefs,
     required this.fontSize,
     required this.scrollSpeed,
@@ -490,7 +490,7 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
   }
 
   Future<void> _pickFiles() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
+    FilePickerResult? result = await FilePicker.pickFiles(
       allowMultiple: true,
       type: FileType.custom,
       allowedExtensions: ['txt'],
@@ -1213,7 +1213,22 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
       });
 
       final bytes = utf8.encode(exportData);
-      String? output = await FilePicker.platform.saveFile(
+  Future<void> _exportPlaylist(BuildContext context) async {
+    try {
+      final exportData = jsonEncode({
+        'playlist': _playlist.map((s) => s.toJson()).toList(),
+        'currentSongIndex': _currentSongIndex,
+        'settings': {
+          'fontSize': widget.fontSize,
+          'scrollSpeed': widget.scrollSpeed,
+          'themeMode': widget.themeMode.index,
+          'useMonospace': widget.useMonospace,
+          'startDelay': widget.startDelay,
+        },
+      });
+
+      final bytes = utf8.encode(exportData);
+      String? output = await FilePicker.saveFile(
         dialogTitle: 'Exportovat playlist a nastavení',
         fileName: 'posouvac_export.json',
         type: FileType.custom,
@@ -1256,7 +1271,7 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
     void Function(void Function()) setP,
   ) async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      FilePickerResult? result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
         withData: true,

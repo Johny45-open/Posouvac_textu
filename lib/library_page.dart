@@ -125,7 +125,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _scanFolder() async {
-    String? path = await FilePicker.platform.getDirectoryPath();
+    String? path = await FilePicker.getDirectoryPath();
     if (path == null) return;
 
     final dir = Directory(path);
