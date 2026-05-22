@@ -8,6 +8,7 @@ import 'database.dart';
 import 'song_entry.dart';
 import 'playlists_page.dart';
 import 'player_page.dart';
+import 'song_utils.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
