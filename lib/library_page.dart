@@ -131,44 +131,69 @@ class _LibraryPageState extends State<LibraryPage> {
 
     final dir = Directory(path);
     final List<FileSystemEntity> files = dir.listSync(recursive: true);
-    final totalFiles = files.where((f) => f is File && (f.path.endsWith('.txt'))).length;
+    final txtFiles = files.where((f) => f is File && f.path.endsWith('.txt')).toList();
+    final totalFiles = txtFiles.length;
     int processed = 0;
+
+    if (totalFiles == 0) {
+      _tts.speak("Nebyly nalezeny žádné textové soubory.");
+      return;
+    }
+
+    void Function(void Function())? updateDialog;
 
     if (context.mounted) {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 20),
-              Text("Probíhá import souborů..."),
-            ],
-          ),
+        builder: (context) => StatefulBuilder(
+          builder: (context, setS) {
+            updateDialog = setS;
+            final progress = processed / totalFiles;
+            return AlertDialog(
+              title: const Text("Importuji soubory"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  LinearProgressIndicator(
+                    value: progress,
+                    semanticsLabel: "Importováno ${(progress * 100).toInt()} procent",
+                  ),
+                  const SizedBox(height: 10),
+                  Text("$processed z $totalFiles souborů"),
+                ],
+              ),
+            );
+          },
         ),
       );
     }
 
-    for (var file in files) {
-      if (file is File && file.path.endsWith('.txt')) {
-        try {
-          final content = await file.readAsString();
-          final parsed = Song.parseImportedFileName(file.path);
+    for (var file in txtFiles) {
+      try {
+        final content = await file.readAsString();
+        final parsed = Song.parseImportedFileName(file.path);
 
-          await _db.into(_db.songs).insert(
-            SongsCompanion.insert(
-              filePath: file.path,
-              artist: parsed.artist ?? "Neznámý interpret",
-              title: parsed.title,
-            ),
-            mode: InsertMode.insertOrIgnore,
-          );
-          processed++;
-        } catch (e) {
-          debugPrint("Chyba čtení souboru: $e");
+        await _db.into(_db.songs).insert(
+          SongsCompanion.insert(
+            filePath: file.path,
+            artist: parsed.artist ?? "Neznámý interpret",
+            title: parsed.title,
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+        processed++;
+        
+        if (updateDialog != null) {
+          updateDialog!(() {});
+          // Hlasová zpětná vazba po každých 20 %
+          if (processed % (totalFiles / 5).ceil() == 0 || processed == totalFiles) {
+            final percent = (processed / totalFiles * 100).toInt();
+            _tts.speak("Importováno $percent procent.");
+          }
         }
+      } catch (e) {
+        debugPrint("Chyba čtení souboru: $e");
       }
     }
 
