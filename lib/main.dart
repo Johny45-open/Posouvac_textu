@@ -196,7 +196,10 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('cs', 'CZ'), Locale('en', 'US')],
-      home: const LibraryPage(),
+      home: LibraryPage(
+        themeMode: _themeMode,
+        onThemeModeChanged: _updateThemeMode,
+      ),
     );
   }
 }
