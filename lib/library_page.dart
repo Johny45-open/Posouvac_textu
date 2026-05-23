@@ -169,31 +169,33 @@ class _LibraryPageState extends State<LibraryPage> {
       );
     }
 
-    for (var file in txtFiles) {
-      try {
-        final content = await file.readAsString();
-        final parsed = Song.parseImportedFileName(file.path);
+    for (var entity in txtFiles) {
+      if (entity is File) {
+        try {
+          final content = await entity.readAsString();
+          final parsed = Song.parseImportedFileName(entity.path);
 
-        await _db.into(_db.songs).insert(
-          SongsCompanion.insert(
-            filePath: file.path,
-            artist: parsed.artist ?? "Neznámý interpret",
-            title: parsed.title,
-          ),
-          mode: InsertMode.insertOrIgnore,
-        );
-        processed++;
-        
-        if (updateDialog != null) {
-          updateDialog!(() {});
-          // Hlasová zpětná vazba po každých 20 %
-          if (processed % (totalFiles / 5).ceil() == 0 || processed == totalFiles) {
-            final percent = (processed / totalFiles * 100).toInt();
-            _tts.speak("Importováno $percent procent.");
+          await _db.into(_db.songs).insert(
+            SongsCompanion.insert(
+              filePath: entity.path,
+              artist: parsed.artist ?? "Neznámý interpret",
+              title: parsed.title,
+            ),
+            mode: InsertMode.insertOrIgnore,
+          );
+          processed++;
+          
+          if (updateDialog != null) {
+            updateDialog!(() {});
+            // Hlasová zpětná vazba po každých 20 %
+            if (processed % (totalFiles / 5).ceil() == 0 || processed == totalFiles) {
+              final percent = (processed / totalFiles * 100).toInt();
+              _tts.speak("Importováno $percent procent.");
+            }
           }
+        } catch (e) {
+          debugPrint("Chyba čtení souboru: $e");
         }
-      } catch (e) {
-        debugPrint("Chyba čtení souboru: $e");
       }
     }
 
