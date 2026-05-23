@@ -760,7 +760,12 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
             tooltip: 'Knihovna',
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => LibraryPage()),
+              MaterialPageRoute(
+                builder: (context) => LibraryPage(
+                  themeMode: widget.themeMode,
+                  onThemeModeChanged: widget.onThemeModeChanged,
+                ),
+              ),
             ),
           ),
           IconButton(

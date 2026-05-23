@@ -11,7 +11,14 @@ import 'player_page.dart';
 import 'song_utils.dart';
 
 class LibraryPage extends StatefulWidget {
-  const LibraryPage({super.key});
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
+
+  const LibraryPage({
+    super.key,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+  });
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -149,7 +156,7 @@ class _LibraryPageState extends State<LibraryPage> {
         builder: (context) => StatefulBuilder(
           builder: (context, setS) {
             updateDialog = setS;
-            final progress = processed / totalFiles;
+            final progress = totalFiles > 0 ? processed / totalFiles : 0.0;
             return AlertDialog(
               title: const Text("Importuji soubory"),
               content: Column(
