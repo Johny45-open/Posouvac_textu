@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'database.dart';
+import 'app_progress_indicator.dart';
 
 class PlaylistsPage extends StatefulWidget {
   final AppDatabase db;
@@ -39,7 +40,8 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
       body: FutureBuilder<List<Playlist>>(
         future: widget.db.getAllPlaylists(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (!snapshot.hasData) return const SizedBox();
+
           final playlists = snapshot.data!;
           return ListView.builder(
             itemCount: playlists.length,

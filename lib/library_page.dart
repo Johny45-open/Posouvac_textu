@@ -1,14 +1,18 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:drift/drift.dart' show InsertMode;
+import 'package:permission_handler/permission_handler.dart';
 import 'database.dart';
 import 'song_entry.dart';
 import 'playlists_page.dart';
 import 'player_page.dart';
 import 'song_utils.dart';
+import 'app_progress_indicator.dart';
+import 'tuner.dart';
 
 class LibraryPage extends StatefulWidget {
   final ThemeMode themeMode;
@@ -79,6 +83,24 @@ class _LibraryPageState extends State<LibraryPage> {
         title: const Text("Knihovna"),
         actions: [
           IconButton(
+            icon: const Icon(Icons.music_note),
+            tooltip: "Otevřít ladičku",
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => TunerPage()),
+            ),
+          ),
+          PopupMenuButton<ThemeMode>(
+            icon: const Icon(Icons.brightness_6),
+            tooltip: "Změnit motiv",
+            onSelected: widget.onThemeModeChanged,
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: ThemeMode.light, child: Text("Světlý")),
+              const PopupMenuItem(value: ThemeMode.dark, child: Text("Tmavý")),
+              const PopupMenuItem(value: ThemeMode.system, child: Text("Systémový")),
+            ],
+          ),
+          IconButton(
             icon: const Icon(Icons.playlist_add),
             tooltip: "Spravovat playlisty",
             onPressed: () => Navigator.push(
@@ -96,7 +118,8 @@ class _LibraryPageState extends State<LibraryPage> {
       body: StreamBuilder<List<SongEntry>>(
         stream: _db.watchAllSongs(onlyFavorites: _onlyFavorites),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (!snapshot.hasData) return const SizedBox();
+
           final songs = snapshot.data!;
 
           return ListView.builder(
@@ -125,20 +148,44 @@ class _LibraryPageState extends State<LibraryPage> {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _scanFolder,
+        onPressed: _performTextImport,
         tooltip: "Vybrat složku s hudbou",
         child: const Icon(Icons.folder_open),
       ),
     );
   }
 
-  Future<void> _scanFolder() async {
+  Future<void> _performTextImport() async {
+    var status = await Permission.manageExternalStorage.request();
+    if (!status.isGranted) {
+      status = await Permission.storage.request();
+      if (!status.isGranted) {
+        _tts.speak("Aplikace nemá oprávnění k přístupu k souborům.");
+        return;
+      }
+    }
+
     String? path = await FilePicker.getDirectoryPath();
     if (path == null) return;
 
     final dir = Directory(path);
     final List<FileSystemEntity> files = dir.listSync(recursive: true);
-    final txtFiles = files.where((f) => f is File && f.path.endsWith('.txt')).toList();
+    
+    debugPrint("Celkem nalezeno entit: ${files.length}");
+    
+    final txtFiles = files.where((f) {
+      if (f is File) {
+        final path = f.path.toLowerCase();
+        return path.endsWith('.txt');
+      }
+      return false;
+    }).toList();
+    
+    debugPrint("Nalezeno .txt souborů: ${txtFiles.length}");
+    for (var f in txtFiles) {
+      debugPrint("Skenuji soubor: ${f.path}");
+    }
+
     final totalFiles = txtFiles.length;
     int processed = 0;
 
@@ -147,27 +194,22 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
 
-    void Function(void Function())? updateDialog;
-
     if (context.mounted) {
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => StatefulBuilder(
           builder: (context, setS) {
-            updateDialog = setS;
             final progress = totalFiles > 0 ? processed / totalFiles : 0.0;
             return AlertDialog(
               title: const Text("Importuji soubory"),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  LinearProgressIndicator(
+                  AppProgressIndicator(
                     value: progress,
-                    semanticsLabel: "Importováno ${(progress * 100).toInt()} procent",
+                    label: "$processed z $totalFiles souborů",
                   ),
-                  const SizedBox(height: 10),
-                  Text("$processed z $totalFiles souborů"),
                 ],
               ),
             );
@@ -179,26 +221,34 @@ class _LibraryPageState extends State<LibraryPage> {
     for (var entity in txtFiles) {
       if (entity is File) {
         try {
-          final content = await entity.readAsString();
-          final parsed = Song.parseImportedFileName(entity.path);
+          final bytes = await entity.readAsBytes();
+          String content;
+          try {
+            content = utf8.decode(bytes);
+          } catch (_) {
+            content = latin1.decode(bytes);
+          }
+          
+          // Zkusíme vzít název z prvního řádku, pokud existuje
+          final lines = content.split('\n');
+          final firstLine = lines.isNotEmpty ? lines.first.trim() : "";
+          final title = firstLine.isNotEmpty && firstLine.length < 50 ? firstLine : Song.parseImportedFileName(entity.path).title;
+          final artist = Song.parseImportedFileName(entity.path).artist ?? "Neznámý interpret";
 
           await _db.into(_db.songs).insert(
             SongsCompanion.insert(
               filePath: entity.path,
-              artist: parsed.artist ?? "Neznámý interpret",
-              title: parsed.title,
+              artist: artist,
+              title: title,
             ),
             mode: InsertMode.insertOrIgnore,
           );
+          
           processed++;
           
-          if (updateDialog != null) {
-            updateDialog!(() {});
-            // Hlasová zpětná vazba po každých 20 %
-            if (processed % (totalFiles / 5).ceil() == 0 || processed == totalFiles) {
-              final percent = (processed / totalFiles * 100).toInt();
-              _tts.speak("Importováno $percent procent.");
-            }
+          // Aktualizace dialogu po každém vložení
+          if (mounted) {
+             (context as Element).markNeedsBuild(); 
           }
         } catch (e) {
           debugPrint("Chyba čtení souboru: $e");

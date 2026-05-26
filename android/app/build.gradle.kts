@@ -30,6 +30,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
+        }
     }
 
     buildTypes {
@@ -37,6 +40,14 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            pickFirsts.add("lib/armeabi-v7a/libsqlite3.so")
+            pickFirsts.add("lib/arm64-v8a/libsqlite3.so")
+            pickFirsts.add("lib/x86_64/libsqlite3.so")
         }
     }
 }

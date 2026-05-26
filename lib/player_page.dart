@@ -4,6 +4,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'database.dart';
 import 'song_entry.dart';
 import 'chord_display_widget.dart';
+import 'app_progress_indicator.dart';
 
 class PlayerPage extends StatefulWidget {
   final int songId;
@@ -54,7 +55,8 @@ class _PlayerPageState extends State<PlayerPage> {
     return StreamBuilder<SongEntry>(
       stream: (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).watchSingle(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        if (!snapshot.hasData) return const Scaffold();
+
         final song = snapshot.data!;
 
         return Scaffold(
