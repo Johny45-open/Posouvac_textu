@@ -769,7 +769,7 @@ class $PlaylistSongsTable extends PlaylistSongs
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => const {};
+  Set<GeneratedColumn> get $primaryKey => {playlistId, songId};
   @override
   PlaylistSong map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';

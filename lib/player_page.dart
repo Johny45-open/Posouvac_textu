@@ -27,6 +27,7 @@ class _PlayerPageState extends State<PlayerPage> {
   
   double _fontSize = 20.0;
   double? _bpm;
+  double _scrollMultiplier = 1.0;
   int _countdown = 0;
   
   String? _loadedContent;
@@ -48,6 +49,7 @@ class _PlayerPageState extends State<PlayerPage> {
       setState(() {
         _fontSize = _song.customFontSize ?? 20.0;
         _bpm = _song.tempo;
+        _scrollMultiplier = _song.customScrollSpeed ?? 1.0;
       });
 
       final file = File(_song.filePath);
@@ -78,6 +80,7 @@ class _PlayerPageState extends State<PlayerPage> {
       SongsCompanion(
         tempo: Value(_bpm),
         customFontSize: Value(_fontSize),
+        customScrollSpeed: Value(_scrollMultiplier),
       ),
     );
   }
@@ -113,13 +116,14 @@ class _PlayerPageState extends State<PlayerPage> {
     // Výpočet rychlosti: Pixely za 50ms
     // Odhad: Jeden řádek textu má cca _fontSize * 1.5 pixelů. 
     // Předpokládáme 4 doby na řádek.
-    final double pixelsPerBeat = (_fontSize * 1.5) / 4.0;
-    final double beatsPerSecond = _bpm! / 60.0;
-    final double pixelsPerSecond = pixelsPerBeat * beatsPerSecond;
-    final double scrollStep = pixelsPerSecond / 20.0; // 20x za sekundu (každých 50ms)
-
     _scrollTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       if (_scrollController.hasClients) {
+        // Výpočet rychlosti provádíme uvnitř timeru, aby reagoval na změny zoomu okamžitě
+        final double pixelsPerBeat = (_fontSize * 1.5) / 4.0;
+        final double beatsPerSecond = (_bpm ?? 120) / 60.0;
+        final double pixelsPerSecond = pixelsPerBeat * beatsPerSecond;
+        final double scrollStep = (pixelsPerSecond / 20.0) * _scrollMultiplier;
+
         final newOffset = _scrollController.offset + scrollStep;
         if (newOffset < _scrollController.position.maxScrollExtent) {
           _scrollController.jumpTo(newOffset);
@@ -228,11 +232,38 @@ class _PlayerPageState extends State<PlayerPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.speed),
-            tooltip: "Nastavit tempo",
+            tooltip: "Tempo (BPM)",
             onPressed: _showBpmDialog,
+          ),
+          // Korekce rychlosti posuvu
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.fast_forward),
+                tooltip: "Zrychlit posuv o 10 procent",
+                onPressed: () {
+                  setState(() => _scrollMultiplier += 0.1);
+                  _saveSettings();
+                },
+              ),
+              Semantics(
+                label: "Aktuální rychlost posuvu",
+                child: Text("${(_scrollMultiplier * 100).round()}%"),
+              ),
+              IconButton(
+                icon: const Icon(Icons.fast_rewind),
+                tooltip: "Zpomalit posuv o 10 procent",
+                onPressed: () {
+                  setState(() => _scrollMultiplier = (_scrollMultiplier - 0.1).clamp(0.1, 5.0));
+                  _saveSettings();
+                },
+              ),
+            ],
           ),
           IconButton(
             icon: const Icon(Icons.zoom_in),
+            tooltip: "Zvětšit písmo",
             onPressed: () {
               setState(() => _fontSize += 2);
               _saveSettings();
@@ -240,6 +271,7 @@ class _PlayerPageState extends State<PlayerPage> {
           ),
           IconButton(
             icon: const Icon(Icons.zoom_out),
+            tooltip: "Zmenšit písmo",
             onPressed: () {
               setState(() => _fontSize = (_fontSize - 2).clamp(10, 100));
               _saveSettings();
@@ -256,7 +288,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 behavior: HitTestBehavior.opaque,
                 child: SingleChildScrollView(
                   controller: _scrollController,
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 200),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 400),
                   child: ChordDisplayWidget(
                     content: _loadedContent ?? "",
                     textStyle: TextStyle(fontSize: _fontSize),
