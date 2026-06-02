@@ -50,8 +50,27 @@ class _LibraryPageState extends State<LibraryPage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: artistController, decoration: const InputDecoration(labelText: "Interpret")),
-            TextField(controller: titleController, decoration: const InputDecoration(labelText: "Název")),
+            Semantics(
+              label: "Editační pole pro jméno interpreta",
+              child: TextField(
+                controller: artistController,
+                decoration: const InputDecoration(
+                  labelText: "Interpret",
+                  hintText: "Zadejte jméno interpreta",
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Semantics(
+              label: "Editační pole pro název písně",
+              child: TextField(
+                controller: titleController,
+                decoration: const InputDecoration(
+                  labelText: "Název",
+                  hintText: "Zadejte název písně",
+                ),
+              ),
+            ),
           ],
         ),
         actions: [
