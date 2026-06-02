@@ -30,9 +30,12 @@ class ChordDisplayWidget extends StatelessWidget {
       child: Wrap(
         children: line.elements.map((element) {
           if (element.chord != null) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 4.0),
-              child: Text(element.chord!, style: chordStyle),
+            return Semantics(
+              label: "akord ${element.chord}",
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4.0),
+                child: Text(element.chord!, style: chordStyle),
+              ),
             );
           }
           return Text(element.text, style: textStyle);
