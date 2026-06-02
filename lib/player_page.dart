@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:drift/drift.dart' show Value;
 import 'database.dart';
 import 'song_entry.dart';
 import 'chord_display_widget.dart';
@@ -23,22 +24,33 @@ class _PlayerPageState extends State<PlayerPage> {
   final FlutterTts _tts = FlutterTts();
   Timer? _scrollTimer;
   bool _isScrolling = false;
-  double _scrollSpeed = 1.0;
+  
+  double _fontSize = 20.0;
+  double? _bpm;
+  int _countdown = 0;
+  
   String? _loadedContent;
   bool _isLoading = true;
+  late SongEntry _song;
 
   @override
   void initState() {
     super.initState();
     _tts.setLanguage("cs-CZ");
-    _loadSongContent();
+    _tts.setSpeechRate(0.8);
+    _loadSongData();
   }
 
-  Future<void> _loadSongContent() async {
+  Future<void> _loadSongData() async {
     try {
-      final song = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).getSingle();
-      final file = File(song.filePath);
+      _song = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).getSingle();
       
+      setState(() {
+        _fontSize = _song.customFontSize ?? 20.0;
+        _bpm = _song.tempo;
+      });
+
+      final file = File(_song.filePath);
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
         String content;
@@ -54,21 +66,111 @@ class _PlayerPageState extends State<PlayerPage> {
           });
         }
       } else {
-        if (mounted) {
-          setState(() {
-            _loadedContent = "Soubor nebyl nalezen: ${song.filePath}";
-            _isLoading = false;
-          });
-        }
+        if (mounted) setState(() { _loadedContent = "Soubor nenalezen"; _isLoading = false; });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loadedContent = "Chyba při načítání: $e";
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() { _loadedContent = "Chyba: $e"; _isLoading = false; });
     }
+  }
+
+  Future<void> _saveSettings() async {
+    await (widget.db.update(widget.db.songs)..where((s) => s.id.equals(widget.songId))).write(
+      SongsCompanion(
+        tempo: Value(_bpm),
+        customFontSize: Value(_fontSize),
+      ),
+    );
+  }
+
+  Future<void> _startWithCountdown() async {
+    if (_bpm == null || _bpm! <= 0) {
+      await _showBpmDialog();
+      if (_bpm == null) return;
+    }
+
+    setState(() => _countdown = 4);
+    
+    final interval = Duration(milliseconds: (60000 / _bpm!).round());
+    
+    for (int i = 4; i > 0; i--) {
+      if (!mounted) return;
+      setState(() => _countdown = i);
+      await _tts.speak(i.toString());
+      await Future.delayed(interval);
+    }
+
+    if (mounted) {
+      setState(() {
+        _countdown = 0;
+        _isScrolling = true;
+      });
+      _startScrolling();
+    }
+  }
+
+  void _startScrolling() {
+    _scrollTimer?.cancel();
+    // Výpočet rychlosti: Pixely za 50ms
+    // Odhad: Jeden řádek textu má cca _fontSize * 1.5 pixelů. 
+    // Předpokládáme 4 doby na řádek.
+    final double pixelsPerBeat = (_fontSize * 1.5) / 4.0;
+    final double beatsPerSecond = _bpm! / 60.0;
+    final double pixelsPerSecond = pixelsPerBeat * beatsPerSecond;
+    final double scrollStep = pixelsPerSecond / 20.0; // 20x za sekundu (každých 50ms)
+
+    _scrollTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (_scrollController.hasClients) {
+        final newOffset = _scrollController.offset + scrollStep;
+        if (newOffset < _scrollController.position.maxScrollExtent) {
+          _scrollController.jumpTo(newOffset);
+        } else {
+          _stopScrolling();
+        }
+      }
+    });
+  }
+
+  void _stopScrolling() {
+    _scrollTimer?.cancel();
+    setState(() {
+      _isScrolling = false;
+      _countdown = 0;
+    });
+  }
+
+  void _toggleScrolling() {
+    if (_isScrolling || _countdown > 0) {
+      _stopScrolling();
+    } else {
+      _startWithCountdown();
+    }
+  }
+
+  Future<void> _showBpmDialog() async {
+    final controller = TextEditingController(text: _bpm?.toString() ?? "120");
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Nastavit tempo (BPM)"),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(hintText: "Např. 120"),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
+          TextButton(
+            onPressed: () {
+              setState(() => _bpm = double.tryParse(controller.text));
+              _saveSettings();
+              Navigator.pop(context);
+            },
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -79,51 +181,67 @@ class _PlayerPageState extends State<PlayerPage> {
     super.dispose();
   }
 
-  void _toggleScrolling() {
-    setState(() => _isScrolling = !_isScrolling);
-    if (_isScrolling) {
-      _scrollTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(_scrollController.offset + (_scrollSpeed * 2));
-        }
-      });
-    } else {
-      _scrollTimer?.cancel();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<SongEntry>(
-      stream: (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).watchSingle(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-
-        final song = snapshot.data!;
-
-        return Scaffold(
-          appBar: AppBar(title: Text(song.title)),
-          body: _isLoading 
-            ? const Center(child: AppProgressIndicator(label: "Načítám text..."))
-            : Semantics(
-                label: "Text písně ${song.title} od ${song.artist}",
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_song.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.speed),
+            tooltip: "Nastavit tempo",
+            onPressed: _showBpmDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.zoom_in),
+            onPressed: () {
+              setState(() => _fontSize += 2);
+              _saveSettings();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.zoom_out),
+            onPressed: () {
+              setState(() => _fontSize = (_fontSize - 2).clamp(10, 100));
+              _saveSettings();
+            },
+          ),
+        ],
+      ),
+      body: _isLoading 
+        ? const Center(child: AppProgressIndicator(label: "Načítám text..."))
+        : Stack(
+            children: [
+              GestureDetector(
+                onTap: _toggleScrolling,
+                behavior: HitTestBehavior.opaque,
                 child: SingleChildScrollView(
                   controller: _scrollController,
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 200),
                   child: ChordDisplayWidget(
                     content: _loadedContent ?? "",
-                    textStyle: const TextStyle(fontSize: 20),
-                    chordStyle: const TextStyle(fontSize: 18, color: Colors.blue, fontWeight: FontWeight.bold),
+                    textStyle: TextStyle(fontSize: _fontSize),
+                    chordStyle: TextStyle(fontSize: _fontSize * 0.9, color: Colors.blue, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: _toggleScrolling,
-            tooltip: _isScrolling ? "Zastavit posouvání" : "Spustit posouvání",
-            child: Icon(_isScrolling ? Icons.pause : Icons.play_arrow),
+              if (_countdown > 0)
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(40),
+                    decoration: BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                    child: Text(
+                      "$_countdown",
+                      style: const TextStyle(fontSize: 80, color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+            ],
           ),
-        );
-      },
+      floatingActionButton: FloatingActionButton(
+        onPressed: _toggleScrolling,
+        child: Icon(_isScrolling || _countdown > 0 ? Icons.pause : Icons.play_arrow),
+      ),
     );
   }
 }

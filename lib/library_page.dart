@@ -156,6 +156,45 @@ class _LibraryPageState extends State<LibraryPage> {
     await _tts.speak("Import dokončen. Celkem uloženo $processed písní.");
   }
 
+  Future<void> _addToPlaylist(SongEntry song) async {
+    final playlists = await widget.db.getAllPlaylists();
+    if (playlists.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Nejdříve si vytvořte playlist v sekci Playlisty.")),
+        );
+      }
+      return;
+    }
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Přidat do playlistu"),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: playlists.length,
+            itemBuilder: (context, i) => ListTile(
+              leading: const Icon(Icons.playlist_add),
+              title: Text(playlists[i].name),
+              onTap: () async {
+                await widget.db.addSongToPlaylist(playlists[i].id, song.id);
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Píseň přidána do playlistu ${playlists[i].name}")),
+                  );
+                }
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -209,21 +248,33 @@ class _LibraryPageState extends State<LibraryPage> {
             itemCount: songs.length,
             itemBuilder: (context, index) {
               final song = songs[index];
-              return ListTile(
-                leading: IconButton(
-                  icon: Icon(
-                    song.isFavorite ? Icons.favorite : Icons.favorite_border,
-                    color: song.isFavorite ? Colors.red : null,
+              final bpmText = song.tempo != null ? "${song.tempo!.round()} BPM" : "Tempo nenastaveno";
+              
+              return Semantics(
+                label: "Píseň: ${song.title} od ${song.artist}. $bpmText. ${song.isFavorite ? 'Oblíbená' : ''}",
+                button: true,
+                child: ListTile(
+                  leading: IconButton(
+                    icon: Icon(
+                      song.isFavorite ? Icons.favorite : Icons.favorite_border,
+                      color: song.isFavorite ? Colors.red : null,
+                    ),
+                    tooltip: song.isFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených",
+                    onPressed: () => widget.db.toggleFavorite(song.id, !song.isFavorite),
                   ),
-                  onPressed: () => widget.db.toggleFavorite(song.id, !song.isFavorite),
+                  title: Text(song.artist),
+                  subtitle: Text("${song.title}${song.tempo != null ? ' (${song.tempo!.round()} BPM)' : ''}"),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db)),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.playlist_add),
+                    tooltip: "Přidat do playlistu",
+                    onPressed: () => _addToPlaylist(song),
+                  ),
+                  onLongPress: () => _editSong(song),
                 ),
-                title: Text(song.artist),
-                subtitle: Text(song.title),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db)),
-                ),
-                onLongPress: () => _editSong(song),
               );
             },
           );

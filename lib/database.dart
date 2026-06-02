@@ -59,8 +59,27 @@ class AppDatabase extends _$AppDatabase {
 
   Future<List<Playlist>> getAllPlaylists() => select(playlists).get();
 
+  Future<int> deletePlaylist(int id) => (delete(playlists)..where((t) => t.id.equals(id))).go();
+
+  Future<int> renamePlaylist(int id, String newName) =>
+      (update(playlists)..where((t) => t.id.equals(id))).write(PlaylistsCompanion(name: Value(newName)));
+
   Future<int> addSongToPlaylist(int playlistId, int songId) {
-    return into(playlistSongs).insert(PlaylistSongsCompanion.insert(playlistId: playlistId, songId: songId));
+    return into(playlistSongs).insert(PlaylistSongsCompanion.insert(playlistId: playlistId, songId: songId),
+        mode: InsertMode.insertOrIgnore);
+  }
+
+  Future<int> removeSongFromPlaylist(int playlistId, int songId) => (delete(playlistSongs)
+        ..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId)))
+      .go();
+
+  Stream<List<SongEntry>> watchSongsInPlaylist(int playlistId) {
+    final query = select(songs).join([
+      innerJoin(playlistSongs, playlistSongs.songId.equalsExp(songs.id)),
+    ])
+      ..where(playlistSongs.playlistId.equals(playlistId));
+
+    return query.watch().map((rows) => rows.map((row) => row.readTable(songs)).toList());
   }
 }
 
