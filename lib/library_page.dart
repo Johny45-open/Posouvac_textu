@@ -47,31 +47,33 @@ class _LibraryPageState extends State<LibraryPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Upravit píseň"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Semantics(
-              label: "Editační pole pro jméno interpreta",
-              child: TextField(
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
                 controller: artistController,
+                textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
-                  labelText: "Interpret",
+                  labelText: "Jméno interpreta",
                   hintText: "Zadejte jméno interpreta",
+                  helperText: "Upravte jméno umělce",
+                  border: OutlineInputBorder(),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Semantics(
-              label: "Editační pole pro název písně",
-              child: TextField(
+              const SizedBox(height: 20),
+              TextFormField(
                 controller: titleController,
+                textInputAction: TextInputAction.done,
                 decoration: const InputDecoration(
-                  labelText: "Název",
+                  labelText: "Název písně",
                   hintText: "Zadejte název písně",
+                  helperText: "Upravte název skladby",
+                  border: OutlineInputBorder(),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
@@ -237,7 +239,13 @@ class _LibraryPageState extends State<LibraryPage> {
           PopupMenuButton<ThemeMode>(
             icon: const Icon(Icons.brightness_6),
             tooltip: "Změnit motiv",
-            onSelected: widget.onThemeModeChanged,
+            onSelected: (val) {
+              widget.onThemeModeChanged(val);
+              String themeMsg = val == ThemeMode.light 
+                ? "Světlý motiv nastaven" 
+                : (val == ThemeMode.dark ? "Tmavý motiv nastaven" : "Systémový motiv nastaven");
+              _tts.speak(themeMsg);
+            },
             itemBuilder: (context) => [
               const PopupMenuItem(value: ThemeMode.light, child: Text("Světlý")),
               const PopupMenuItem(value: ThemeMode.dark, child: Text("Tmavý")),
@@ -255,7 +263,13 @@ class _LibraryPageState extends State<LibraryPage> {
           FilterChip(
             label: const Text("Oblíbené"),
             selected: _onlyFavorites,
-            onSelected: (val) => setState(() => _onlyFavorites = val),
+            onSelected: (val) {
+              setState(() => _onlyFavorites = val);
+              final msg = val 
+                ? "Nyní se filtrují pouze oblíbené skladby" 
+                : "Nyní se zobrazují všechny skladby";
+              _tts.speak(msg);
+            },
           ),
         ],
       ),
@@ -285,7 +299,14 @@ class _LibraryPageState extends State<LibraryPage> {
                       color: song.isFavorite ? Colors.red : null,
                     ),
                     tooltip: song.isFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených",
-                    onPressed: () => widget.db.toggleFavorite(song.id, !song.isFavorite),
+                    onPressed: () async {
+                      final newStatus = !song.isFavorite;
+                      await widget.db.toggleFavorite(song.id, newStatus);
+                      final msg = newStatus 
+                        ? "Skladba ${song.title} od ${song.artist} byla označena jako oblíbená"
+                        : "Skladba ${song.title} od ${song.artist} byla odebrána z oblíbených";
+                      _tts.speak(msg);
+                    },
                   ),
                   title: Text(song.artist),
                   subtitle: Text("${song.title}${song.tempo != null ? ' (${song.tempo!.round()} BPM)' : ''}"),
