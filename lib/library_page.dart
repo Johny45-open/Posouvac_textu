@@ -180,12 +180,18 @@ class _LibraryPageState extends State<LibraryPage> {
               leading: const Icon(Icons.playlist_add),
               title: Text(playlists[i].name),
               onTap: () async {
-                await widget.db.addSongToPlaylist(playlists[i].id, song.id);
+                final result = await widget.db.addSongToPlaylist(playlists[i].id, song.id);
                 if (mounted) {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Píseň přidána do playlistu ${playlists[i].name}")),
-                  );
+                  if (result == -1) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Tato píseň již v playlistu je.")),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Píseň přidána do playlistu ${playlists[i].name}")),
+                    );
+                  }
                 }
               },
             ),

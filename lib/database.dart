@@ -17,6 +17,9 @@ class Playlists extends Table {
 class PlaylistSongs extends Table {
   IntColumn get playlistId => integer().references(Playlists, #id, onDelete: KeyAction.cascade)();
   IntColumn get songId => integer().references(Songs, #id, onDelete: KeyAction.cascade)();
+
+  @override
+  Set<Column> get primaryKey => {playlistId, songId};
 }
 
 @DriftDatabase(tables: [Songs, Playlists, PlaylistSongs])
@@ -29,7 +32,22 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase() => instance;
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration {
+    return MigrationStrategy(
+      onCreate: (m) => m.createAll(),
+      onUpgrade: (m, from, to) async {
+        if (from < 2) {
+          // Pro přechod na verzi 2 vytvoříme tabulku playlist_songs znovu s primárním klíčem
+          // Nejjednodušší cesta v developmentu: smazat a vytvořit
+          await m.deleteTable('playlist_songs');
+          await m.createTable(playlistSongs);
+        }
+      },
+    );
+  }
 
   // Metody pro přístup k datům
   Future<List<SongEntry>> getAllSongs() => select(songs).get();
