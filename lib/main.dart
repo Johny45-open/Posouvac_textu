@@ -229,6 +229,7 @@ class ScrollerHomePage extends StatefulWidget {
   final bool useMonospace;
   final Locale? locale;
   final int startDelay;
+  final VoidCallback onOpenManual;
   final ValueChanged<double> onFontSizeChanged;
   final ValueChanged<double> onScrollSpeedChanged;
   final ValueChanged<ThemeMode> onThemeModeChanged;
@@ -247,6 +248,7 @@ class ScrollerHomePage extends StatefulWidget {
     required this.useMonospace,
     required this.locale,
     required this.startDelay,
+    required this.onOpenManual,
     required this.onFontSizeChanged,
     required this.onScrollSpeedChanged,
     required this.onThemeModeChanged,
@@ -782,6 +784,7 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
                   themeMode: widget.themeMode,
                   onThemeModeChanged: widget.onThemeModeChanged,
                   db: widget.db,
+                  onOpenManual: widget.onOpenManual,
                 ),
               ),
             ),
