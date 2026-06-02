@@ -17,12 +17,14 @@ class LibraryPage extends StatefulWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final AppDatabase db;
+  final VoidCallback onOpenManual;
 
   const LibraryPage({
     super.key,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.db,
+    required this.onOpenManual,
   });
 
   @override
@@ -228,6 +230,11 @@ class _LibraryPageState extends State<LibraryPage> {
       appBar: AppBar(
         title: const Text("Knihovna"),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline),
+            tooltip: "Nápověda",
+            onPressed: widget.onOpenManual,
+          ),
           IconButton(
             icon: const Icon(Icons.music_note),
             tooltip: "Ladička",

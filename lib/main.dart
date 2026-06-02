@@ -12,6 +12,7 @@ import 'database.dart';
 import 'tuner.dart';
 import 'library_page.dart';
 import 'chord_display_widget.dart';
+import 'manual_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -122,6 +123,7 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   late double _beepFrequency;
   late int _defaultStartDelay;
   Locale? _locale;
+  bool _showManual = false;
 
   @override
   void initState() {
@@ -134,6 +136,17 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     _defaultStartDelay = widget.prefs.getInt('defaultStartDelay') ?? 3;
     final langCode = widget.prefs.getString('languageCode');
     if (langCode != null) _locale = Locale(langCode);
+
+    // Kontrola, zda má být zobrazen manuál
+    _showManual = !(widget.prefs.getBool('manual_shown') ?? false);
+  }
+
+  void _hideManual() {
+    setState(() => _showManual = false);
+  }
+
+  void _openManual() {
+    setState(() => _showManual = true);
   }
 
   Future<void> _updateThemeMode(ThemeMode m) async {
@@ -196,11 +209,14 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('cs', 'CZ'), Locale('en', 'US')],
-      home: LibraryPage(
-        themeMode: _themeMode,
-        onThemeModeChanged: _updateThemeMode,
-        db: widget.db,
-      ),
+      home: _showManual
+          ? ManualPage(onFinished: _hideManual)
+          : LibraryPage(
+              themeMode: _themeMode,
+              onThemeModeChanged: _updateThemeMode,
+              db: widget.db,
+              onOpenManual: _openManual,
+            ),
     );
   }
 }
