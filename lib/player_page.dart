@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'database.dart';
@@ -22,11 +24,51 @@ class _PlayerPageState extends State<PlayerPage> {
   Timer? _scrollTimer;
   bool _isScrolling = false;
   double _scrollSpeed = 1.0;
+  String? _loadedContent;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     _tts.setLanguage("cs-CZ");
+    _loadSongContent();
+  }
+
+  Future<void> _loadSongContent() async {
+    try {
+      final song = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).getSingle();
+      final file = File(song.filePath);
+      
+      if (await file.exists()) {
+        final bytes = await file.readAsBytes();
+        String content;
+        try {
+          content = utf8.decode(bytes);
+        } catch (_) {
+          content = latin1.decode(bytes);
+        }
+        if (mounted) {
+          setState(() {
+            _loadedContent = content;
+            _isLoading = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _loadedContent = "Soubor nebyl nalezen: ${song.filePath}";
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadedContent = "Chyba při načítání: $e";
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -55,26 +97,29 @@ class _PlayerPageState extends State<PlayerPage> {
     return StreamBuilder<SongEntry>(
       stream: (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).watchSingle(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Scaffold();
+        if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
         final song = snapshot.data!;
 
         return Scaffold(
           appBar: AppBar(title: Text(song.title)),
-          body: Semantics(
-            label: "Text písně ${song.title} od ${song.artist}",
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              child: ChordDisplayWidget(
-                content: "Zde by byl text písně (načtený ze souboru)", // TODO: Načítání obsahu
-                textStyle: const TextStyle(fontSize: 20),
-                chordStyle: const TextStyle(fontSize: 18, color: Colors.blue),
+          body: _isLoading 
+            ? const Center(child: AppProgressIndicator(label: "Načítám text..."))
+            : Semantics(
+                label: "Text písně ${song.title} od ${song.artist}",
+                child: SingleChildScrollView(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(16),
+                  child: ChordDisplayWidget(
+                    content: _loadedContent ?? "",
+                    textStyle: const TextStyle(fontSize: 20),
+                    chordStyle: const TextStyle(fontSize: 18, color: Colors.blue, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ),
-            ),
-          ),
           floatingActionButton: FloatingActionButton(
             onPressed: _toggleScrolling,
+            tooltip: _isScrolling ? "Zastavit posouvání" : "Spustit posouvání",
             child: Icon(_isScrolling ? Icons.pause : Icons.play_arrow),
           ),
         );
