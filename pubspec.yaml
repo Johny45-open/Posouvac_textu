@@ -40,6 +40,7 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.5
   sqlite3: ^2.9.4
+  sqlite3_flutter_libs: ^0.5.42
   drift: ^2.26.0
   flutter_localizations:
 

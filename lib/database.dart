@@ -4,6 +4,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'dart:io';
 import 'song_entry.dart';
+import 'package:sqlite3_flutter_libs/sqlite3_flutter_libs.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 part 'database.g.dart';
 
@@ -19,7 +21,12 @@ class PlaylistSongs extends Table {
 
 @DriftDatabase(tables: [Songs, Playlists, PlaylistSongs])
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_openConnection());
+  // Singleton instance
+  static final AppDatabase instance = AppDatabase._internal();
+
+  AppDatabase._internal() : super(_openConnection());
+
+  factory AppDatabase() => instance;
 
   @override
   int get schemaVersion => 1;
@@ -61,6 +68,12 @@ LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await getApplicationDocumentsDirectory();
     final file = File(p.join(dbFolder.path, 'db.sqlite'));
-    return NativeDatabase.createInBackground(file);
+
+    if (Platform.isAndroid) {
+      await applyWorkaroundToOpenSqlite3OnOldAndroidVersions();
+      sqlite3.tempDirectory = dbFolder.path;
+    }
+
+    return NativeDatabase(file);
   });
 }

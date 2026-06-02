@@ -199,6 +199,7 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
       home: LibraryPage(
         themeMode: _themeMode,
         onThemeModeChanged: _updateThemeMode,
+        db: widget.db,
       ),
     );
   }
@@ -764,6 +765,7 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
                 builder: (context) => LibraryPage(
                   themeMode: widget.themeMode,
                   onThemeModeChanged: widget.onThemeModeChanged,
+                  db: widget.db,
                 ),
               ),
             ),
