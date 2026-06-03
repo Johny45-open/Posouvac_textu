@@ -98,13 +98,57 @@ class _LibraryPageState extends State<LibraryPage> {
       Permission.storage,
     ].request();
 
-    String? path = await FilePicker.getDirectoryPath();
-    if (path == null) return;
+    // Dialog pro výběr typu importu
+    final importType = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Jak chcete importovat?"),
+        content: const Text("Výběr souborů je spolehlivější na starších zařízeních a tabletech."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, "folder"),
+            child: const Text("Vybrat složku"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, "files"),
+            child: const Text("Vybrat soubory"),
+          ),
+        ],
+      ),
+    );
 
-    final dir = Directory(path);
-    final allFiles = dir.listSync(recursive: true);
-    final txtFiles = allFiles.whereType<File>().where((f) => f.path.toLowerCase().endsWith('.txt')).toList();
-    
+    if (importType == null) return;
+
+    List<File> txtFiles = [];
+
+    if (importType == "folder") {
+      String? path = await FilePicker.getDirectoryPath();
+      if (path == null) return;
+      debugPrint("Vybraná složka: $path");
+      final dir = Directory(path);
+      try {
+        if (!await dir.exists()) {
+          _tts.speak("Složka nebyla nalezena. Zkuste metodu Vybrat soubory.");
+          return;
+        }
+        final allEntities = dir.listSync(recursive: true);
+        txtFiles = allEntities.whereType<File>().where((f) => f.path.toLowerCase().endsWith('.txt')).toList();
+      } catch (e) {
+        debugPrint("Chyba složky: $e");
+        _tts.speak("Chyba přístupu ke složce. Zkuste metodu Vybrat soubory.");
+        return;
+      }
+    } else {
+      // Přímý výběr souborů - nejspolehlivější metoda
+      FilePickerResult? result = await FilePicker.pickFiles(
+        allowMultiple: true,
+        type: FileType.custom,
+        allowedExtensions: ['txt'],
+      );
+      if (result == null || result.files.isEmpty) return;
+      txtFiles = result.files.where((f) => f.path != null).map((f) => File(f.path!)).toList();
+    }
+
     final totalFiles = txtFiles.length;
     int processed = 0;
 
