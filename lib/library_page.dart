@@ -353,39 +353,85 @@ class _LibraryPageState extends State<LibraryPage> {
             itemCount: songs.length,
             itemBuilder: (context, index) {
               final song = songs[index];
-              final bpmText = song.tempo != null ? "${song.tempo!.round()} BPM" : "Tempo nenastaveno";
+              final bpmText = song.tempo != null ? "${song.tempo!.round()} údery za minutu" : "Tempo nenastaveno";
               
-              return Semantics(
-                label: "Píseň: ${song.title} od ${song.artist}. $bpmText. ${song.isFavorite ? 'Oblíbená' : ''}",
-                button: true,
-                child: ListTile(
-                  leading: IconButton(
-                    icon: Icon(
-                      song.isFavorite ? Icons.favorite : Icons.favorite_border,
-                      color: song.isFavorite ? Colors.red : null,
+              // Vyčistíme název od duplicitního interpreta
+              String cleanTitle = song.title;
+              if (cleanTitle.startsWith("${song.artist} - ")) {
+                cleanTitle = cleanTitle.replaceFirst("${song.artist} - ", "");
+              }
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                child: Row(
+                  children: [
+                    // 1. ŠVIH: Pouze akce oblíbené
+                    Semantics(
+                      container: true,
+                      excludeSemantics: true,
+                      label: song.isFavorite ? "Odebrat ${song.artist} z oblíbených" : "Přidat ${song.artist} k oblíbeným",
+                      button: true,
+                      child: IconButton(
+                        icon: Icon(
+                          song.isFavorite ? Icons.favorite : Icons.favorite_border,
+                          color: song.isFavorite ? Colors.red : null,
+                        ),
+                        onPressed: () async {
+                          final newStatus = !song.isFavorite;
+                          await widget.db.toggleFavorite(song.id, newStatus);
+                          final msg = newStatus 
+                            ? "Skladba $cleanTitle od ${song.artist} byla označena jako oblíbená"
+                            : "Skladba $cleanTitle od ${song.artist} byla odebrána z oblíbených";
+                          _tts.speak(msg);
+                        },
+                      ),
                     ),
-                    tooltip: song.isFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených",
-                    onPressed: () async {
-                      final newStatus = !song.isFavorite;
-                      await widget.db.toggleFavorite(song.id, newStatus);
-                      final msg = newStatus 
-                        ? "Skladba ${song.title} od ${song.artist} byla označena jako oblíbená"
-                        : "Skladba ${song.title} od ${song.artist} byla odebrána z oblíbených";
-                      _tts.speak(msg);
-                    },
-                  ),
-                  title: Text(song.artist),
-                  subtitle: Text("${song.title}${song.tempo != null ? ' (${song.tempo!.round()} BPM)' : ''}"),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db)),
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.playlist_add),
-                    tooltip: "Přidat do playlistu",
-                    onPressed: () => _addToPlaylist(song),
-                  ),
-                  onLongPress: () => _editSong(song),
+
+                    // 2. ŠVIH: Kompletní informace + Přehrát/Upravit
+                    Expanded(
+                      child: Semantics(
+                        container: true,
+                        excludeSemantics: true,
+                        label: "Píseň: $cleanTitle od ${song.artist}. $bpmText. Poklepáním přehrajete, podržením upravíte.",
+                        button: true,
+                        child: InkWell(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db)),
+                          ),
+                          onLongPress: () => _editSong(song),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  song.artist,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                                Text(
+                                  song.title,
+                                  style: TextStyle(color: Theme.of(context).hintColor),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // 3. ŠVIH: Pouze akce Playlist
+                    Semantics(
+                      container: true,
+                      excludeSemantics: true,
+                      label: "Přidat skladbu $cleanTitle do playlistu",
+                      button: true,
+                      child: IconButton(
+                        icon: const Icon(Icons.playlist_add),
+                        onPressed: () => _addToPlaylist(song),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
