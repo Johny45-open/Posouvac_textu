@@ -39,6 +39,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void initState() {
     super.initState();
     _tts.setLanguage("cs-CZ");
+    _tts.setSpeechRate(0.5);
   }
 
   Future<void> _editSong(SongEntry song) async {
