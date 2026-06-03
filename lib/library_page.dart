@@ -369,7 +369,9 @@ class _LibraryPageState extends State<LibraryPage> {
                     Semantics(
                       container: true,
                       excludeSemantics: true,
-                      label: song.isFavorite ? "Odebrat ${song.artist} z oblíbených" : "Přidat ${song.artist} k oblíbeným",
+                      label: song.isFavorite 
+                        ? "Odebrat skladbu $cleanTitle od ${song.artist} z oblíbených" 
+                        : "Přidat skladbu $cleanTitle od ${song.artist} k oblíbeným",
                       button: true,
                       child: IconButton(
                         icon: Icon(
@@ -424,7 +426,7 @@ class _LibraryPageState extends State<LibraryPage> {
                     Semantics(
                       container: true,
                       excludeSemantics: true,
-                      label: "Přidat skladbu $cleanTitle do playlistu",
+                      label: "Přidat skladbu $cleanTitle od ${song.artist} do playlistu",
                       button: true,
                       child: IconButton(
                         icon: const Icon(Icons.playlist_add),
