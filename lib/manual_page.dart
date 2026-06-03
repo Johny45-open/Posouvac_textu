@@ -39,6 +39,23 @@ class _ManualPageState extends State<ManualPage> {
   void initState() {
     super.initState();
     _tts.setLanguage("cs-CZ");
+    _tts.setSpeechRate(0.5);
+    
+    // Nastavení handleru pro dokončení řeči
+    _tts.setCompletionHandler(() {
+      if (mounted && _currentPage < _steps.length - 1) {
+        // Počkáme 2 sekundy po dočtení a pak přepneme na další stránku
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted && _currentPage < _steps.length - 1) {
+            _pageController.nextPage(
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeInOut,
+            );
+          }
+        });
+      }
+    });
+
     _speakCurrentStep();
   }
 

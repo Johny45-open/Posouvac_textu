@@ -38,7 +38,7 @@ class _PlayerPageState extends State<PlayerPage> {
   void initState() {
     super.initState();
     _tts.setLanguage("cs-CZ");
-    _tts.setSpeechRate(0.8);
+    _tts.setSpeechRate(0.5);
     _loadSongData();
   }
 
@@ -93,6 +93,9 @@ class _PlayerPageState extends State<PlayerPage> {
 
     setState(() => _countdown = 4);
     
+    // Pro odpočet chceme rychlejší a úsečnější hlas
+    await _tts.setSpeechRate(0.8);
+    
     final interval = Duration(milliseconds: (60000 / _bpm!).round());
     
     for (int i = 4; i > 0; i--) {
@@ -101,6 +104,9 @@ class _PlayerPageState extends State<PlayerPage> {
       await _tts.speak(i.toString());
       await Future.delayed(interval);
     }
+
+    // Po odpočtu vrátíme rychlost na standardní pro běžná hlášení
+    await _tts.setSpeechRate(0.5);
 
     if (mounted) {
       setState(() {
