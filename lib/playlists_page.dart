@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'database.dart';
 import 'player_page.dart';
 
@@ -11,19 +12,36 @@ class PlaylistsPage extends StatefulWidget {
 }
 
 class _PlaylistsPageState extends State<PlaylistsPage> {
+  final FlutterTts _tts = FlutterTts();
+
+  @override
+  void initState() {
+    super.initState();
+    _tts.setLanguage("cs-CZ");
+    _tts.setSpeechRate(0.5);
+  }
+
   Future<void> _createPlaylist() async {
     final controller = TextEditingController();
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Nový playlist"),
-        content: TextField(controller: controller, decoration: const InputDecoration(labelText: "Název")),
+        content: TextField(
+          controller: controller, 
+          decoration: const InputDecoration(
+            labelText: "Název playlistu",
+            hintText: "Např. Oslava",
+          ),
+          autofocus: true,
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
           TextButton(
             onPressed: () async {
               if (controller.text.isNotEmpty) {
                 await widget.db.createPlaylist(controller.text);
+                _tts.speak("Playlist ${controller.text} byl vytvořen.");
                 if (mounted) {
                   Navigator.pop(context);
                   setState(() {});
@@ -43,11 +61,18 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Spravovat playlist"),
-        content: TextField(controller: controller, decoration: const InputDecoration(labelText: "Název")),
+        content: TextFormField(
+          controller: controller, 
+          decoration: const InputDecoration(
+            labelText: "Upravit název",
+            border: OutlineInputBorder(),
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: () async {
               await widget.db.deletePlaylist(playlist.id);
+              _tts.speak("Playlist ${playlist.name} byl smazán.");
               if (mounted) {
                 Navigator.pop(context);
                 setState(() {});
@@ -60,6 +85,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
             onPressed: () async {
               if (controller.text.isNotEmpty) {
                 await widget.db.renamePlaylist(playlist.id, controller.text);
+                _tts.speak("Playlist byl přejmenován na ${controller.text}.");
                 if (mounted) {
                   Navigator.pop(context);
                   setState(() {});
@@ -91,14 +117,18 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
             itemCount: playlists.length,
             itemBuilder: (context, i) {
               final pl = playlists[i];
-              return ListTile(
-                leading: const Icon(Icons.playlist_play),
-                title: Text(pl.name),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => PlaylistSongsPage(playlist: pl, db: widget.db)),
+              return Semantics(
+                label: "Playlist: ${pl.name}. Dlouhým stisknutím playlist upravíte.",
+                button: true,
+                child: ListTile(
+                  leading: const Icon(Icons.playlist_play),
+                  title: Text(pl.name),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => PlaylistSongsPage(playlist: pl, db: widget.db)),
+                  ),
+                  onLongPress: () => _managePlaylist(pl),
                 ),
-                onLongPress: () => _managePlaylist(pl),
               );
             },
           );
@@ -121,6 +151,10 @@ class PlaylistSongsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final FlutterTts tts = FlutterTts();
+    tts.setLanguage("cs-CZ");
+    tts.setSpeechRate(0.5);
+
     return Scaffold(
       appBar: AppBar(title: Text("Playlist: ${playlist.name}")),
       body: StreamBuilder<List<SongEntry>>(
@@ -137,16 +171,23 @@ class PlaylistSongsPage extends StatelessWidget {
             itemCount: songs.length,
             itemBuilder: (context, i) {
               final song = songs[i];
-              return ListTile(
-                title: Text(song.artist),
-                subtitle: Text(song.title),
-                trailing: IconButton(
-                  icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => db.removeSongFromPlaylist(playlist.id, song.id),
-                ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: db)),
+              return Semantics(
+                label: "${song.artist}, ${song.title}",
+                child: ListTile(
+                  title: Text(song.artist),
+                  subtitle: Text(song.title),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    tooltip: "Odebrat skladbu ${song.title} z playlistu",
+                    onPressed: () async {
+                      await db.removeSongFromPlaylist(playlist.id, song.id);
+                      tts.speak("Skladba ${song.title} byla odebrána z playlistu.");
+                    },
+                  ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: db)),
+                  ),
                 ),
               );
             },

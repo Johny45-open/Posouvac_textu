@@ -158,6 +158,10 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
 
+    // Zjistíme počet písní před importem
+    final songsBefore = await widget.db.getAllSongs();
+    final countBefore = songsBefore.length;
+
     StateSetter? updateDialog;
 
     if (context.mounted) {
@@ -221,7 +225,17 @@ class _LibraryPageState extends State<LibraryPage> {
     }
 
     if (context.mounted) Navigator.pop(context); 
-    await _tts.speak("Import dokončen. Celkem uloženo $processed písní.");
+
+    // Zjistíme počet písní po importu
+    final songsAfter = await widget.db.getAllSongs();
+    final countAfter = songsAfter.length;
+    final newlyAdded = countAfter - countBefore;
+
+    if (newlyAdded > 0) {
+      await _tts.speak("Import dokončen. Bylo přidáno $newlyAdded nových písní.");
+    } else {
+      await _tts.speak("Import dokončen. Všechny vybrané soubory již v knihovně máte.");
+    }
   }
 
   Future<void> _addToPlaylist(SongEntry song) async {
