@@ -19,6 +19,8 @@ class LibraryPage extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final AppDatabase db;
   final VoidCallback onOpenManual;
+  final bool isInformalMode;
+  final ValueChanged<bool> onInformalModeChanged;
 
   const LibraryPage({
     super.key,
@@ -26,6 +28,8 @@ class LibraryPage extends StatefulWidget {
     required this.onThemeModeChanged,
     required this.db,
     required this.onOpenManual,
+    required this.isInformalMode,
+    required this.onInformalModeChanged,
   });
 
   @override
@@ -42,6 +46,15 @@ class _LibraryPageState extends State<LibraryPage> {
     super.initState();
     _tts.setLanguage("cs-CZ");
     _tts.setSpeechRate(0.5);
+    AppStrings.isInformal = widget.isInformalMode;
+  }
+
+  @override
+  void didUpdateWidget(LibraryPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isInformalMode != widget.isInformalMode) {
+      AppStrings.isInformal = widget.isInformalMode;
+    }
   }
 
   Future<void> _editSong(SongEntry song) async {
@@ -175,7 +188,7 @@ class _LibraryPageState extends State<LibraryPage> {
             updateDialog = setS;
             final progress = totalFiles > 0 ? processed / totalFiles : 0.0;
             return AlertDialog(
-              title: const Text("Importuji texty"),
+              title: Text(AppStrings.importDialogTitle),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [

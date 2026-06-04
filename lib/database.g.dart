@@ -75,6 +75,21 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _isPlayedMeta = const VerificationMeta(
+    'isPlayed',
+  );
+  @override
+  late final GeneratedColumn<bool> isPlayed = GeneratedColumn<bool>(
+    'is_played',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_played" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _customFontSizeMeta = const VerificationMeta(
     'customFontSize',
   );
@@ -106,6 +121,7 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
     title,
     tempo,
     isFavorite,
+    isPlayed,
     customFontSize,
     customScrollSpeed,
   ];
@@ -160,6 +176,12 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
         isFavorite.isAcceptableOrUnknown(data['is_favorite']!, _isFavoriteMeta),
       );
     }
+    if (data.containsKey('is_played')) {
+      context.handle(
+        _isPlayedMeta,
+        isPlayed.isAcceptableOrUnknown(data['is_played']!, _isPlayedMeta),
+      );
+    }
     if (data.containsKey('custom_font_size')) {
       context.handle(
         _customFontSizeMeta,
@@ -211,6 +233,10 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
         DriftSqlType.bool,
         data['${effectivePrefix}is_favorite'],
       )!,
+      isPlayed: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_played'],
+      )!,
       customFontSize: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}custom_font_size'],
@@ -235,6 +261,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
   final String title;
   final double? tempo;
   final bool isFavorite;
+  final bool isPlayed;
   final double? customFontSize;
   final double? customScrollSpeed;
   const SongEntry({
@@ -244,6 +271,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     required this.title,
     this.tempo,
     required this.isFavorite,
+    required this.isPlayed,
     this.customFontSize,
     this.customScrollSpeed,
   });
@@ -258,6 +286,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       map['tempo'] = Variable<double>(tempo);
     }
     map['is_favorite'] = Variable<bool>(isFavorite);
+    map['is_played'] = Variable<bool>(isPlayed);
     if (!nullToAbsent || customFontSize != null) {
       map['custom_font_size'] = Variable<double>(customFontSize);
     }
@@ -277,6 +306,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
           ? const Value.absent()
           : Value(tempo),
       isFavorite: Value(isFavorite),
+      isPlayed: Value(isPlayed),
       customFontSize: customFontSize == null && nullToAbsent
           ? const Value.absent()
           : Value(customFontSize),
@@ -298,6 +328,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       title: serializer.fromJson<String>(json['title']),
       tempo: serializer.fromJson<double?>(json['tempo']),
       isFavorite: serializer.fromJson<bool>(json['isFavorite']),
+      isPlayed: serializer.fromJson<bool>(json['isPlayed']),
       customFontSize: serializer.fromJson<double?>(json['customFontSize']),
       customScrollSpeed: serializer.fromJson<double?>(
         json['customScrollSpeed'],
@@ -314,6 +345,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       'title': serializer.toJson<String>(title),
       'tempo': serializer.toJson<double?>(tempo),
       'isFavorite': serializer.toJson<bool>(isFavorite),
+      'isPlayed': serializer.toJson<bool>(isPlayed),
       'customFontSize': serializer.toJson<double?>(customFontSize),
       'customScrollSpeed': serializer.toJson<double?>(customScrollSpeed),
     };
@@ -326,6 +358,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     String? title,
     Value<double?> tempo = const Value.absent(),
     bool? isFavorite,
+    bool? isPlayed,
     Value<double?> customFontSize = const Value.absent(),
     Value<double?> customScrollSpeed = const Value.absent(),
   }) => SongEntry(
@@ -335,6 +368,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     title: title ?? this.title,
     tempo: tempo.present ? tempo.value : this.tempo,
     isFavorite: isFavorite ?? this.isFavorite,
+    isPlayed: isPlayed ?? this.isPlayed,
     customFontSize: customFontSize.present
         ? customFontSize.value
         : this.customFontSize,
@@ -352,6 +386,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       isFavorite: data.isFavorite.present
           ? data.isFavorite.value
           : this.isFavorite,
+      isPlayed: data.isPlayed.present ? data.isPlayed.value : this.isPlayed,
       customFontSize: data.customFontSize.present
           ? data.customFontSize.value
           : this.customFontSize,
@@ -370,6 +405,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
           ..write('title: $title, ')
           ..write('tempo: $tempo, ')
           ..write('isFavorite: $isFavorite, ')
+          ..write('isPlayed: $isPlayed, ')
           ..write('customFontSize: $customFontSize, ')
           ..write('customScrollSpeed: $customScrollSpeed')
           ..write(')'))
@@ -384,6 +420,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     title,
     tempo,
     isFavorite,
+    isPlayed,
     customFontSize,
     customScrollSpeed,
   );
@@ -397,6 +434,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
           other.title == this.title &&
           other.tempo == this.tempo &&
           other.isFavorite == this.isFavorite &&
+          other.isPlayed == this.isPlayed &&
           other.customFontSize == this.customFontSize &&
           other.customScrollSpeed == this.customScrollSpeed);
 }
@@ -408,6 +446,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
   final Value<String> title;
   final Value<double?> tempo;
   final Value<bool> isFavorite;
+  final Value<bool> isPlayed;
   final Value<double?> customFontSize;
   final Value<double?> customScrollSpeed;
   const SongsCompanion({
@@ -417,6 +456,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     this.title = const Value.absent(),
     this.tempo = const Value.absent(),
     this.isFavorite = const Value.absent(),
+    this.isPlayed = const Value.absent(),
     this.customFontSize = const Value.absent(),
     this.customScrollSpeed = const Value.absent(),
   });
@@ -427,6 +467,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     required String title,
     this.tempo = const Value.absent(),
     this.isFavorite = const Value.absent(),
+    this.isPlayed = const Value.absent(),
     this.customFontSize = const Value.absent(),
     this.customScrollSpeed = const Value.absent(),
   }) : filePath = Value(filePath),
@@ -439,6 +480,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     Expression<String>? title,
     Expression<double>? tempo,
     Expression<bool>? isFavorite,
+    Expression<bool>? isPlayed,
     Expression<double>? customFontSize,
     Expression<double>? customScrollSpeed,
   }) {
@@ -449,6 +491,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
       if (title != null) 'title': title,
       if (tempo != null) 'tempo': tempo,
       if (isFavorite != null) 'is_favorite': isFavorite,
+      if (isPlayed != null) 'is_played': isPlayed,
       if (customFontSize != null) 'custom_font_size': customFontSize,
       if (customScrollSpeed != null) 'custom_scroll_speed': customScrollSpeed,
     });
@@ -461,6 +504,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     Value<String>? title,
     Value<double?>? tempo,
     Value<bool>? isFavorite,
+    Value<bool>? isPlayed,
     Value<double?>? customFontSize,
     Value<double?>? customScrollSpeed,
   }) {
@@ -471,6 +515,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
       title: title ?? this.title,
       tempo: tempo ?? this.tempo,
       isFavorite: isFavorite ?? this.isFavorite,
+      isPlayed: isPlayed ?? this.isPlayed,
       customFontSize: customFontSize ?? this.customFontSize,
       customScrollSpeed: customScrollSpeed ?? this.customScrollSpeed,
     );
@@ -497,6 +542,9 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     if (isFavorite.present) {
       map['is_favorite'] = Variable<bool>(isFavorite.value);
     }
+    if (isPlayed.present) {
+      map['is_played'] = Variable<bool>(isPlayed.value);
+    }
     if (customFontSize.present) {
       map['custom_font_size'] = Variable<double>(customFontSize.value);
     }
@@ -515,6 +563,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
           ..write('title: $title, ')
           ..write('tempo: $tempo, ')
           ..write('isFavorite: $isFavorite, ')
+          ..write('isPlayed: $isPlayed, ')
           ..write('customFontSize: $customFontSize, ')
           ..write('customScrollSpeed: $customScrollSpeed')
           ..write(')'))
@@ -951,6 +1000,7 @@ typedef $$SongsTableCreateCompanionBuilder =
       required String title,
       Value<double?> tempo,
       Value<bool> isFavorite,
+      Value<bool> isPlayed,
       Value<double?> customFontSize,
       Value<double?> customScrollSpeed,
     });
@@ -962,6 +1012,7 @@ typedef $$SongsTableUpdateCompanionBuilder =
       Value<String> title,
       Value<double?> tempo,
       Value<bool> isFavorite,
+      Value<bool> isPlayed,
       Value<double?> customFontSize,
       Value<double?> customScrollSpeed,
     });
@@ -1001,6 +1052,11 @@ class $$SongsTableFilterComposer extends Composer<_$AppDatabase, $SongsTable> {
 
   ColumnFilters<bool> get isFavorite => $composableBuilder(
     column: $table.isFavorite,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isPlayed => $composableBuilder(
+    column: $table.isPlayed,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1054,6 +1110,11 @@ class $$SongsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get isPlayed => $composableBuilder(
+    column: $table.isPlayed,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get customFontSize => $composableBuilder(
     column: $table.customFontSize,
     builder: (column) => ColumnOrderings(column),
@@ -1093,6 +1154,9 @@ class $$SongsTableAnnotationComposer
     column: $table.isFavorite,
     builder: (column) => column,
   );
+
+  GeneratedColumn<bool> get isPlayed =>
+      $composableBuilder(column: $table.isPlayed, builder: (column) => column);
 
   GeneratedColumn<double> get customFontSize => $composableBuilder(
     column: $table.customFontSize,
@@ -1139,6 +1203,7 @@ class $$SongsTableTableManager
                 Value<String> title = const Value.absent(),
                 Value<double?> tempo = const Value.absent(),
                 Value<bool> isFavorite = const Value.absent(),
+                Value<bool> isPlayed = const Value.absent(),
                 Value<double?> customFontSize = const Value.absent(),
                 Value<double?> customScrollSpeed = const Value.absent(),
               }) => SongsCompanion(
@@ -1148,6 +1213,7 @@ class $$SongsTableTableManager
                 title: title,
                 tempo: tempo,
                 isFavorite: isFavorite,
+                isPlayed: isPlayed,
                 customFontSize: customFontSize,
                 customScrollSpeed: customScrollSpeed,
               ),
@@ -1159,6 +1225,7 @@ class $$SongsTableTableManager
                 required String title,
                 Value<double?> tempo = const Value.absent(),
                 Value<bool> isFavorite = const Value.absent(),
+                Value<bool> isPlayed = const Value.absent(),
                 Value<double?> customFontSize = const Value.absent(),
                 Value<double?> customScrollSpeed = const Value.absent(),
               }) => SongsCompanion.insert(
@@ -1168,6 +1235,7 @@ class $$SongsTableTableManager
                 title: title,
                 tempo: tempo,
                 isFavorite: isFavorite,
+                isPlayed: isPlayed,
                 customFontSize: customFontSize,
                 customScrollSpeed: customScrollSpeed,
               ),
