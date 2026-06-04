@@ -160,6 +160,70 @@ class PlaylistSongsPage extends StatelessWidget {
     return "Celkový čas: $seconds s";
   }
 
+  Future<void> _showBulkAddDialog(BuildContext context) async {
+    final allSongs = await db.getAllSongs();
+    final existingSongs = await (db.select(db.songs).join([innerJoin(db.playlistSongs, db.playlistSongs.songId.equalsExp(db.songs.id))])
+      ..where(db.playlistSongs.playlistId.equals(playlist.id))).get();
+    final existingIds = existingSongs.map((row) => row.readTable(db.songs).id).toSet();
+    
+    // Filtrujeme pouze ty, které v playlistu ještě nejsou
+    final availableSongs = allSongs.where((s) => !existingIds.contains(s.id)).toList();
+    
+    if (availableSongs.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Všechny písně z knihovny již v playlistu jsou.")));
+      }
+      return;
+    }
+
+    final selectedIds = <int>{};
+    final FlutterTts tts = FlutterTts();
+    tts.setLanguage("cs-CZ");
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(AppStrings.bulkAddTitle),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: availableSongs.length,
+              itemBuilder: (context, i) {
+                final song = availableSongs[i];
+                final isSelected = selectedIds.contains(song.id);
+                return CheckboxListTile(
+                  title: Text(song.artist),
+                  subtitle: Text(song.title),
+                  value: isSelected,
+                  onChanged: (val) {
+                    setDialogState(() {
+                      if (val == true) selectedIds.add(song.id);
+                      else selectedIds.remove(song.id);
+                    });
+                    tts.speak(val == true ? "Vybráno: ${song.title}" : "Odebráno z výběru: ${song.title}");
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
+            TextButton(
+              onPressed: selectedIds.isEmpty ? null : () async {
+                await db.addSongsToPlaylist(playlist.id, selectedIds.toList());
+                tts.speak(AppStrings.bulkAddFinished(selectedIds.length));
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text("Přidat vybrané"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final FlutterTts tts = FlutterTts();
@@ -193,6 +257,11 @@ class PlaylistSongsPage extends StatelessWidget {
           },
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.library_add),
+            tooltip: "Přidat více písní",
+            onPressed: () => _showBulkAddDialog(context),
+          ),
           StreamBuilder<List<SongEntry>>(
             stream: db.watchSongsInPlaylist(playlist.id),
             builder: (context, snapshot) {

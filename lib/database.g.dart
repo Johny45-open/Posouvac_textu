@@ -124,6 +124,17 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
         type: DriftSqlType.double,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _durationMeta = const VerificationMeta(
+    'duration',
+  );
+  @override
+  late final GeneratedColumn<int> duration = GeneratedColumn<int>(
+    'duration',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -136,6 +147,7 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
     isPlayed,
     customFontSize,
     customScrollSpeed,
+    duration,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -221,6 +233,12 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
         ),
       );
     }
+    if (data.containsKey('duration')) {
+      context.handle(
+        _durationMeta,
+        duration.isAcceptableOrUnknown(data['duration']!, _durationMeta),
+      );
+    }
     return context;
   }
 
@@ -270,6 +288,10 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
         DriftSqlType.double,
         data['${effectivePrefix}custom_scroll_speed'],
       ),
+      duration: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}duration'],
+      ),
     );
   }
 
@@ -290,6 +312,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
   final bool isPlayed;
   final double? customFontSize;
   final double? customScrollSpeed;
+  final int? duration;
   const SongEntry({
     required this.id,
     required this.filePath,
@@ -301,6 +324,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     required this.isPlayed,
     this.customFontSize,
     this.customScrollSpeed,
+    this.duration,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -322,6 +346,9 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     }
     if (!nullToAbsent || customScrollSpeed != null) {
       map['custom_scroll_speed'] = Variable<double>(customScrollSpeed);
+    }
+    if (!nullToAbsent || duration != null) {
+      map['duration'] = Variable<int>(duration);
     }
     return map;
   }
@@ -346,6 +373,9 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       customScrollSpeed: customScrollSpeed == null && nullToAbsent
           ? const Value.absent()
           : Value(customScrollSpeed),
+      duration: duration == null && nullToAbsent
+          ? const Value.absent()
+          : Value(duration),
     );
   }
 
@@ -367,6 +397,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       customScrollSpeed: serializer.fromJson<double?>(
         json['customScrollSpeed'],
       ),
+      duration: serializer.fromJson<int?>(json['duration']),
     );
   }
   @override
@@ -383,6 +414,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       'isPlayed': serializer.toJson<bool>(isPlayed),
       'customFontSize': serializer.toJson<double?>(customFontSize),
       'customScrollSpeed': serializer.toJson<double?>(customScrollSpeed),
+      'duration': serializer.toJson<int?>(duration),
     };
   }
 
@@ -397,6 +429,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     bool? isPlayed,
     Value<double?> customFontSize = const Value.absent(),
     Value<double?> customScrollSpeed = const Value.absent(),
+    Value<int?> duration = const Value.absent(),
   }) => SongEntry(
     id: id ?? this.id,
     filePath: filePath ?? this.filePath,
@@ -414,6 +447,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     customScrollSpeed: customScrollSpeed.present
         ? customScrollSpeed.value
         : this.customScrollSpeed,
+    duration: duration.present ? duration.value : this.duration,
   );
   SongEntry copyWithCompanion(SongsCompanion data) {
     return SongEntry(
@@ -435,6 +469,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       customScrollSpeed: data.customScrollSpeed.present
           ? data.customScrollSpeed.value
           : this.customScrollSpeed,
+      duration: data.duration.present ? data.duration.value : this.duration,
     );
   }
 
@@ -450,7 +485,8 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
           ..write('isFavorite: $isFavorite, ')
           ..write('isPlayed: $isPlayed, ')
           ..write('customFontSize: $customFontSize, ')
-          ..write('customScrollSpeed: $customScrollSpeed')
+          ..write('customScrollSpeed: $customScrollSpeed, ')
+          ..write('duration: $duration')
           ..write(')'))
         .toString();
   }
@@ -467,6 +503,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     isPlayed,
     customFontSize,
     customScrollSpeed,
+    duration,
   );
   @override
   bool operator ==(Object other) =>
@@ -481,7 +518,8 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
           other.isFavorite == this.isFavorite &&
           other.isPlayed == this.isPlayed &&
           other.customFontSize == this.customFontSize &&
-          other.customScrollSpeed == this.customScrollSpeed);
+          other.customScrollSpeed == this.customScrollSpeed &&
+          other.duration == this.duration);
 }
 
 class SongsCompanion extends UpdateCompanion<SongEntry> {
@@ -495,6 +533,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
   final Value<bool> isPlayed;
   final Value<double?> customFontSize;
   final Value<double?> customScrollSpeed;
+  final Value<int?> duration;
   const SongsCompanion({
     this.id = const Value.absent(),
     this.filePath = const Value.absent(),
@@ -506,6 +545,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     this.isPlayed = const Value.absent(),
     this.customFontSize = const Value.absent(),
     this.customScrollSpeed = const Value.absent(),
+    this.duration = const Value.absent(),
   });
   SongsCompanion.insert({
     this.id = const Value.absent(),
@@ -518,6 +558,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     this.isPlayed = const Value.absent(),
     this.customFontSize = const Value.absent(),
     this.customScrollSpeed = const Value.absent(),
+    this.duration = const Value.absent(),
   }) : filePath = Value(filePath),
        artist = Value(artist),
        title = Value(title);
@@ -532,6 +573,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     Expression<bool>? isPlayed,
     Expression<double>? customFontSize,
     Expression<double>? customScrollSpeed,
+    Expression<int>? duration,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -544,6 +586,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
       if (isPlayed != null) 'is_played': isPlayed,
       if (customFontSize != null) 'custom_font_size': customFontSize,
       if (customScrollSpeed != null) 'custom_scroll_speed': customScrollSpeed,
+      if (duration != null) 'duration': duration,
     });
   }
 
@@ -558,6 +601,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     Value<bool>? isPlayed,
     Value<double?>? customFontSize,
     Value<double?>? customScrollSpeed,
+    Value<int?>? duration,
   }) {
     return SongsCompanion(
       id: id ?? this.id,
@@ -570,6 +614,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
       isPlayed: isPlayed ?? this.isPlayed,
       customFontSize: customFontSize ?? this.customFontSize,
       customScrollSpeed: customScrollSpeed ?? this.customScrollSpeed,
+      duration: duration ?? this.duration,
     );
   }
 
@@ -606,6 +651,9 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     if (customScrollSpeed.present) {
       map['custom_scroll_speed'] = Variable<double>(customScrollSpeed.value);
     }
+    if (duration.present) {
+      map['duration'] = Variable<int>(duration.value);
+    }
     return map;
   }
 
@@ -621,7 +669,8 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
           ..write('isFavorite: $isFavorite, ')
           ..write('isPlayed: $isPlayed, ')
           ..write('customFontSize: $customFontSize, ')
-          ..write('customScrollSpeed: $customScrollSpeed')
+          ..write('customScrollSpeed: $customScrollSpeed, ')
+          ..write('duration: $duration')
           ..write(')'))
         .toString();
   }
@@ -1424,6 +1473,7 @@ typedef $$SongsTableCreateCompanionBuilder =
       Value<bool> isPlayed,
       Value<double?> customFontSize,
       Value<double?> customScrollSpeed,
+      Value<int?> duration,
     });
 typedef $$SongsTableUpdateCompanionBuilder =
     SongsCompanion Function({
@@ -1437,6 +1487,7 @@ typedef $$SongsTableUpdateCompanionBuilder =
       Value<bool> isPlayed,
       Value<double?> customFontSize,
       Value<double?> customScrollSpeed,
+      Value<int?> duration,
     });
 
 class $$SongsTableFilterComposer extends Composer<_$AppDatabase, $SongsTable> {
@@ -1494,6 +1545,11 @@ class $$SongsTableFilterComposer extends Composer<_$AppDatabase, $SongsTable> {
 
   ColumnFilters<double> get customScrollSpeed => $composableBuilder(
     column: $table.customScrollSpeed,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get duration => $composableBuilder(
+    column: $table.duration,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -1556,6 +1612,11 @@ class $$SongsTableOrderingComposer
     column: $table.customScrollSpeed,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get duration => $composableBuilder(
+    column: $table.duration,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$SongsTableAnnotationComposer
@@ -1604,6 +1665,9 @@ class $$SongsTableAnnotationComposer
     column: $table.customScrollSpeed,
     builder: (column) => column,
   );
+
+  GeneratedColumn<int> get duration =>
+      $composableBuilder(column: $table.duration, builder: (column) => column);
 }
 
 class $$SongsTableTableManager
@@ -1644,6 +1708,7 @@ class $$SongsTableTableManager
                 Value<bool> isPlayed = const Value.absent(),
                 Value<double?> customFontSize = const Value.absent(),
                 Value<double?> customScrollSpeed = const Value.absent(),
+                Value<int?> duration = const Value.absent(),
               }) => SongsCompanion(
                 id: id,
                 filePath: filePath,
@@ -1655,6 +1720,7 @@ class $$SongsTableTableManager
                 isPlayed: isPlayed,
                 customFontSize: customFontSize,
                 customScrollSpeed: customScrollSpeed,
+                duration: duration,
               ),
           createCompanionCallback:
               ({
@@ -1668,6 +1734,7 @@ class $$SongsTableTableManager
                 Value<bool> isPlayed = const Value.absent(),
                 Value<double?> customFontSize = const Value.absent(),
                 Value<double?> customScrollSpeed = const Value.absent(),
+                Value<int?> duration = const Value.absent(),
               }) => SongsCompanion.insert(
                 id: id,
                 filePath: filePath,
@@ -1679,6 +1746,7 @@ class $$SongsTableTableManager
                 isPlayed: isPlayed,
                 customFontSize: customFontSize,
                 customScrollSpeed: customScrollSpeed,
+                duration: duration,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

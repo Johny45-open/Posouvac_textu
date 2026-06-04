@@ -136,6 +136,30 @@ class AppDatabase extends _$AppDatabase {
         mode: InsertMode.insertOrIgnore);
   }
 
+  Future<void> addSongsToPlaylist(int playlistId, List<int> songIds) async {
+    final lastEntry = await (select(playlistSongs)
+          ..where((t) => t.playlistId.equals(playlistId))
+          ..orderBy([(t) => OrderingTerm.desc(t.orderIndex)])
+          ..limit(1))
+        .getSingleOrNull();
+    
+    int nextIndex = (lastEntry?.orderIndex ?? -1) + 1;
+
+    await batch((batch) {
+      for (final songId in songIds) {
+        batch.insert(
+          playlistSongs,
+          PlaylistSongsCompanion.insert(
+            playlistId: playlistId,
+            songId: songId,
+            orderIndex: Value(nextIndex++),
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+      }
+    });
+  }
+
   Future<void> reorderPlaylistSongs(int playlistId, int songId, bool moveUp) async {
     final allInPlaylist = await (select(playlistSongs)
           ..where((t) => t.playlistId.equals(playlistId))

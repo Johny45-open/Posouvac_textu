@@ -105,6 +105,10 @@ class AppStrings {
   static String songRemovedFromPlaylist(String title) => 
       isInformal ? "Song $title z playlistu vyletěl." : "Skladba $title byla odebrána z playlistu.";
 
+  static String get bulkAddTitle => isInformal ? "Co tam přihodíme?" : "Vybrat písně do playlistu";
+  static String bulkAddFinished(int count) => 
+      isInformal ? "Přidáno $count kousků. To bude jízda!" : "Do playlistu bylo úspěšně přidáno $count skladeb.";
+
   // --- NASTAVENÍ ---
   static String get themeLight => isInformal ? "Budiž světlo." : "Světlý motiv nastaven.";
   static String get themeDark => isInformal ? "Tma je tu." : "Tmavý motiv nastaven.";
