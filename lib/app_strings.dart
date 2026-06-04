@@ -67,6 +67,9 @@ class AppStrings {
   static String songMarkedPlayed(String title) => 
       isInformal ? "A je to, $title odškrtnuto." : "Skladba $title byla označena jako odehraná.";
 
+  static String songMarkedNotPlayed(String title) => 
+      isInformal ? "$title si dáme ještě jednou!" : "Skladba $title byla vrácena do seznamu k odehrání.";
+
   static String get playedButton => isInformal ? "ODEHRÁNO" : "ODEHRÁNO";
   static String get encoreButton => isInformal ? "PŘÍDAVEK!" : "PŘÍDAVEK";
 

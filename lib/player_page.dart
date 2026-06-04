@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:drift/drift.dart' show Value;
 import 'database.dart';
@@ -378,7 +379,7 @@ class _PlayerPageState extends State<PlayerPage> {
           ),
           Semantics(
             customSemanticsActions: {
-              const CustomSemanticsAction(label: "Spravovat pauzy"): _manageStopMarks,
+              CustomSemanticsAction(label: "Spravovat pauzy"): _manageStopMarks,
             },
             child: GestureDetector(
               onLongPress: _manageStopMarks,
@@ -482,9 +483,9 @@ class _PlayerPageState extends State<PlayerPage> {
               onPressed: () async {
                 final newStatus = !_song.isPlayed;
                 await widget.db.togglePlayed(_song.id, newStatus);
-                if (newStatus) {
-                  _tts.speak(AppStrings.songMarkedPlayed(_song.title));
-                }
+                _tts.speak(newStatus 
+                  ? AppStrings.songMarkedPlayed(_song.title) 
+                  : AppStrings.songMarkedNotPlayed(_song.title));
                 setState(() {
                   _song = _song.copyWith(isPlayed: newStatus);
                 });
