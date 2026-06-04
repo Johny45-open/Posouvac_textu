@@ -32,7 +32,7 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase() => instance;
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration {
@@ -40,22 +40,27 @@ class AppDatabase extends _$AppDatabase {
       onCreate: (m) => m.createAll(),
       onUpgrade: (m, from, to) async {
         if (from < 2) {
-          // Pro přechod na verzi 2 vytvoříme tabulku playlist_songs znovu s primárním klíčem
-          // Nejjednodušší cesta v developmentu: smazat a vytvořit
           await m.deleteTable('playlist_songs');
           await m.createTable(playlistSongs);
+        }
+        if (from < 3) {
+          // Přidání sloupce is_played
+          await m.addColumn(songs, songs.isPlayed);
         }
       },
     );
   }
 
-  // Metody pro přístup k datům
+  // Metody pro písně
   Future<List<SongEntry>> getAllSongs() => select(songs).get();
   
-  Stream<List<SongEntry>> watchAllSongs({bool onlyFavorites = false}) {
+  Stream<List<SongEntry>> watchAllSongs({bool onlyFavorites = false, bool onlyUnplayed = false}) {
     final query = select(songs);
     if (onlyFavorites) {
       query.where((s) => s.isFavorite.equals(true));
+    }
+    if (onlyUnplayed) {
+      query.where((s) => s.isPlayed.equals(false));
     }
     return query.watch();
   }
@@ -65,12 +70,21 @@ class AppDatabase extends _$AppDatabase {
         .write(SongsCompanion(isFavorite: Value(isFavorite)));
   }
 
+  Future<int> togglePlayed(int id, bool isPlayed) {
+    return (update(songs)..where((s) => s.id.equals(id)))
+        .write(SongsCompanion(isPlayed: Value(isPlayed)));
+  }
+
+  Future<int> resetAllPlayed() {
+    return (update(songs)).write(const SongsCompanion(isPlayed: Value(false)));
+  }
+
   Future<int> updateSong(int id, String newArtist, String newTitle) {
     return (update(songs)..where((s) => s.id.equals(id)))
         .write(SongsCompanion(artist: Value(newArtist), title: Value(newTitle)));
   }
 
-  // Metody pro správu playlistů
+  // Metody pro playlisty
   Future<int> createPlaylist(String name) {
     return into(playlists).insert(PlaylistsCompanion.insert(name: name));
   }

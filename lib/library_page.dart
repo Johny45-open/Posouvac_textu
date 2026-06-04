@@ -12,6 +12,7 @@ import 'player_page.dart';
 import 'song_utils.dart';
 import 'app_progress_indicator.dart';
 import 'tuner.dart';
+import 'app_strings.dart';
 
 class LibraryPage extends StatefulWidget {
   final ThemeMode themeMode;
@@ -34,6 +35,7 @@ class LibraryPage extends StatefulWidget {
 class _LibraryPageState extends State<LibraryPage> {
   final FlutterTts _tts = FlutterTts();
   bool _onlyFavorites = false;
+  bool _onlyUnplayed = false;
 
   @override
   void initState() {
@@ -103,8 +105,8 @@ class _LibraryPageState extends State<LibraryPage> {
     final importType = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Jak chcete importovat?"),
-        content: const Text("Výběr souborů je spolehlivější na starších zařízeních a tabletech."),
+        title: Text(AppStrings.importTypeTitle),
+        content: Text(AppStrings.importTypeContent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, "folder"),
@@ -232,9 +234,9 @@ class _LibraryPageState extends State<LibraryPage> {
     final newlyAdded = countAfter - countBefore;
 
     if (newlyAdded > 0) {
-      await _tts.speak("Import dokončen. Bylo přidáno $newlyAdded nových písní.");
+      await _tts.speak(AppStrings.importFinished(newlyAdded));
     } else {
-      await _tts.speak("Import dokončen. Všechny vybrané soubory již v knihovně máte.");
+      await _tts.speak(AppStrings.noNewSongs);
     }
   }
 
@@ -308,8 +310,8 @@ class _LibraryPageState extends State<LibraryPage> {
             onSelected: (val) {
               widget.onThemeModeChanged(val);
               String themeMsg = val == ThemeMode.light 
-                ? "Světlý motiv nastaven" 
-                : (val == ThemeMode.dark ? "Tmavý motiv nastaven" : "Systémový motiv nastaven");
+                ? AppStrings.themeLight 
+                : (val == ThemeMode.dark ? AppStrings.themeDark : AppStrings.themeSystem);
               _tts.speak(themeMsg);
             },
             itemBuilder: (context) => [
@@ -326,21 +328,47 @@ class _LibraryPageState extends State<LibraryPage> {
               MaterialPageRoute(builder: (context) => PlaylistsPage(db: widget.db)),
             ),
           ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: "Další možnosti",
+            onSelected: (val) async {
+              if (val == "reset_played") {
+                await widget.db.resetAllPlayed();
+                _tts.speak(AppStrings.resetPlayed);
+                setState(() {});
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: "reset_played",
+                child: Text("Vynulovat odehrané"),
+              ),
+            ],
+          ),
           FilterChip(
             label: const Text("Oblíbené"),
             selected: _onlyFavorites,
             onSelected: (val) {
               setState(() => _onlyFavorites = val);
-              final msg = val 
-                ? "Nyní se filtrují pouze oblíbené skladby" 
-                : "Nyní se zobrazují všechny skladby";
-              _tts.speak(msg);
+              _tts.speak(val ? AppStrings.filterFavorites : AppStrings.filterAll);
+            },
+          ),
+          const SizedBox(width: 8),
+          FilterChip(
+            label: const Text("K odehrání"),
+            selected: _onlyUnplayed,
+            onSelected: (val) {
+              setState(() => _onlyUnplayed = val);
+              _tts.speak(val ? AppStrings.filterUnplayed : AppStrings.filterAll);
             },
           ),
         ],
       ),
       body: StreamBuilder<List<SongEntry>>(
-        stream: widget.db.watchAllSongs(onlyFavorites: _onlyFavorites),
+        stream: widget.db.watchAllSongs(
+          onlyFavorites: _onlyFavorites,
+          onlyUnplayed: _onlyUnplayed,
+        ),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const SizedBox();
           final songs = snapshot.data!;
@@ -354,6 +382,7 @@ class _LibraryPageState extends State<LibraryPage> {
             itemBuilder: (context, index) {
               final song = songs[index];
               final bpmText = song.tempo != null ? "${song.tempo!.round()} údery za minutu" : "Tempo nenastaveno";
+              final playedText = song.isPlayed ? "Odehraná. " : "";
               
               // Vyčistíme název od duplicitního interpreta
               String cleanTitle = song.title;
@@ -363,64 +392,76 @@ class _LibraryPageState extends State<LibraryPage> {
 
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-                child: Row(
-                  children: [
-                    // 1. ŠVIH: Pouze akce oblíbené
-                    Semantics(
-                      container: true,
-                      excludeSemantics: true,
-                      label: song.isFavorite 
-                        ? "Odebrat skladbu $cleanTitle od ${song.artist} z oblíbených" 
-                        : "Přidat skladbu $cleanTitle od ${song.artist} k oblíbeným",
-                      button: true,
-                      child: IconButton(
-                        icon: Icon(
-                          song.isFavorite ? Icons.favorite : Icons.favorite_border,
-                          color: song.isFavorite ? Colors.red : null,
-                        ),
-                        onPressed: () async {
-                          final newStatus = !song.isFavorite;
-                          await widget.db.toggleFavorite(song.id, newStatus);
-                          final msg = newStatus 
-                            ? "Skladba $cleanTitle od ${song.artist} byla označena jako oblíbená"
-                            : "Skladba $cleanTitle od ${song.artist} byla odebrána z oblíbených";
-                          _tts.speak(msg);
-                        },
-                      ),
-                    ),
-
-                    // 2. ŠVIH: Kompletní informace + Přehrát/Upravit
-                    Expanded(
-                      child: Semantics(
+                child: Opacity(
+                  opacity: song.isPlayed ? 0.5 : 1.0,
+                  child: Row(
+                    children: [
+                      // 1. ŠVIH: Pouze akce oblíbené
+                      Semantics(
                         container: true,
                         excludeSemantics: true,
-                        label: "Píseň: $cleanTitle od ${song.artist}. $bpmText. Poklepáním přehrajete, podržením upravíte.",
+                        label: song.isFavorite 
+                          ? "Odebrat skladbu $cleanTitle od ${song.artist} z oblíbených" 
+                          : "Přidat skladbu $cleanTitle od ${song.artist} k oblíbeným",
                         button: true,
-                        child: InkWell(
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db)),
+                        child: IconButton(
+                          icon: Icon(
+                            song.isFavorite ? Icons.favorite : Icons.favorite_border,
+                            color: song.isFavorite ? Colors.red : null,
                           ),
-                          onLongPress: () => _editSong(song),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  song.artist,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                ),
-                                Text(
-                                  song.title,
-                                  style: TextStyle(color: Theme.of(context).hintColor),
-                                ),
-                              ],
+                          onPressed: () async {
+                            final newStatus = !song.isFavorite;
+                            await widget.db.toggleFavorite(song.id, newStatus);
+                            _tts.speak(newStatus 
+                                ? AppStrings.songMarkedFavorite(cleanTitle)
+                                : AppStrings.songRemovedFavorite(cleanTitle));
+                          },
+                        ),
+                      ),
+
+                      // 2. ŠVIH: Kompletní informace + Přehrát/Upravit
+                      Expanded(
+                        child: Semantics(
+                          container: true,
+                          excludeSemantics: true,
+                          label: "${playedText}Píseň: $cleanTitle od ${song.artist}. $bpmText. Poklepáním přehrajete, podržením upravíte.",
+                          button: true,
+                          child: InkWell(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db)),
+                            ),
+                            onLongPress: () => _editSong(song),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      if (song.isPlayed)
+                                        const Padding(
+                                          padding: EdgeInsets.only(right: 8.0),
+                                          child: Icon(Icons.check_circle, size: 16, color: Colors.green),
+                                        ),
+                                      Expanded(
+                                        child: Text(
+                                          song.artist,
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    song.title,
+                                    style: TextStyle(color: Theme.of(context).hintColor),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
 
                     // 3. ŠVIH: Pouze akce Playlist
                     Semantics(

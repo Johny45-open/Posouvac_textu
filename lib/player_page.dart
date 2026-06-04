@@ -8,6 +8,7 @@ import 'database.dart';
 import 'song_entry.dart';
 import 'chord_display_widget.dart';
 import 'app_progress_indicator.dart';
+import 'app_strings.dart';
 
 class PlayerPage extends StatefulWidget {
   final int songId;
@@ -164,7 +165,7 @@ class _PlayerPageState extends State<PlayerPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text("Nastavit tempo (BPM)"),
+          title: Text(AppStrings.bpmDialogTitle),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -202,7 +203,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   }
                 },
                 icon: const Icon(Icons.touch_app),
-                label: const Text("KLEPEJTE DO RYTMU"),
+                label: Text(AppStrings.tapTempoButton),
               ),
             ],
           ),
@@ -318,6 +319,27 @@ class _PlayerPageState extends State<PlayerPage> {
       floatingActionButton: FloatingActionButton(
         onPressed: _toggleScrolling,
         child: Icon(_isScrolling || _countdown > 0 ? Icons.pause : Icons.play_arrow),
+      ),
+      bottomNavigationBar: BottomAppBar(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ElevatedButton.icon(
+              icon: Icon(_song.isPlayed ? Icons.replay : Icons.check_circle),
+              label: Text(_song.isPlayed ? AppStrings.encoreButton : AppStrings.playedButton),
+              onPressed: () async {
+                final newStatus = !_song.isPlayed;
+                await widget.db.togglePlayed(_song.id, newStatus);
+                if (newStatus) {
+                  _tts.speak(AppStrings.songMarkedPlayed(_song.title));
+                }
+                setState(() {
+                  _song = _song.copyWith(isPlayed: newStatus);
+                });
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

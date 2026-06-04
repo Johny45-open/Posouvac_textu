@@ -13,6 +13,7 @@ import 'tuner.dart';
 import 'library_page.dart';
 import 'chord_display_widget.dart';
 import 'manual_page.dart';
+import 'app_strings.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -122,6 +123,7 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   late bool _useMonospace;
   late double _beepFrequency;
   late int _defaultStartDelay;
+  late bool _isInformalMode;
   Locale? _locale;
   bool _showManual = false;
 
@@ -134,6 +136,9 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     _useMonospace = widget.prefs.getBool('useMonospace') ?? false;
     _beepFrequency = widget.prefs.getDouble('beepFrequency') ?? 800.0;
     _defaultStartDelay = widget.prefs.getInt('defaultStartDelay') ?? 3;
+    _isInformalMode = widget.prefs.getBool('isInformalMode') ?? false;
+    AppStrings.isInformal = _isInformalMode;
+    
     final langCode = widget.prefs.getString('languageCode');
     if (langCode != null) _locale = Locale(langCode);
 
@@ -152,6 +157,14 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   Future<void> _updateThemeMode(ThemeMode m) async {
     setState(() => _themeMode = m);
     await widget.prefs.setInt('themeMode', m.index);
+  }
+
+  Future<void> _updateInformalMode(bool v) async {
+    setState(() {
+      _isInformalMode = v;
+      AppStrings.isInformal = v;
+    });
+    await widget.prefs.setBool('isInformalMode', v);
   }
 
   Future<void> _updateFontSize(double s) async {
@@ -1466,6 +1479,16 @@ class _ScrollerHomePageState extends State<ScrollerHomePage> {
                         widget.onThemeModeChanged(v);
                         setD(() {});
                       }
+                    },
+                  ),
+                  const Divider(),
+                  SwitchListTile(
+                    title: const Text('Neformální režim'),
+                    subtitle: const Text('Aplikace s vámi bude mluvit přátelsky'),
+                    value: _isInformalMode,
+                    onChanged: (v) {
+                      _updateInformalMode(v);
+                      setD(() {});
                     },
                   ),
                   const Divider(),

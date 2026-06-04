@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'app_strings.dart';
 
 class ManualPage extends StatefulWidget {
   final VoidCallback onFinished;
@@ -18,20 +19,20 @@ class _ManualPageState extends State<ManualPage> {
 
   final List<ManualStep> _steps = [
     ManualStep(
-      title: "Vítejte v Posouvači textů",
-      content: "Tato aplikace vám pomůže s texty a akordy při hraní. Je navržena tak, aby byla plně přístupná pro čtečky obrazovky.",
+      title: AppStrings.welcomeTitle,
+      content: AppStrings.welcomeContent,
     ),
     ManualStep(
-      title: "Knihovna a import",
-      content: "V Knihovně najdete své písně. Nové texty ve formátu .txt importujete tlačítkem vpravo dole. Pokud chcete upravit jméno interpreta nebo název, podržte na písni prst déle.",
+      title: AppStrings.libraryTitle,
+      content: AppStrings.libraryContent,
     ),
     ManualStep(
-      title: "Přehrávač a tempo",
-      content: "Klepnutím na text v přehrávači spustíte hlasový odpočet a automatický posuv. Tempo BPM nastavíte ikonou tachometru v horní liště. Nastavení se uloží pro každou píseň zvlášť.",
+      title: AppStrings.playerTitle,
+      content: AppStrings.playerContent,
     ),
     ManualStep(
-      title: "Ladička a Playlisty",
-      content: "Ikona noty v Knihovně otevře ladičku. Ikona plus u písně vám umožní zařadit ji do vlastních seznamů, jako jsou například playlisty Olympic nebo Oslava.",
+      title: AppStrings.extraTitle,
+      content: AppStrings.extraContent,
     ),
   ];
 
@@ -134,7 +135,7 @@ class _ManualPageState extends State<ManualPage> {
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
                       onPressed: _finishManual,
-                      child: const Text("ROZUMÍM"),
+                      child: Text(AppStrings.understandButton),
                     ),
                 ],
               ),
