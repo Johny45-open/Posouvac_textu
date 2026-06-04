@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:drift/drift.dart' show Value;
 import 'database.dart';
@@ -46,6 +47,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   void _startWithCountdown() async {
     setState(() => _isScrolling = true);
+    HapticFeedback.heavyImpact(); // Vibrace na začátku celého procesu
     
     if (_introDuration != null && _introDuration! > 0) {
       _tts.speak(AppStrings.introMessage(_introDuration!.round()));
@@ -58,11 +60,13 @@ class _PlayerPageState extends State<PlayerPage> {
       if (!mounted || !_isScrolling) return;
       setState(() => _countdown = i);
       _tts.speak("$i");
+      HapticFeedback.mediumImpact(); // Vibrace pro každou sekundu odpočtu
       await Future.delayed(const Duration(seconds: 1));
     }
 
     if (!mounted || !_isScrolling) return;
     setState(() => _countdown = 0);
+    HapticFeedback.vibrate(); // Delší vibrace při startu samotného posuvu
     _startScrolling();
   }
 
@@ -190,6 +194,7 @@ class _PlayerPageState extends State<PlayerPage> {
     await widget.db.addStopMark(_song.id, ratio, 2); // Výchozí 2 takty
     _stopMarks = await widget.db.getStopMarksForSong(_song.id);
     _tts.speak(AppStrings.stopMarkQuickAdded);
+    HapticFeedback.lightImpact(); // Potvrzení uložení jemnou vibrací
   }
 
   void _startScrolling() {
@@ -229,9 +234,18 @@ class _PlayerPageState extends State<PlayerPage> {
     _isPausedAtStop = true;
     _stopScrolling();
     _tts.speak(AppStrings.stopMarkMessage(mark.durationBars));
+    HapticFeedback.mediumImpact(); // Vibrace na začátku pauzy
     
-    final duration = Duration(milliseconds: ((60000 / (_bpm ?? 120)) * mark.durationBars * 4).round());
-    await Future.delayed(duration);
+    final totalMs = ((60000 / (_bpm ?? 120)) * mark.durationBars * 4).round();
+    
+    // Pokud je pauza delší než 2 sekundy, zavibrujeme sekundu před koncem jako varování
+    if (totalMs > 2000) {
+      await Future.delayed(Duration(milliseconds: totalMs - 1000));
+      if (mounted && _isScrolling) HapticFeedback.lightImpact(); // Varování před rozjezdem
+      await Future.delayed(const Duration(milliseconds: 1000));
+    } else {
+      await Future.delayed(Duration(milliseconds: totalMs));
+    }
     
     if (mounted && _isScrolling) {
       _isPausedAtStop = false;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:drift/drift.dart' show innerJoin;
 import 'database.dart';
 import 'player_page.dart';
 import 'app_strings.dart';
