@@ -17,6 +17,7 @@ class Playlists extends Table {
 class PlaylistSongs extends Table {
   IntColumn get playlistId => integer().references(Playlists, #id, onDelete: KeyAction.cascade)();
   IntColumn get songId => integer().references(Songs, #id, onDelete: KeyAction.cascade)();
+  IntColumn get orderIndex => integer().withDefault(const Constant(0))();
 
   @override
   Set<Column> get primaryKey => {playlistId, songId};
@@ -38,7 +39,7 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase() => instance;
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration {
@@ -57,6 +58,9 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 5) {
           await m.createTable(stopMarks);
+        }
+        if (from < 6) {
+          await m.addColumn(playlistSongs, playlistSongs.orderIndex);
         }
       },
     );
@@ -114,13 +118,51 @@ class AppDatabase extends _$AppDatabase {
   Future<int> deletePlaylist(int id) => (delete(playlists)..where((t) => t.id.equals(id))).go();
   Future<int> renamePlaylist(int id, String newName) =>
       (update(playlists)..where((t) => t.id.equals(id))).write(PlaylistsCompanion(name: Value(newName)));
-  Future<int> addSongToPlaylist(int playlistId, int songId) =>
-      into(playlistSongs).insert(PlaylistSongsCompanion.insert(playlistId: playlistId, songId: songId), mode: InsertMode.insertOrIgnore);
+  Future<int> addSongToPlaylist(int playlistId, int songId) async {
+    final lastEntry = await (select(playlistSongs)
+          ..where((t) => t.playlistId.equals(playlistId))
+          ..orderBy([(t) => OrderingTerm.desc(t.orderIndex)])
+          ..limit(1))
+        .getSingleOrNull();
+    final nextIndex = (lastEntry?.orderIndex ?? -1) + 1;
+    return into(playlistSongs).insert(
+        PlaylistSongsCompanion.insert(playlistId: playlistId, songId: songId, orderIndex: Value(nextIndex)),
+        mode: InsertMode.insertOrIgnore);
+  }
+
+  Future<void> reorderPlaylistSongs(int playlistId, int songId, bool moveUp) async {
+    final allInPlaylist = await (select(playlistSongs)
+          ..where((t) => t.playlistId.equals(playlistId))
+          ..orderBy([(t) => OrderingTerm.asc(t.orderIndex)]))
+        .get();
+
+    final currentIndex = allInPlaylist.indexWhere((e) => e.songId == songId);
+    if (currentIndex == -1) return;
+
+    if (moveUp && currentIndex > 0) {
+      final current = allInPlaylist[currentIndex];
+      final previous = allInPlaylist[currentIndex - 1];
+      await (update(playlistSongs)..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(current.songId)))
+          .write(PlaylistSongsCompanion(orderIndex: Value(previous.orderIndex)));
+      await (update(playlistSongs)..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(previous.songId)))
+          .write(PlaylistSongsCompanion(orderIndex: Value(current.orderIndex)));
+    } else if (!moveUp && currentIndex < allInPlaylist.length - 1) {
+      final current = allInPlaylist[currentIndex];
+      final next = allInPlaylist[currentIndex + 1];
+      await (update(playlistSongs)..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(current.songId)))
+          .write(PlaylistSongsCompanion(orderIndex: Value(next.orderIndex)));
+      await (update(playlistSongs)..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(next.songId)))
+          .write(PlaylistSongsCompanion(orderIndex: Value(current.orderIndex)));
+    }
+  }
+
   Future<int> removeSongFromPlaylist(int playlistId, int songId) =>
       (delete(playlistSongs)..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId))).go();
+
   Stream<List<SongEntry>> watchSongsInPlaylist(int playlistId) {
     final query = select(songs).join([innerJoin(playlistSongs, playlistSongs.songId.equalsExp(songs.id))])
-      ..where(playlistSongs.playlistId.equals(playlistId));
+      ..where(playlistSongs.playlistId.equals(playlistId))
+      ..orderBy([OrderingTerm.asc(playlistSongs.orderIndex)]);
     return query.watch().map((rows) => rows.map((row) => row.readTable(songs)).toList());
   }
 }

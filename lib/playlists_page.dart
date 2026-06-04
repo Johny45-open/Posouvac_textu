@@ -201,8 +201,35 @@ class PlaylistSongsPage extends StatelessWidget {
             itemBuilder: (context, i) {
               final song = songs[i];
               return Semantics(
-                label: "${song.artist}, ${song.title}",
+                label: "Píseň ${i + 1} v pořadí: ${song.artist}, ${song.title}",
                 child: ListTile(
+                  leading: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (i > 0)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_upward, size: 20),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          tooltip: "Posunout ${song.title} nahoru",
+                          onPressed: () async {
+                            await db.reorderPlaylistSongs(playlist.id, song.id, true);
+                            tts.speak("Píseň ${song.title} posunuta na ${i}. místo");
+                          },
+                        ),
+                      if (i < songs.length - 1)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_downward, size: 20),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          tooltip: "Posunout ${song.title} dolů",
+                          onPressed: () async {
+                            await db.reorderPlaylistSongs(playlist.id, song.id, false);
+                            tts.speak("Píseň ${song.title} posunuta na ${i + 2}. místo");
+                          },
+                        ),
+                    ],
+                  ),
                   title: Text(song.artist),
                   subtitle: Text(song.title),
                   trailing: IconButton(
