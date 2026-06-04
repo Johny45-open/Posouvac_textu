@@ -341,22 +341,22 @@ class _LibraryPageState extends State<LibraryPage> {
               MaterialPageRoute(builder: (context) => PlaylistsPage(db: widget.db)),
             ),
           ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            tooltip: "Další možnosti",
-            onSelected: (val) async {
-              if (val == "reset_played") {
-                await widget.db.resetAllPlayed();
-                _tts.speak(AppStrings.resetPlayed);
-                setState(() {});
-              }
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: "Vynulovat odehrané",
+            onPressed: () async {
+              await widget.db.resetAllPlayed();
+              _tts.speak(AppStrings.resetPlayed);
+              setState(() {});
             },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: "reset_played",
-                child: Text("Vynulovat odehrané"),
-              ),
-            ],
+          ),
+          IconButton(
+            icon: Icon(widget.isInformalMode ? Icons.business : Icons.sentiment_satisfied),
+            tooltip: widget.isInformalMode ? "Přepnout na formální režim" : "Přepnout na neformální režim",
+            onPressed: () {
+              widget.onInformalModeChanged(!widget.isInformalMode);
+              _tts.speak(widget.isInformalMode ? "Přepínám do formálního režimu" : "Přepínám do neformálního režimu");
+            },
           ),
           FilterChip(
             label: const Text("Oblíbené"),
