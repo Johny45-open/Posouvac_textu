@@ -124,19 +124,23 @@ class _PlayerPageState extends State<PlayerPage> {
                   itemCount: _stopMarks.length,
                   itemBuilder: (context, i) {
                     final mark = _stopMarks[i];
-                    return ListTile(
-                      leading: const Icon(Icons.pause_circle_filled),
-                      title: Text("Pauza na ${mark.durationBars} takty"),
-                      subtitle: Text("Pozice: ${(mark.positionRatio * 100).round()}% textu"),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () async {
-                          await widget.db.deleteStopMark(mark.id);
-                          final newMarks = await widget.db.getStopMarksForSong(widget.songId);
-                          setState(() => _stopMarks = newMarks);
-                          setDialogState(() {});
-                          _tts.speak("Pauza smazána");
-                        },
+                    return Semantics(
+                      label: "Pauza na ${mark.durationBars} takty, umístěna v ${(mark.positionRatio * 100).round()} procentech textu.",
+                      child: ListTile(
+                        leading: const Icon(Icons.pause_circle_filled),
+                        title: Text("Pauza na ${mark.durationBars} takty"),
+                        subtitle: Text("Pozice: ${(mark.positionRatio * 100).round()}% textu"),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          tooltip: "Smazat tuto pauzu na ${mark.durationBars} takty",
+                          onPressed: () async {
+                            await widget.db.deleteStopMark(mark.id);
+                            final newMarks = await widget.db.getStopMarksForSong(widget.songId);
+                            setState(() => _stopMarks = newMarks);
+                            setDialogState(() {});
+                            _tts.speak("Pauza smazána");
+                          },
+                        ),
                       ),
                     );
                   },
@@ -178,6 +182,13 @@ class _PlayerPageState extends State<PlayerPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _quickAddStopMark() async {
+    final ratio = _scrollController.offset / _scrollController.position.maxScrollExtent;
+    await widget.db.addStopMark(_song.id, ratio, 2); // Výchozí 2 takty
+    _stopMarks = await widget.db.getStopMarksForSong(_song.id);
+    _tts.speak(AppStrings.stopMarkQuickAdded);
   }
 
   void _startScrolling() {
@@ -365,12 +376,17 @@ class _PlayerPageState extends State<PlayerPage> {
             tooltip: "Tempo (BPM)",
             onPressed: _showBpmDialog,
           ),
-          GestureDetector(
-            onLongPress: _manageStopMarks,
-            child: IconButton(
-              icon: const Icon(Icons.add_circle_outline),
-              tooltip: "Přidat pauzu (sólo) - podržením spravujete",
-              onPressed: _addStopMark,
+          Semantics(
+            customSemanticsActions: {
+              const CustomSemanticsAction(label: "Spravovat pauzy"): _manageStopMarks,
+            },
+            child: GestureDetector(
+              onLongPress: _manageStopMarks,
+              child: IconButton(
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: "Přidat pauzu (sólo) - podržením spravujete",
+                onPressed: _addStopMark,
+              ),
             ),
           ),
           // Korekce rychlosti posuvu
@@ -455,6 +471,11 @@ class _PlayerPageState extends State<PlayerPage> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
+            ElevatedButton.icon(
+              icon: const Icon(Icons.bookmark_add),
+              label: const Text("OZNAČIT PAUZU"),
+              onPressed: _quickAddStopMark,
+            ),
             ElevatedButton.icon(
               icon: Icon(_song.isPlayed ? Icons.replay : Icons.check_circle),
               label: Text(_song.isPlayed ? AppStrings.encoreButton : AppStrings.playedButton),

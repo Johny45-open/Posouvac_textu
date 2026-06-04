@@ -22,6 +22,11 @@ class AppStrings {
       ? "Naladíš se přes tu notu v knihovně. A přes plusko si songy naházíš do playlistů, třeba na dnešní oslavu."
       : "Ikona noty v Knihovně otevře ladičku. Ikona plus u písně vám umožní zařadit ji do vlastních seznamů, jako jsou například playlisty Olympic nebo Oslava.";
 
+  static String get accessibilityTitle => isInformal ? "Tipy pro nevidomý" : "Informace pro nevidomé";
+  static String get accessibilityContent => isInformal 
+      ? "Aplikace s TalkBackem spolupracuje na jedničku. V přehrávači stačí klepnout kamkoliv do textu a jízda začne. Setlist režim tě provede celým koncertem úplně sám, stačí jen hrát. Všechna tlačítka mají svůj popisek, takže se neztratíš."
+      : "Aplikace je plně přístupná se čtečkou obrazovky. V přehrávači aktivujete posuv poklepáním na text písně. Režim Setlist automaticky přepíná písně a hlásí jejich názvy. Všechny ovládací prvky jsou popsány pro snadnou orientaci šviháním prstem.";
+
   static String get understandButton => isInformal ? "JASNÝ, JDU NA TO!" : "ROZUMÍM";
 
   // --- KNIHOVNA ---
@@ -71,6 +76,9 @@ class AppStrings {
   
   static String stopMarkMessage(int bars) => 
       isInformal ? "Pauza na $bars takty, vydechni si." : "Pauza na $bars takty.";
+
+  static String get stopMarkQuickAdded => 
+      isInformal ? "Zarážka je tam!" : "Zarážka byla přidána.";
 
   static String nextSongMessage(String title, String artist) => 
       isInformal ? "Teď dáme $title od $artist, jdeme na to!" : "Následuje píseň $title od interpreta $artist.";

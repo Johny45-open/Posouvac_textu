@@ -34,6 +34,10 @@ class _ManualPageState extends State<ManualPage> {
       title: AppStrings.extraTitle,
       content: AppStrings.extraContent,
     ),
+    ManualStep(
+      title: AppStrings.accessibilityTitle,
+      content: AppStrings.accessibilityContent,
+    ),
   ];
 
   @override
