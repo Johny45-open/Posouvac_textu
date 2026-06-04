@@ -60,6 +60,17 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
     type: DriftSqlType.double,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _introDurationMeta = const VerificationMeta(
+    'introDuration',
+  );
+  @override
+  late final GeneratedColumn<double> introDuration = GeneratedColumn<double>(
+    'intro_duration',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _isFavoriteMeta = const VerificationMeta(
     'isFavorite',
   );
@@ -120,6 +131,7 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
     artist,
     title,
     tempo,
+    introDuration,
     isFavorite,
     isPlayed,
     customFontSize,
@@ -168,6 +180,15 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
       context.handle(
         _tempoMeta,
         tempo.isAcceptableOrUnknown(data['tempo']!, _tempoMeta),
+      );
+    }
+    if (data.containsKey('intro_duration')) {
+      context.handle(
+        _introDurationMeta,
+        introDuration.isAcceptableOrUnknown(
+          data['intro_duration']!,
+          _introDurationMeta,
+        ),
       );
     }
     if (data.containsKey('is_favorite')) {
@@ -229,6 +250,10 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongEntry> {
         DriftSqlType.double,
         data['${effectivePrefix}tempo'],
       ),
+      introDuration: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}intro_duration'],
+      ),
       isFavorite: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_favorite'],
@@ -260,6 +285,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
   final String artist;
   final String title;
   final double? tempo;
+  final double? introDuration;
   final bool isFavorite;
   final bool isPlayed;
   final double? customFontSize;
@@ -270,6 +296,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     required this.artist,
     required this.title,
     this.tempo,
+    this.introDuration,
     required this.isFavorite,
     required this.isPlayed,
     this.customFontSize,
@@ -284,6 +311,9 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     map['title'] = Variable<String>(title);
     if (!nullToAbsent || tempo != null) {
       map['tempo'] = Variable<double>(tempo);
+    }
+    if (!nullToAbsent || introDuration != null) {
+      map['intro_duration'] = Variable<double>(introDuration);
     }
     map['is_favorite'] = Variable<bool>(isFavorite);
     map['is_played'] = Variable<bool>(isPlayed);
@@ -305,6 +335,9 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       tempo: tempo == null && nullToAbsent
           ? const Value.absent()
           : Value(tempo),
+      introDuration: introDuration == null && nullToAbsent
+          ? const Value.absent()
+          : Value(introDuration),
       isFavorite: Value(isFavorite),
       isPlayed: Value(isPlayed),
       customFontSize: customFontSize == null && nullToAbsent
@@ -327,6 +360,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       artist: serializer.fromJson<String>(json['artist']),
       title: serializer.fromJson<String>(json['title']),
       tempo: serializer.fromJson<double?>(json['tempo']),
+      introDuration: serializer.fromJson<double?>(json['introDuration']),
       isFavorite: serializer.fromJson<bool>(json['isFavorite']),
       isPlayed: serializer.fromJson<bool>(json['isPlayed']),
       customFontSize: serializer.fromJson<double?>(json['customFontSize']),
@@ -344,6 +378,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       'artist': serializer.toJson<String>(artist),
       'title': serializer.toJson<String>(title),
       'tempo': serializer.toJson<double?>(tempo),
+      'introDuration': serializer.toJson<double?>(introDuration),
       'isFavorite': serializer.toJson<bool>(isFavorite),
       'isPlayed': serializer.toJson<bool>(isPlayed),
       'customFontSize': serializer.toJson<double?>(customFontSize),
@@ -357,6 +392,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     String? artist,
     String? title,
     Value<double?> tempo = const Value.absent(),
+    Value<double?> introDuration = const Value.absent(),
     bool? isFavorite,
     bool? isPlayed,
     Value<double?> customFontSize = const Value.absent(),
@@ -367,6 +403,9 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     artist: artist ?? this.artist,
     title: title ?? this.title,
     tempo: tempo.present ? tempo.value : this.tempo,
+    introDuration: introDuration.present
+        ? introDuration.value
+        : this.introDuration,
     isFavorite: isFavorite ?? this.isFavorite,
     isPlayed: isPlayed ?? this.isPlayed,
     customFontSize: customFontSize.present
@@ -383,6 +422,9 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
       artist: data.artist.present ? data.artist.value : this.artist,
       title: data.title.present ? data.title.value : this.title,
       tempo: data.tempo.present ? data.tempo.value : this.tempo,
+      introDuration: data.introDuration.present
+          ? data.introDuration.value
+          : this.introDuration,
       isFavorite: data.isFavorite.present
           ? data.isFavorite.value
           : this.isFavorite,
@@ -404,6 +446,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
           ..write('artist: $artist, ')
           ..write('title: $title, ')
           ..write('tempo: $tempo, ')
+          ..write('introDuration: $introDuration, ')
           ..write('isFavorite: $isFavorite, ')
           ..write('isPlayed: $isPlayed, ')
           ..write('customFontSize: $customFontSize, ')
@@ -419,6 +462,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
     artist,
     title,
     tempo,
+    introDuration,
     isFavorite,
     isPlayed,
     customFontSize,
@@ -433,6 +477,7 @@ class SongEntry extends DataClass implements Insertable<SongEntry> {
           other.artist == this.artist &&
           other.title == this.title &&
           other.tempo == this.tempo &&
+          other.introDuration == this.introDuration &&
           other.isFavorite == this.isFavorite &&
           other.isPlayed == this.isPlayed &&
           other.customFontSize == this.customFontSize &&
@@ -445,6 +490,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
   final Value<String> artist;
   final Value<String> title;
   final Value<double?> tempo;
+  final Value<double?> introDuration;
   final Value<bool> isFavorite;
   final Value<bool> isPlayed;
   final Value<double?> customFontSize;
@@ -455,6 +501,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     this.artist = const Value.absent(),
     this.title = const Value.absent(),
     this.tempo = const Value.absent(),
+    this.introDuration = const Value.absent(),
     this.isFavorite = const Value.absent(),
     this.isPlayed = const Value.absent(),
     this.customFontSize = const Value.absent(),
@@ -466,6 +513,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     required String artist,
     required String title,
     this.tempo = const Value.absent(),
+    this.introDuration = const Value.absent(),
     this.isFavorite = const Value.absent(),
     this.isPlayed = const Value.absent(),
     this.customFontSize = const Value.absent(),
@@ -479,6 +527,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     Expression<String>? artist,
     Expression<String>? title,
     Expression<double>? tempo,
+    Expression<double>? introDuration,
     Expression<bool>? isFavorite,
     Expression<bool>? isPlayed,
     Expression<double>? customFontSize,
@@ -490,6 +539,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
       if (artist != null) 'artist': artist,
       if (title != null) 'title': title,
       if (tempo != null) 'tempo': tempo,
+      if (introDuration != null) 'intro_duration': introDuration,
       if (isFavorite != null) 'is_favorite': isFavorite,
       if (isPlayed != null) 'is_played': isPlayed,
       if (customFontSize != null) 'custom_font_size': customFontSize,
@@ -503,6 +553,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     Value<String>? artist,
     Value<String>? title,
     Value<double?>? tempo,
+    Value<double?>? introDuration,
     Value<bool>? isFavorite,
     Value<bool>? isPlayed,
     Value<double?>? customFontSize,
@@ -514,6 +565,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
       artist: artist ?? this.artist,
       title: title ?? this.title,
       tempo: tempo ?? this.tempo,
+      introDuration: introDuration ?? this.introDuration,
       isFavorite: isFavorite ?? this.isFavorite,
       isPlayed: isPlayed ?? this.isPlayed,
       customFontSize: customFontSize ?? this.customFontSize,
@@ -539,6 +591,9 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
     if (tempo.present) {
       map['tempo'] = Variable<double>(tempo.value);
     }
+    if (introDuration.present) {
+      map['intro_duration'] = Variable<double>(introDuration.value);
+    }
     if (isFavorite.present) {
       map['is_favorite'] = Variable<bool>(isFavorite.value);
     }
@@ -562,6 +617,7 @@ class SongsCompanion extends UpdateCompanion<SongEntry> {
           ..write('artist: $artist, ')
           ..write('title: $title, ')
           ..write('tempo: $tempo, ')
+          ..write('introDuration: $introDuration, ')
           ..write('isFavorite: $isFavorite, ')
           ..write('isPlayed: $isPlayed, ')
           ..write('customFontSize: $customFontSize, ')
@@ -975,12 +1031,326 @@ class PlaylistSongsCompanion extends UpdateCompanion<PlaylistSong> {
   }
 }
 
+class $StopMarksTable extends StopMarks
+    with TableInfo<$StopMarksTable, StopMark> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $StopMarksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _songIdMeta = const VerificationMeta('songId');
+  @override
+  late final GeneratedColumn<int> songId = GeneratedColumn<int>(
+    'song_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _positionRatioMeta = const VerificationMeta(
+    'positionRatio',
+  );
+  @override
+  late final GeneratedColumn<double> positionRatio = GeneratedColumn<double>(
+    'position_ratio',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _durationBarsMeta = const VerificationMeta(
+    'durationBars',
+  );
+  @override
+  late final GeneratedColumn<int> durationBars = GeneratedColumn<int>(
+    'duration_bars',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    songId,
+    positionRatio,
+    durationBars,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'stop_marks';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<StopMark> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('song_id')) {
+      context.handle(
+        _songIdMeta,
+        songId.isAcceptableOrUnknown(data['song_id']!, _songIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_songIdMeta);
+    }
+    if (data.containsKey('position_ratio')) {
+      context.handle(
+        _positionRatioMeta,
+        positionRatio.isAcceptableOrUnknown(
+          data['position_ratio']!,
+          _positionRatioMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_positionRatioMeta);
+    }
+    if (data.containsKey('duration_bars')) {
+      context.handle(
+        _durationBarsMeta,
+        durationBars.isAcceptableOrUnknown(
+          data['duration_bars']!,
+          _durationBarsMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_durationBarsMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  StopMark map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return StopMark(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      songId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}song_id'],
+      )!,
+      positionRatio: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}position_ratio'],
+      )!,
+      durationBars: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}duration_bars'],
+      )!,
+    );
+  }
+
+  @override
+  $StopMarksTable createAlias(String alias) {
+    return $StopMarksTable(attachedDatabase, alias);
+  }
+}
+
+class StopMark extends DataClass implements Insertable<StopMark> {
+  final int id;
+  final int songId;
+  final double positionRatio;
+  final int durationBars;
+  const StopMark({
+    required this.id,
+    required this.songId,
+    required this.positionRatio,
+    required this.durationBars,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['song_id'] = Variable<int>(songId);
+    map['position_ratio'] = Variable<double>(positionRatio);
+    map['duration_bars'] = Variable<int>(durationBars);
+    return map;
+  }
+
+  StopMarksCompanion toCompanion(bool nullToAbsent) {
+    return StopMarksCompanion(
+      id: Value(id),
+      songId: Value(songId),
+      positionRatio: Value(positionRatio),
+      durationBars: Value(durationBars),
+    );
+  }
+
+  factory StopMark.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return StopMark(
+      id: serializer.fromJson<int>(json['id']),
+      songId: serializer.fromJson<int>(json['songId']),
+      positionRatio: serializer.fromJson<double>(json['positionRatio']),
+      durationBars: serializer.fromJson<int>(json['durationBars']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'songId': serializer.toJson<int>(songId),
+      'positionRatio': serializer.toJson<double>(positionRatio),
+      'durationBars': serializer.toJson<int>(durationBars),
+    };
+  }
+
+  StopMark copyWith({
+    int? id,
+    int? songId,
+    double? positionRatio,
+    int? durationBars,
+  }) => StopMark(
+    id: id ?? this.id,
+    songId: songId ?? this.songId,
+    positionRatio: positionRatio ?? this.positionRatio,
+    durationBars: durationBars ?? this.durationBars,
+  );
+  StopMark copyWithCompanion(StopMarksCompanion data) {
+    return StopMark(
+      id: data.id.present ? data.id.value : this.id,
+      songId: data.songId.present ? data.songId.value : this.songId,
+      positionRatio: data.positionRatio.present
+          ? data.positionRatio.value
+          : this.positionRatio,
+      durationBars: data.durationBars.present
+          ? data.durationBars.value
+          : this.durationBars,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StopMark(')
+          ..write('id: $id, ')
+          ..write('songId: $songId, ')
+          ..write('positionRatio: $positionRatio, ')
+          ..write('durationBars: $durationBars')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, songId, positionRatio, durationBars);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is StopMark &&
+          other.id == this.id &&
+          other.songId == this.songId &&
+          other.positionRatio == this.positionRatio &&
+          other.durationBars == this.durationBars);
+}
+
+class StopMarksCompanion extends UpdateCompanion<StopMark> {
+  final Value<int> id;
+  final Value<int> songId;
+  final Value<double> positionRatio;
+  final Value<int> durationBars;
+  const StopMarksCompanion({
+    this.id = const Value.absent(),
+    this.songId = const Value.absent(),
+    this.positionRatio = const Value.absent(),
+    this.durationBars = const Value.absent(),
+  });
+  StopMarksCompanion.insert({
+    this.id = const Value.absent(),
+    required int songId,
+    required double positionRatio,
+    required int durationBars,
+  }) : songId = Value(songId),
+       positionRatio = Value(positionRatio),
+       durationBars = Value(durationBars);
+  static Insertable<StopMark> custom({
+    Expression<int>? id,
+    Expression<int>? songId,
+    Expression<double>? positionRatio,
+    Expression<int>? durationBars,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (songId != null) 'song_id': songId,
+      if (positionRatio != null) 'position_ratio': positionRatio,
+      if (durationBars != null) 'duration_bars': durationBars,
+    });
+  }
+
+  StopMarksCompanion copyWith({
+    Value<int>? id,
+    Value<int>? songId,
+    Value<double>? positionRatio,
+    Value<int>? durationBars,
+  }) {
+    return StopMarksCompanion(
+      id: id ?? this.id,
+      songId: songId ?? this.songId,
+      positionRatio: positionRatio ?? this.positionRatio,
+      durationBars: durationBars ?? this.durationBars,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (songId.present) {
+      map['song_id'] = Variable<int>(songId.value);
+    }
+    if (positionRatio.present) {
+      map['position_ratio'] = Variable<double>(positionRatio.value);
+    }
+    if (durationBars.present) {
+      map['duration_bars'] = Variable<int>(durationBars.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('StopMarksCompanion(')
+          ..write('id: $id, ')
+          ..write('songId: $songId, ')
+          ..write('positionRatio: $positionRatio, ')
+          ..write('durationBars: $durationBars')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $SongsTable songs = $SongsTable(this);
   late final $PlaylistsTable playlists = $PlaylistsTable(this);
   late final $PlaylistSongsTable playlistSongs = $PlaylistSongsTable(this);
+  late final $StopMarksTable stopMarks = $StopMarksTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -989,6 +1359,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     songs,
     playlists,
     playlistSongs,
+    stopMarks,
   ];
 }
 
@@ -999,6 +1370,7 @@ typedef $$SongsTableCreateCompanionBuilder =
       required String artist,
       required String title,
       Value<double?> tempo,
+      Value<double?> introDuration,
       Value<bool> isFavorite,
       Value<bool> isPlayed,
       Value<double?> customFontSize,
@@ -1011,6 +1383,7 @@ typedef $$SongsTableUpdateCompanionBuilder =
       Value<String> artist,
       Value<String> title,
       Value<double?> tempo,
+      Value<double?> introDuration,
       Value<bool> isFavorite,
       Value<bool> isPlayed,
       Value<double?> customFontSize,
@@ -1047,6 +1420,11 @@ class $$SongsTableFilterComposer extends Composer<_$AppDatabase, $SongsTable> {
 
   ColumnFilters<double> get tempo => $composableBuilder(
     column: $table.tempo,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get introDuration => $composableBuilder(
+    column: $table.introDuration,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1105,6 +1483,11 @@ class $$SongsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<double> get introDuration => $composableBuilder(
+    column: $table.introDuration,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isFavorite => $composableBuilder(
     column: $table.isFavorite,
     builder: (column) => ColumnOrderings(column),
@@ -1149,6 +1532,11 @@ class $$SongsTableAnnotationComposer
 
   GeneratedColumn<double> get tempo =>
       $composableBuilder(column: $table.tempo, builder: (column) => column);
+
+  GeneratedColumn<double> get introDuration => $composableBuilder(
+    column: $table.introDuration,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<bool> get isFavorite => $composableBuilder(
     column: $table.isFavorite,
@@ -1202,6 +1590,7 @@ class $$SongsTableTableManager
                 Value<String> artist = const Value.absent(),
                 Value<String> title = const Value.absent(),
                 Value<double?> tempo = const Value.absent(),
+                Value<double?> introDuration = const Value.absent(),
                 Value<bool> isFavorite = const Value.absent(),
                 Value<bool> isPlayed = const Value.absent(),
                 Value<double?> customFontSize = const Value.absent(),
@@ -1212,6 +1601,7 @@ class $$SongsTableTableManager
                 artist: artist,
                 title: title,
                 tempo: tempo,
+                introDuration: introDuration,
                 isFavorite: isFavorite,
                 isPlayed: isPlayed,
                 customFontSize: customFontSize,
@@ -1224,6 +1614,7 @@ class $$SongsTableTableManager
                 required String artist,
                 required String title,
                 Value<double?> tempo = const Value.absent(),
+                Value<double?> introDuration = const Value.absent(),
                 Value<bool> isFavorite = const Value.absent(),
                 Value<bool> isPlayed = const Value.absent(),
                 Value<double?> customFontSize = const Value.absent(),
@@ -1234,6 +1625,7 @@ class $$SongsTableTableManager
                 artist: artist,
                 title: title,
                 tempo: tempo,
+                introDuration: introDuration,
                 isFavorite: isFavorite,
                 isPlayed: isPlayed,
                 customFontSize: customFontSize,
@@ -1523,6 +1915,179 @@ typedef $$PlaylistSongsTableProcessedTableManager =
       PlaylistSong,
       PrefetchHooks Function()
     >;
+typedef $$StopMarksTableCreateCompanionBuilder =
+    StopMarksCompanion Function({
+      Value<int> id,
+      required int songId,
+      required double positionRatio,
+      required int durationBars,
+    });
+typedef $$StopMarksTableUpdateCompanionBuilder =
+    StopMarksCompanion Function({
+      Value<int> id,
+      Value<int> songId,
+      Value<double> positionRatio,
+      Value<int> durationBars,
+    });
+
+class $$StopMarksTableFilterComposer
+    extends Composer<_$AppDatabase, $StopMarksTable> {
+  $$StopMarksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get songId => $composableBuilder(
+    column: $table.songId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get positionRatio => $composableBuilder(
+    column: $table.positionRatio,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get durationBars => $composableBuilder(
+    column: $table.durationBars,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$StopMarksTableOrderingComposer
+    extends Composer<_$AppDatabase, $StopMarksTable> {
+  $$StopMarksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get songId => $composableBuilder(
+    column: $table.songId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get positionRatio => $composableBuilder(
+    column: $table.positionRatio,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get durationBars => $composableBuilder(
+    column: $table.durationBars,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$StopMarksTableAnnotationComposer
+    extends Composer<_$AppDatabase, $StopMarksTable> {
+  $$StopMarksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get songId =>
+      $composableBuilder(column: $table.songId, builder: (column) => column);
+
+  GeneratedColumn<double> get positionRatio => $composableBuilder(
+    column: $table.positionRatio,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get durationBars => $composableBuilder(
+    column: $table.durationBars,
+    builder: (column) => column,
+  );
+}
+
+class $$StopMarksTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $StopMarksTable,
+          StopMark,
+          $$StopMarksTableFilterComposer,
+          $$StopMarksTableOrderingComposer,
+          $$StopMarksTableAnnotationComposer,
+          $$StopMarksTableCreateCompanionBuilder,
+          $$StopMarksTableUpdateCompanionBuilder,
+          (StopMark, BaseReferences<_$AppDatabase, $StopMarksTable, StopMark>),
+          StopMark,
+          PrefetchHooks Function()
+        > {
+  $$StopMarksTableTableManager(_$AppDatabase db, $StopMarksTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$StopMarksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$StopMarksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$StopMarksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> songId = const Value.absent(),
+                Value<double> positionRatio = const Value.absent(),
+                Value<int> durationBars = const Value.absent(),
+              }) => StopMarksCompanion(
+                id: id,
+                songId: songId,
+                positionRatio: positionRatio,
+                durationBars: durationBars,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int songId,
+                required double positionRatio,
+                required int durationBars,
+              }) => StopMarksCompanion.insert(
+                id: id,
+                songId: songId,
+                positionRatio: positionRatio,
+                durationBars: durationBars,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$StopMarksTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $StopMarksTable,
+      StopMark,
+      $$StopMarksTableFilterComposer,
+      $$StopMarksTableOrderingComposer,
+      $$StopMarksTableAnnotationComposer,
+      $$StopMarksTableCreateCompanionBuilder,
+      $$StopMarksTableUpdateCompanionBuilder,
+      (StopMark, BaseReferences<_$AppDatabase, $StopMarksTable, StopMark>),
+      StopMark,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -1533,4 +2098,6 @@ class $AppDatabaseManager {
       $$PlaylistsTableTableManager(_db, _db.playlists);
   $$PlaylistSongsTableTableManager get playlistSongs =>
       $$PlaylistSongsTableTableManager(_db, _db.playlistSongs);
+  $$StopMarksTableTableManager get stopMarks =>
+      $$StopMarksTableTableManager(_db, _db.stopMarks);
 }

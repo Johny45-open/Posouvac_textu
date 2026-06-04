@@ -7,6 +7,7 @@ class Songs extends Table {
   TextColumn get artist => text()();
   TextColumn get title => text()();
   RealColumn get tempo => real().nullable()();
+  RealColumn get introDuration => real().nullable()();
   BoolColumn get isFavorite => boolean().withDefault(const Constant(false))();
   BoolColumn get isPlayed => boolean().withDefault(const Constant(false))();
   RealColumn get customFontSize => real().nullable()();

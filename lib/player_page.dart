@@ -26,14 +26,43 @@ class _PlayerPageState extends State<PlayerPage> {
   Timer? _scrollTimer;
   bool _isScrolling = false;
   
-  double _fontSize = 20.0;
-  double? _bpm;
-  double _scrollMultiplier = 1.0;
-  int _countdown = 0;
-  
-  String? _loadedContent;
-  bool _isLoading = true;
   late SongEntry _song;
+  bool _isLoading = true;
+  String? _loadedContent;
+  
+  double _fontSize = 20.0;
+  double _scrollMultiplier = 1.0;
+  double? _bpm;
+  double? _introDuration;
+  int _countdown = 0;
+  List<StopMark> _stopMarks = [];
+  bool _isPausedAtStop = false;
+
+  Future<void> _saveSettings() async {
+    await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, _fontSize, _scrollMultiplier);
+  }
+
+  void _startWithCountdown() async {
+    setState(() => _isScrolling = true);
+    
+    if (_introDuration != null && _introDuration! > 0) {
+      _tts.speak("Intro ${_introDuration!.round()} sekund");
+      await Future.delayed(Duration(seconds: _introDuration!.round()));
+    }
+
+    if (!mounted || !_isScrolling) return;
+
+    for (int i = 3; i > 0; i--) {
+      if (!mounted || !_isScrolling) return;
+      setState(() => _countdown = i);
+      _tts.speak("$i");
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    if (!mounted || !_isScrolling) return;
+    setState(() => _countdown = 0);
+    _startScrolling();
+  }
 
   @override
   void initState() {
@@ -46,12 +75,15 @@ class _PlayerPageState extends State<PlayerPage> {
   Future<void> _loadSongData() async {
     try {
       _song = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).getSingle();
-      
+      _stopMarks = await widget.db.getStopMarksForSong(widget.songId);
+
       setState(() {
         _fontSize = _song.customFontSize ?? 20.0;
         _bpm = _song.tempo;
-        _scrollMultiplier = _song.customScrollSpeed ?? 1.0;
+        _introDuration = _song.introDuration;
       });
+
+      _scrollMultiplier = _song.customScrollSpeed ?? 1.0;
 
       final file = File(_song.filePath);
       if (await file.exists()) {
@@ -76,69 +108,83 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  Future<void> _saveSettings() async {
-    await (widget.db.update(widget.db.songs)..where((s) => s.id.equals(widget.songId))).write(
-      SongsCompanion(
-        tempo: Value(_bpm),
-        customFontSize: Value(_fontSize),
-        customScrollSpeed: Value(_scrollMultiplier),
+  Future<void> _addStopMark() async {
+    final barsController = TextEditingController(text: "2");
+    final ratio = _scrollController.offset / _scrollController.position.maxScrollExtent;
+    
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Přidat pauzu"),
+        content: TextField(
+          controller: barsController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: "Délka pauzy v taktech"),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
+          TextButton(
+            onPressed: () async {
+              final bars = int.tryParse(barsController.text) ?? 2;
+              await widget.db.addStopMark(_song.id, ratio, bars);
+              _stopMarks = await widget.db.getStopMarksForSong(_song.id);
+              Navigator.pop(context);
+              _tts.speak("Pauza přidána");
+            },
+            child: const Text("Uložit"),
+          ),
+        ],
       ),
     );
   }
 
-  Future<void> _startWithCountdown() async {
-    if (_bpm == null || _bpm! <= 0) {
-      await _showBpmDialog();
-      if (_bpm == null) return;
-    }
-
-    setState(() => _countdown = 4);
-    
-    // Pro odpočet chceme rychlejší a úsečnější hlas
-    await _tts.setSpeechRate(0.8);
-    
-    final interval = Duration(milliseconds: (60000 / _bpm!).round());
-    
-    for (int i = 4; i > 0; i--) {
-      if (!mounted) return;
-      setState(() => _countdown = i);
-      await _tts.speak(i.toString());
-      await Future.delayed(interval);
-    }
-
-    // Po odpočtu vrátíme rychlost na standardní pro běžná hlášení
-    await _tts.setSpeechRate(0.5);
-
-    if (mounted) {
-      setState(() {
-        _countdown = 0;
-        _isScrolling = true;
-      });
-      _startScrolling();
-    }
-  }
-
   void _startScrolling() {
     _scrollTimer?.cancel();
-    // Výpočet rychlosti: Pixely za 50ms
-    // Odhad: Jeden řádek textu má cca _fontSize * 1.5 pixelů. 
-    // Předpokládáme 4 doby na řádek.
+    
     _scrollTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       if (_scrollController.hasClients) {
-        // Výpočet rychlosti provádíme uvnitř timeru, aby reagoval na změny zoomu okamžitě
+        if (_isPausedAtStop) return;
+
         final double pixelsPerBeat = (_fontSize * 1.5) / 4.0;
         final double beatsPerSecond = (_bpm ?? 120) / 60.0;
         final double pixelsPerSecond = pixelsPerBeat * beatsPerSecond;
         final double scrollStep = (pixelsPerSecond / 20.0) * _scrollMultiplier;
 
         final newOffset = _scrollController.offset + scrollStep;
-        if (newOffset < _scrollController.position.maxScrollExtent) {
+        final maxExtent = _scrollController.position.maxScrollExtent;
+
+        // Kontrola zarážek
+        final currentRatio = newOffset / maxExtent;
+        for (final mark in _stopMarks) {
+          if (currentRatio >= mark.positionRatio && currentRatio < mark.positionRatio + 0.02) {
+            _handleStopMark(mark);
+            return;
+          }
+        }
+
+        if (newOffset < maxExtent) {
           _scrollController.jumpTo(newOffset);
         } else {
           _stopScrolling();
         }
       }
     });
+  }
+
+  Future<void> _handleStopMark(StopMark mark) async {
+    _isPausedAtStop = true;
+    _stopScrolling();
+    _tts.speak("Pauza na ${mark.durationBars} takty.");
+    
+    final duration = Duration(milliseconds: ((60000 / (_bpm ?? 120)) * mark.durationBars * 4).round());
+    await Future.delayed(duration);
+    
+    if (mounted && _isScrolling) {
+      _isPausedAtStop = false;
+      _startScrolling();
+    } else {
+      _isPausedAtStop = false;
+    }
   }
 
   void _stopScrolling() {
