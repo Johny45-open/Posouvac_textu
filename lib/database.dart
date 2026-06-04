@@ -39,7 +39,7 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase() => instance;
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration {
@@ -61,6 +61,9 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 6) {
           await m.addColumn(playlistSongs, playlistSongs.orderIndex);
+        }
+        if (from < 7) {
+          await m.addColumn(songs, songs.duration);
         }
       },
     );
@@ -93,6 +96,9 @@ class AppDatabase extends _$AppDatabase {
 
   Future<int> updateSong(int id, String newArtist, String newTitle) =>
       (update(songs)..where((s) => s.id.equals(id))).write(SongsCompanion(artist: Value(newArtist), title: Value(newTitle)));
+
+  Future<int> updateSongDuration(int id, int? seconds) =>
+      (update(songs)..where((s) => s.id.equals(id))).write(SongsCompanion(duration: Value(seconds)));
 
   Future<int> updateSongSettings(int id, double? bpm, double? introDuration, double fontSize, double scrollMultiplier) =>
       (update(songs)..where((s) => s.id.equals(id))).write(SongsCompanion(

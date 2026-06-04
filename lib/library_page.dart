@@ -62,6 +62,11 @@ class _LibraryPageState extends State<LibraryPage> {
     final artistController = TextEditingController(text: song.artist);
     final titleController = TextEditingController(text: song.title);
     
+    int initialMinutes = (song.duration ?? 0) ~/ 60;
+    int initialSeconds = (song.duration ?? 0) % 60;
+    final minController = TextEditingController(text: initialMinutes > 0 ? initialMinutes.toString() : "");
+    final secController = TextEditingController(text: initialSeconds > 0 ? initialSeconds.toString() : "");
+
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -83,13 +88,36 @@ class _LibraryPageState extends State<LibraryPage> {
               const SizedBox(height: 20),
               TextFormField(
                 controller: titleController,
-                textInputAction: TextInputAction.done,
+                textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
                   labelText: "Název písně",
                   hintText: "Zadejte název písně",
                   helperText: "Upravte název skladby",
                   border: OutlineInputBorder(),
                 ),
+              ),
+              const SizedBox(height: 20),
+              const Text("Délka skladby", style: TextStyle(fontWeight: FontWeight.bold)),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: minController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(labelText: "Minut", border: OutlineInputBorder()),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextFormField(
+                      controller: secController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      decoration: const InputDecoration(labelText: "Sekund", border: OutlineInputBorder()),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -99,6 +127,10 @@ class _LibraryPageState extends State<LibraryPage> {
           TextButton(
             onPressed: () async {
               await widget.db.updateSong(song.id, artistController.text, titleController.text);
+              
+              int totalSec = (int.tryParse(minController.text) ?? 0) * 60 + (int.tryParse(secController.text) ?? 0);
+              await widget.db.updateSongDuration(song.id, totalSec > 0 ? totalSec : null);
+              
               _tts.speak("Píseň upravena");
               if (mounted) Navigator.pop(context);
             },
@@ -411,6 +443,15 @@ class _LibraryPageState extends State<LibraryPage> {
               final bpmText = song.tempo != null ? "${song.tempo!.round()} údery za minutu" : "Tempo nenastaveno";
               final playedText = song.isPlayed ? "Odehraná. " : "";
               
+              String durationText = "";
+              String durationSemantics = "";
+              if (song.duration != null && song.duration! > 0) {
+                final m = song.duration! ~/ 60;
+                final s = song.duration! % 60;
+                durationText = " [$m:${s.toString().padLeft(2, '0')}]";
+                durationSemantics = ". Délka $m minut a $s sekund.";
+              }
+
               // Vyčistíme název od duplicitního interpreta
               String cleanTitle = song.title;
               if (cleanTitle.startsWith("${song.artist} - ")) {
@@ -451,7 +492,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         child: Semantics(
                           container: true,
                           excludeSemantics: true,
-                          label: "${playedText}Píseň: $cleanTitle od ${song.artist}. $bpmText. Poklepáním přehrajete, podržením upravíte.",
+                          label: "${playedText}Píseň: $cleanTitle od ${song.artist}$durationSemantics $bpmText. Poklepáním přehrajete, podržením upravíte.",
                           button: true,
                           child: InkWell(
                             onTap: () => Navigator.push(
@@ -473,7 +514,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ),
                                       Expanded(
                                         child: Text(
-                                          song.artist,
+                                          "${song.artist}$durationText",
                                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                         ),
                                       ),

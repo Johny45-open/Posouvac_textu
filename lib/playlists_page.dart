@@ -150,6 +150,16 @@ class PlaylistSongsPage extends StatelessWidget {
 
   const PlaylistSongsPage({super.key, required this.playlist, required this.db});
 
+  String _formatTotalTime(int totalSeconds) {
+    if (totalSeconds == 0) return "Čas neurčen";
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    if (minutes > 0) {
+      return "Celkový čas: $minutes min ${seconds > 0 ? '$seconds s' : ''}";
+    }
+    return "Celkový čas: $seconds s";
+  }
+
   @override
   Widget build(BuildContext context) {
     final FlutterTts tts = FlutterTts();
@@ -158,7 +168,30 @@ class PlaylistSongsPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("Playlist: ${playlist.name}"),
+        title: StreamBuilder<List<SongEntry>>(
+          stream: db.watchSongsInPlaylist(playlist.id),
+          builder: (context, snapshot) {
+            final String baseTitle = "Playlist: ${playlist.name}";
+            if (!snapshot.hasData || snapshot.data!.isEmpty) return Text(baseTitle);
+            
+            final totalSec = snapshot.data!.fold<int>(0, (sum, s) => sum + (s.duration ?? 0));
+            final timeText = _formatTotalTime(totalSec);
+
+            return Semantics(
+              label: "$baseTitle. ${snapshot.data!.length} skladeb. $timeText.",
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(baseTitle, style: const TextStyle(fontSize: 16)),
+                  Text(
+                    timeText,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
         actions: [
           StreamBuilder<List<SongEntry>>(
             stream: db.watchSongsInPlaylist(playlist.id),
@@ -200,8 +233,17 @@ class PlaylistSongsPage extends StatelessWidget {
             itemCount: songs.length,
             itemBuilder: (context, i) {
               final song = songs[i];
+              String durationText = "";
+              String durationSemantics = "";
+              if (song.duration != null && song.duration! > 0) {
+                final m = song.duration! ~/ 60;
+                final s = song.duration! % 60;
+                durationText = " [${m}:${s.toString().padLeft(2, '0')}]";
+                durationSemantics = ". Délka $m minut a $s sekund.";
+              }
+
               return Semantics(
-                label: "Píseň ${i + 1} v pořadí: ${song.artist}, ${song.title}",
+                label: "Píseň ${i + 1} v pořadí: ${song.artist}, ${song.title}$durationSemantics",
                 child: ListTile(
                   leading: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -230,7 +272,7 @@ class PlaylistSongsPage extends StatelessWidget {
                         ),
                     ],
                   ),
-                  title: Text(song.artist),
+                  title: Text("${song.artist}$durationText"),
                   subtitle: Text(song.title),
                   trailing: IconButton(
                     icon: const Icon(Icons.remove_circle_outline),

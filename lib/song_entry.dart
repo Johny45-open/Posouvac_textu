@@ -12,4 +12,5 @@ class Songs extends Table {
   BoolColumn get isPlayed => boolean().withDefault(const Constant(false))();
   RealColumn get customFontSize => real().nullable()();
   RealColumn get customScrollSpeed => real().nullable()();
+  IntColumn get duration => integer().nullable()();
 }
