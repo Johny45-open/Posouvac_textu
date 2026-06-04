@@ -65,6 +65,35 @@ class AppStrings {
   static String get playedButton => isInformal ? "ODEHRÁNO" : "ODEHRÁNO";
   static String get encoreButton => isInformal ? "PŘÍDAVEK!" : "PŘÍDAVEK";
 
+  // --- SETLIST A ODPOČET ---
+  static String introMessage(int seconds) => 
+      isInformal ? "Intro $seconds sekund, nachystej se!" : "Intro $seconds sekund.";
+  
+  static String stopMarkMessage(int bars) => 
+      isInformal ? "Pauza na $bars takty, vydechni si." : "Pauza na $bars takty.";
+
+  static String nextSongMessage(String title, String artist) => 
+      isInformal ? "Teď dáme $title od $artist, jdeme na to!" : "Následuje píseň $title od interpreta $artist.";
+
+  static String get setlistEndMessage => 
+      isInformal ? "A je to! Celý setlist dohrán, seš borec!" : "Konec setlistu. Všechny skladby byly odehrány.";
+
+  static String startSetlistMessage(String name, String firstSong) => 
+      isInformal ? "Rozjíždíme setlist $name. První flák je $firstSong." : "Spouštím setlist $name. První píseň je $firstSong.";
+
+  // --- PLAYLISTY ---
+  static String playlistCreated(String name) => 
+      isInformal ? "Playlist $name je na světě." : "Playlist $name byl vytvořen.";
+  
+  static String playlistDeleted(String name) => 
+      isInformal ? "Smazáno. Playlist $name už neexistuje." : "Playlist $name byl smazán.";
+
+  static String playlistRenamed(String oldName, String newName) => 
+      isInformal ? "Přejmenováno z $oldName na $newName." : "Playlist $oldName byl přejmenován na $newName.";
+
+  static String songRemovedFromPlaylist(String title) => 
+      isInformal ? "Song $title z playlistu vyletěl." : "Skladba $title byla odebrána z playlistu.";
+
   // --- NASTAVENÍ ---
   static String get themeLight => isInformal ? "Budiž světlo." : "Světlý motiv nastaven.";
   static String get themeDark => isInformal ? "Tma je tu." : "Tmavý motiv nastaven.";

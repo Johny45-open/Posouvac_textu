@@ -65,10 +65,17 @@ class AppDatabase extends _$AppDatabase {
   // Metody pro písně
   Future<List<SongEntry>> getAllSongs() => select(songs).get();
   
-  Stream<List<SongEntry>> watchAllSongs({bool onlyFavorites = false, bool onlyUnplayed = false}) {
+  Stream<List<SongEntry>> watchAllSongs({bool onlyFavorites = false, bool onlyUnplayed = false, bool sortByArtist = true}) {
     final query = select(songs);
     if (onlyFavorites) query.where((s) => s.isFavorite.equals(true));
     if (onlyUnplayed) query.where((s) => s.isPlayed.equals(false));
+    
+    if (sortByArtist) {
+      query.orderBy([(t) => OrderingTerm(expression: t.artist.toLowerCase()), (t) => OrderingTerm(expression: t.title.toLowerCase())]);
+    } else {
+      query.orderBy([(t) => OrderingTerm(expression: t.title.toLowerCase()), (t) => OrderingTerm(expression: t.artist.toLowerCase())]);
+    }
+    
     return query.watch();
   }
 

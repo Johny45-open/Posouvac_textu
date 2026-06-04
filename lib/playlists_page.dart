@@ -41,7 +41,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
             onPressed: () async {
               if (controller.text.isNotEmpty) {
                 await widget.db.createPlaylist(controller.text);
-                _tts.speak("Playlist ${controller.text} byl vytvořen.");
+                _tts.speak(AppStrings.playlistCreated(controller.text));
                 if (mounted) {
                   Navigator.pop(context);
                   setState(() {});
@@ -72,7 +72,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
           TextButton(
             onPressed: () async {
               await widget.db.deletePlaylist(playlist.id);
-              _tts.speak("Playlist ${playlist.name} byl smazán.");
+              _tts.speak(AppStrings.playlistDeleted(playlist.name));
               if (mounted) {
                 Navigator.pop(context);
                 setState(() {});
@@ -85,7 +85,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
             onPressed: () async {
               if (controller.text.isNotEmpty) {
                 await widget.db.renamePlaylist(playlist.id, controller.text);
-                _tts.speak("Playlist byl přejmenován na ${controller.text}.");
+                _tts.speak(AppStrings.playlistRenamed(playlist.name, controller.text));
                 if (mounted) {
                   Navigator.pop(context);
                   setState(() {});
@@ -156,7 +156,35 @@ class PlaylistSongsPage extends StatelessWidget {
     tts.setSpeechRate(0.5);
 
     return Scaffold(
-      appBar: AppBar(title: Text("Playlist: ${playlist.name}")),
+      appBar: AppBar(
+        title: Text("Playlist: ${playlist.name}"),
+        actions: [
+          StreamBuilder<List<SongEntry>>(
+            stream: db.watchSongsInPlaylist(playlist.id),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox();
+              return IconButton(
+                icon: const Icon(Icons.play_circle_fill, color: Colors.green),
+                tooltip: "Spustit Setlist",
+                onPressed: () {
+                  final ids = snapshot.data!.map((s) => s.id).toList();
+                  tts.speak(AppStrings.startSetlistMessage(playlist.name, snapshot.data!.first.title));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => PlayerPage(
+                        songId: ids.first,
+                        db: db,
+                        setlistIds: ids,
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
       body: StreamBuilder<List<SongEntry>>(
         stream: db.watchSongsInPlaylist(playlist.id),
         builder: (context, snapshot) {
@@ -181,7 +209,7 @@ class PlaylistSongsPage extends StatelessWidget {
                     tooltip: "Odebrat skladbu ${song.title} z playlistu",
                     onPressed: () async {
                       await db.removeSongFromPlaylist(playlist.id, song.id);
-                      tts.speak("Skladba ${song.title} byla odebrána z playlistu.");
+                      tts.speak(AppStrings.songRemovedFromPlaylist(song.title));
                     },
                   ),
                   onTap: () => Navigator.push(

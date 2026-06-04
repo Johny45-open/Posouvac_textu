@@ -40,6 +40,7 @@ class _LibraryPageState extends State<LibraryPage> {
   final FlutterTts _tts = FlutterTts();
   bool _onlyFavorites = false;
   bool _onlyUnplayed = false;
+  bool _sortByArtist = true;
 
   @override
   void initState() {
@@ -358,6 +359,18 @@ class _LibraryPageState extends State<LibraryPage> {
               _tts.speak(widget.isInformalMode ? "Přepínám do formálního režimu" : "Přepínám do neformálního režimu");
             },
           ),
+          PopupMenuButton<bool>(
+            icon: const Icon(Icons.sort_by_alpha),
+            tooltip: "Seřadit podle",
+            onSelected: (val) {
+              setState(() => _sortByArtist = val);
+              _tts.speak(val ? "Řadím podle interpretů" : "Řadím podle názvů písní");
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: true, child: Text("Podle interpreta")),
+              const PopupMenuItem(value: false, child: Text("Podle názvu")),
+            ],
+          ),
           FilterChip(
             label: const Text("Oblíbené"),
             selected: _onlyFavorites,
@@ -381,6 +394,7 @@ class _LibraryPageState extends State<LibraryPage> {
         stream: widget.db.watchAllSongs(
           onlyFavorites: _onlyFavorites,
           onlyUnplayed: _onlyUnplayed,
+          sortByArtist: _sortByArtist,
         ),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const SizedBox();

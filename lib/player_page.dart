@@ -13,8 +13,9 @@ import 'app_strings.dart';
 class PlayerPage extends StatefulWidget {
   final int songId;
   final AppDatabase db;
+  final List<int>? setlistIds;
 
-  const PlayerPage({super.key, required this.songId, required this.db});
+  const PlayerPage({super.key, required this.songId, required this.db, this.setlistIds});
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -46,7 +47,7 @@ class _PlayerPageState extends State<PlayerPage> {
     setState(() => _isScrolling = true);
     
     if (_introDuration != null && _introDuration! > 0) {
-      _tts.speak("Intro ${_introDuration!.round()} sekund");
+      _tts.speak(AppStrings.introMessage(_introDuration!.round()));
       await Future.delayed(Duration(seconds: _introDuration!.round()));
     }
 
@@ -174,7 +175,7 @@ class _PlayerPageState extends State<PlayerPage> {
   Future<void> _handleStopMark(StopMark mark) async {
     _isPausedAtStop = true;
     _stopScrolling();
-    _tts.speak("Pauza na ${mark.durationBars} takty.");
+    _tts.speak(AppStrings.stopMarkMessage(mark.durationBars));
     
     final duration = Duration(milliseconds: ((60000 / (_bpm ?? 120)) * mark.durationBars * 4).round());
     await Future.delayed(duration);
@@ -193,6 +194,41 @@ class _PlayerPageState extends State<PlayerPage> {
       _isScrolling = false;
       _countdown = 0;
     });
+
+    // Pokud jsme v režimu Setlist a došli jsme na konec, nabídneme další píseň
+    if (widget.setlistIds != null && _scrollController.offset >= _scrollController.position.maxScrollExtent - 10) {
+      _handleNextInSetlist();
+    }
+  }
+
+  Future<void> _handleNextInSetlist() async {
+    final currentIndex = widget.setlistIds!.indexOf(widget.songId);
+    if (currentIndex != -1 && currentIndex < widget.setlistIds!.length - 1) {
+      final nextSongId = widget.setlistIds![currentIndex + 1];
+      final nextSong = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(nextSongId))).getSingle();
+      
+      if (mounted) {
+        _tts.speak(AppStrings.nextSongMessage(nextSong.title, nextSong.artist));
+        
+        // Krátká pauza na vydýchání
+        await Future.delayed(const Duration(seconds: 3));
+        
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PlayerPage(
+                songId: nextSongId,
+                db: widget.db,
+                setlistIds: widget.setlistIds,
+              ),
+            ),
+          );
+        }
+      }
+    } else {
+      _tts.speak(AppStrings.setlistEndMessage);
+    }
   }
 
   void _toggleScrolling() {
