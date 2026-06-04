@@ -71,9 +71,9 @@ class AppDatabase extends _$AppDatabase {
     if (onlyUnplayed) query.where((s) => s.isPlayed.equals(false));
     
     if (sortByArtist) {
-      query.orderBy([(t) => OrderingTerm(expression: t.artist.toLowerCase()), (t) => OrderingTerm(expression: t.title.toLowerCase())]);
+      query.orderBy([(t) => OrderingTerm(expression: t.artist.lower()), (t) => OrderingTerm(expression: t.title.lower())]);
     } else {
-      query.orderBy([(t) => OrderingTerm(expression: t.title.toLowerCase()), (t) => OrderingTerm(expression: t.artist.toLowerCase())]);
+      query.orderBy([(t) => OrderingTerm(expression: t.title.lower()), (t) => OrderingTerm(expression: t.artist.lower())]);
     }
     
     return query.watch();

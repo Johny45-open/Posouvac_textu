@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'database.dart';
 import 'player_page.dart';
+import 'app_strings.dart';
 
 class PlaylistsPage extends StatefulWidget {
   final AppDatabase db;

@@ -109,6 +109,47 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
+  Future<void> _manageStopMarks() async {
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text("Správa pauz"),
+          content: _stopMarks.isEmpty 
+            ? const Text("Tato píseň nemá žádné nastavené pauzy.")
+            : SizedBox(
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _stopMarks.length,
+                  itemBuilder: (context, i) {
+                    final mark = _stopMarks[i];
+                    return ListTile(
+                      leading: const Icon(Icons.pause_circle_filled),
+                      title: Text("Pauza na ${mark.durationBars} takty"),
+                      subtitle: Text("Pozice: ${(mark.positionRatio * 100).round()}% textu"),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () async {
+                          await widget.db.deleteStopMark(mark.id);
+                          final newMarks = await widget.db.getStopMarksForSong(widget.songId);
+                          setState(() => _stopMarks = newMarks);
+                          setDialogState(() {});
+                          _tts.speak("Pauza smazána");
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zavřít")),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _addStopMark() async {
     final barsController = TextEditingController(text: "2");
     final ratio = _scrollController.offset / _scrollController.position.maxScrollExtent;
@@ -323,6 +364,14 @@ class _PlayerPageState extends State<PlayerPage> {
             icon: const Icon(Icons.speed),
             tooltip: "Tempo (BPM)",
             onPressed: _showBpmDialog,
+          ),
+          GestureDetector(
+            onLongPress: _manageStopMarks,
+            child: IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              tooltip: "Přidat pauzu (sólo) - podržením spravujete",
+              onPressed: _addStopMark,
+            ),
           ),
           // Korekce rychlosti posuvu
           Row(
