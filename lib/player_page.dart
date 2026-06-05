@@ -46,6 +46,72 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, _fontSize, _scrollMultiplier);
   }
 
+  Future<void> _showBpmDialog() async {
+    final controller = TextEditingController(text: _bpm?.round().toString() ?? "120");
+    List<DateTime> tapTimes = [];
+    
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(AppStrings.bpmDialogTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Zadejte číslo nebo klepejte níže",
+                  suffixText: "BPM",
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.maxFinite, 60),
+                  backgroundColor: Colors.blue.withOpacity(0.1),
+                ),
+                onPressed: () {
+                  final now = DateTime.now();
+                  tapTimes.add(now);
+                  if (tapTimes.length > 8) tapTimes.removeAt(0);
+                  
+                  if (tapTimes.length >= 2) {
+                    final intervals = <int>[];
+                    for (int i = 1; i < tapTimes.length; i++) {
+                      intervals.add(tapTimes[i].difference(tapTimes[i - 1]).inMilliseconds);
+                    }
+                    final avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+                    final calculatedBpm = (60000 / avgInterval).round();
+                    
+                    setDialogState(() {
+                      controller.text = calculatedBpm.toString();
+                    });
+                  }
+                },
+                icon: const Icon(Icons.touch_app),
+                label: Text(AppStrings.tapTempoButton),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
+            TextButton(
+              onPressed: () {
+                setState(() => _bpm = double.tryParse(controller.text));
+                _saveSettings();
+                Navigator.pop(context);
+              },
+              child: const Text("OK"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _startWithCountdown() async {
     setState(() => _isScrolling = true);
     HapticFeedback.heavyImpact(); // Vibrace na začátku celého procesu
