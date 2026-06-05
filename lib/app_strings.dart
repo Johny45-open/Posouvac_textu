@@ -109,7 +109,19 @@ class AppStrings {
   static String bulkAddFinished(int count) => 
       isInformal ? "Přidáno $count kousků. To bude jízda!" : "Do playlistu bylo úspěšně přidáno $count skladeb.";
 
+  // --- NASTAVENÍ A ZÁLOHA ---
+  static String get settingsTitle => isInformal ? "Vychytávky" : "Nastavení";
+  static String get backupTitle => isInformal ? "Záloha dat" : "Zálohování a obnova";
+  static String get backupExportButton => isInformal ? "Uložit všechno do souboru" : "Vytvořit zálohu (Export)";
+  static String get backupImportButton => isInformal ? "Nahrát data ze zálohy" : "Obnovit ze zálohy (Import)";
+  static String get backupExportSuccess => isInformal ? "Všechno je v bezpečí, záloha hotová." : "Záloha byla úspěšně vytvořena.";
+  static String get backupImportSuccess => isInformal ? "Data jsou zpátky, můžeš hrát!" : "Data byla úspěšně obnovena ze zálohy.";
+  static String get backupImportWarning => isInformal 
+      ? "Bacha! Tohle smaže tvý aktuální písničky a nahradí je těma ze zálohy. Chceš to fakt udělat?" 
+      : "Upozornění: Obnovení ze zálohy nahradí veškerá vaše aktuální data daty ze souboru. Přejete si pokračovat?";
+
   // --- NASTAVENÍ ---
+
   static String get themeLight => isInformal ? "Budiž světlo." : "Světlý motiv nastaven.";
   static String get themeDark => isInformal ? "Tma je tu." : "Tmavý motiv nastaven.";
   static String get themeSystem => isInformal ? "Systém rozhodne za nás." : "Systémový motiv nastaven.";

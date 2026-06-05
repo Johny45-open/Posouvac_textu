@@ -9,6 +9,7 @@ import 'package:drift/drift.dart' show Value;
 import 'database.dart';
 import 'song_entry.dart';
 import 'chord_display_widget.dart';
+import 'chord_transposer.dart';
 import 'app_progress_indicator.dart';
 import 'app_strings.dart';
 
@@ -38,8 +39,8 @@ class _PlayerPageState extends State<PlayerPage> {
   double? _bpm;
   double? _introDuration;
   int _countdown = 0;
+  int _transpose = 0;
   List<StopMark> _stopMarks = [];
-  bool _isPausedAtStop = false;
 
   Future<void> _saveSettings() async {
     await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, _fontSize, _scrollMultiplier);
@@ -202,7 +203,6 @@ class _PlayerPageState extends State<PlayerPage> {
     
     _scrollTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       if (_scrollController.hasClients) {
-        if (_isPausedAtStop) return;
 
         final double pixelsPerBeat = (_fontSize * 1.5) / 4.0;
         final double beatsPerSecond = (_bpm ?? 120) / 60.0;
@@ -230,9 +230,12 @@ class _PlayerPageState extends State<PlayerPage> {
     });
   }
 
+  void _pauseScrolling() {
+    _scrollTimer?.cancel();
+  }
+
   Future<void> _handleStopMark(StopMark mark) async {
-    _isPausedAtStop = true;
-    _stopScrolling();
+    _pauseScrolling();
     _tts.speak(AppStrings.stopMarkMessage(mark.durationBars));
     HapticFeedback.mediumImpact(); // Vibrace na začátku pauzy
     
@@ -248,11 +251,83 @@ class _PlayerPageState extends State<PlayerPage> {
     }
     
     if (mounted && _isScrolling) {
-      _isPausedAtStop = false;
       _startScrolling();
-    } else {
-      _isPausedAtStop = false;
     }
+  }
+
+  void _showControlsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("Nastavení posuvu a písma", style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  Column(
+                    children: [
+                      const Text("Rychlost"),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle, size: 40),
+                            onPressed: () {
+                              setState(() => _scrollMultiplier = (_scrollMultiplier - 0.1).clamp(0.1, 5.0));
+                              setSheetState(() {});
+                              _saveSettings();
+                            },
+                          ),
+                          Text("${(_scrollMultiplier * 100).round()}%", style: const TextStyle(fontSize: 20)),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle, size: 40),
+                            onPressed: () {
+                              setState(() => _scrollMultiplier += 0.1);
+                              setSheetState(() {});
+                              _saveSettings();
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  Column(
+                    children: [
+                      const Text("Písmo"),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle, size: 40),
+                            onPressed: () {
+                              setState(() => _fontSize = (_fontSize - 2).clamp(10, 100));
+                              setSheetState(() {});
+                              _saveSettings();
+                            },
+                          ),
+                          Text("${_fontSize.round()}", style: const TextStyle(fontSize: 20)),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle, size: 40),
+                            onPressed: () {
+                              setState(() => _fontSize += 2);
+                              setSheetState(() {});
+                              _saveSettings();
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _stopScrolling() {
@@ -387,6 +462,11 @@ class _PlayerPageState extends State<PlayerPage> {
         title: Text(_song.title),
         actions: [
           IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: "Nastavení zobrazení a rychlosti",
+            onPressed: _showControlsBottomSheet,
+          ),
+          IconButton(
             icon: const Icon(Icons.speed),
             tooltip: "Tempo (BPM)",
             onPressed: _showBpmDialog,
@@ -404,47 +484,31 @@ class _PlayerPageState extends State<PlayerPage> {
               ),
             ),
           ),
-          // Korekce rychlosti posuvu
+          // Transpozice
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                icon: const Icon(Icons.fast_forward),
-                tooltip: "Zrychlit posuv o 10 procent",
+                icon: const Text("b", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                tooltip: "Transponovat o půltón níž",
                 onPressed: () {
-                  setState(() => _scrollMultiplier += 0.1);
-                  _saveSettings();
+                  setState(() => _transpose--);
+                  _tts.speak("Transpozice na ${_transpose}");
                 },
               ),
               Semantics(
-                label: "Aktuální rychlost posuvu",
-                child: Text("${(_scrollMultiplier * 100).round()}%"),
+                label: "Aktuální transpozice",
+                child: Text("${_transpose > 0 ? '+' : ''}$_transpose", style: const TextStyle(fontWeight: FontWeight.bold)),
               ),
               IconButton(
-                icon: const Icon(Icons.fast_rewind),
-                tooltip: "Zpomalit posuv o 10 procent",
+                icon: const Text("#", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                tooltip: "Transponovat o půltón výš",
                 onPressed: () {
-                  setState(() => _scrollMultiplier = (_scrollMultiplier - 0.1).clamp(0.1, 5.0));
-                  _saveSettings();
+                  setState(() => _transpose++);
+                  _tts.speak("Transpozice na ${_transpose}");
                 },
               ),
             ],
-          ),
-          IconButton(
-            icon: const Icon(Icons.zoom_in),
-            tooltip: "Zvětšit písmo",
-            onPressed: () {
-              setState(() => _fontSize += 2);
-              _saveSettings();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.zoom_out),
-            tooltip: "Zmenšit písmo",
-            onPressed: () {
-              setState(() => _fontSize = (_fontSize - 2).clamp(10, 100));
-              _saveSettings();
-            },
           ),
         ],
       ),
@@ -459,7 +523,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   controller: _scrollController,
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 400),
                   child: ChordDisplayWidget(
-                    content: _loadedContent ?? "",
+                    content: ChordTransposer.transposeText(_loadedContent ?? "", _transpose),
                     textStyle: TextStyle(fontSize: _fontSize),
                     chordStyle: TextStyle(fontSize: _fontSize * 0.9, color: Colors.blue, fontWeight: FontWeight.bold),
                   ),

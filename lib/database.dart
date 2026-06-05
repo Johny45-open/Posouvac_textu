@@ -195,6 +195,45 @@ class AppDatabase extends _$AppDatabase {
       ..orderBy([OrderingTerm.asc(playlistSongs.orderIndex)]);
     return query.watch().map((rows) => rows.map((row) => row.readTable(songs)).toList());
   }
+
+  // --- ZÁLOHA A OBNOVENÍ ---
+  Future<Map<String, dynamic>> exportToJson() async {
+    final allSongs = await getAllSongs();
+    final allPlaylists = await getAllPlaylists();
+    final allStopMarks = await select(stopMarks).get();
+    final allPlaylistSongs = await select(playlistSongs).get();
+
+    return {
+      'version': schemaVersion,
+      'songs': allSongs.map((s) => s.toJson()).toList(),
+      'playlists': allPlaylists.map((p) => p.toJson()).toList(),
+      'stopMarks': allStopMarks.map((sm) => sm.toJson()).toList(),
+      'playlistSongs': allPlaylistSongs.map((ps) => ps.toJson()).toList(),
+    };
+  }
+
+  Future<void> importFromJson(Map<String, dynamic> data) async {
+    await transaction(() async {
+      // Vyčistíme stávající data (nebo můžeme inteligentně spojovat, pro začátek čistý import)
+      await delete(playlistSongs).go();
+      await delete(stopMarks).go();
+      await delete(playlists).go();
+      await delete(songs).go();
+
+      for (final s in data['songs']) {
+        await into(songs).insert(SongEntry.fromJson(s));
+      }
+      for (final p in data['playlists']) {
+        await into(playlists).insert(Playlist.fromJson(p));
+      }
+      for (final sm in data['stopMarks']) {
+        await into(stopMarks).insert(StopMark.fromJson(sm));
+      }
+      for (final ps in data['playlistSongs']) {
+        await into(playlistSongs).insert(PlaylistSong.fromJson(ps));
+      }
+    });
+  }
 }
 
 LazyDatabase _openConnection() {

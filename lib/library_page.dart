@@ -9,6 +9,8 @@ import 'database.dart';
 import 'song_entry.dart';
 import 'playlists_page.dart';
 import 'player_page.dart';
+import 'settings_page.dart';
+import 'manual_page.dart';
 import 'song_utils.dart';
 import 'app_progress_indicator.dart';
 import 'tuner.dart';
@@ -336,12 +338,14 @@ class _LibraryPageState extends State<LibraryPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Knihovna"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.help_outline),
-            tooltip: "Nápověda",
-            onPressed: widget.onOpenManual,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            tooltip: "Otevřít menu",
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
+        ),
+        actions: [
           IconButton(
             icon: const Icon(Icons.music_note),
             tooltip: "Ladička",
@@ -350,22 +354,6 @@ class _LibraryPageState extends State<LibraryPage> {
               MaterialPageRoute(builder: (context) => const TunerPage()),
             ),
           ),
-          PopupMenuButton<ThemeMode>(
-            icon: const Icon(Icons.brightness_6),
-            tooltip: "Změnit motiv",
-            onSelected: (val) {
-              widget.onThemeModeChanged(val);
-              String themeMsg = val == ThemeMode.light 
-                ? AppStrings.themeLight 
-                : (val == ThemeMode.dark ? AppStrings.themeDark : AppStrings.themeSystem);
-              _tts.speak(themeMsg);
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: ThemeMode.light, child: Text("Světlý")),
-              const PopupMenuItem(value: ThemeMode.dark, child: Text("Tmavý")),
-              const PopupMenuItem(value: ThemeMode.system, child: Text("Systémový")),
-            ],
-          ),
           IconButton(
             icon: const Icon(Icons.playlist_add),
             tooltip: "Playlisty",
@@ -373,23 +361,6 @@ class _LibraryPageState extends State<LibraryPage> {
               context,
               MaterialPageRoute(builder: (context) => PlaylistsPage(db: widget.db)),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: "Vynulovat odehrané",
-            onPressed: () async {
-              await widget.db.resetAllPlayed();
-              _tts.speak(AppStrings.resetPlayed);
-              setState(() {});
-            },
-          ),
-          IconButton(
-            icon: Icon(widget.isInformalMode ? Icons.business : Icons.sentiment_satisfied),
-            tooltip: widget.isInformalMode ? "Přepnout na formální režim" : "Přepnout na neformální režim",
-            onPressed: () {
-              widget.onInformalModeChanged(!widget.isInformalMode);
-              _tts.speak(widget.isInformalMode ? "Přepínám do formálního režimu" : "Přepínám do neformálního režimu");
-            },
           ),
           PopupMenuButton<bool>(
             icon: const Icon(Icons.sort_by_alpha),
@@ -403,24 +374,66 @@ class _LibraryPageState extends State<LibraryPage> {
               const PopupMenuItem(value: false, child: Text("Podle názvu")),
             ],
           ),
-          FilterChip(
-            label: const Text("Oblíbené"),
-            selected: _onlyFavorites,
-            onSelected: (val) {
-              setState(() => _onlyFavorites = val);
-              _tts.speak(val ? AppStrings.filterFavorites : AppStrings.filterAll);
-            },
-          ),
-          const SizedBox(width: 8),
-          FilterChip(
-            label: const Text("K odehrání"),
-            selected: _onlyUnplayed,
-            onSelected: (val) {
-              setState(() => _onlyUnplayed = val);
-              _tts.speak(val ? AppStrings.filterUnplayed : AppStrings.filterAll);
-            },
-          ),
         ],
+      ),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(color: Theme.of(context).primaryColor),
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.auto_stories, size: 50, color: Colors.white),
+                  SizedBox(height: 10),
+                  Text(
+                    "Posouvač textu v3.0",
+                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: Text(AppStrings.settingsTitle),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => SettingsPage(db: widget.db)));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.help_outline),
+              title: const Text("Návod k použití"),
+              onTap: () {
+                Navigator.pop(context);
+                widget.onOpenManual();
+              },
+            ),
+            const Divider(),
+            SwitchListTile(
+              title: const Text("Neformální režim"),
+              subtitle: const Text("Mluvit na mě přátelsky"),
+              value: widget.isInformalMode,
+              onChanged: (val) {
+                Navigator.pop(context);
+                widget.onInformalModeChanged(val);
+                _tts.speak(val ? "Přepínám do neformálního režimu" : "Přepínám do formálního režimu");
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.refresh),
+              title: const Text("Vynulovat odehrané"),
+              onTap: () async {
+                Navigator.pop(context);
+                await widget.db.resetAllPlayed();
+                _tts.speak(AppStrings.resetPlayed);
+                setState(() {});
+              },
+            ),
+          ],
+        ),
       ),
       body: StreamBuilder<List<SongEntry>>(
         stream: widget.db.watchAllSongs(
