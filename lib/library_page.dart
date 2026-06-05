@@ -388,7 +388,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   Icon(Icons.auto_stories, size: 50, color: Colors.white),
                   SizedBox(height: 10),
                   Text(
-                    "Posouvač textu v3.0",
+                    "Posouvač textu v3.5",
                     style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                 ],
