@@ -179,11 +179,25 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
   }
 }
 
-class PlaylistSongsPage extends StatelessWidget {
+class PlaylistSongsPage extends StatefulWidget {
   final Playlist playlist;
   final AppDatabase db;
 
   const PlaylistSongsPage({super.key, required this.playlist, required this.db});
+
+  @override
+  State<PlaylistSongsPage> createState() => _PlaylistSongsPageState();
+}
+
+class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
+  final FlutterTts tts = FlutterTts();
+
+  @override
+  void initState() {
+    super.initState();
+    tts.setLanguage("cs-CZ");
+    tts.setSpeechRate(0.5);
+  }
 
   String _formatTotalTime(int totalSeconds) {
     if (totalSeconds <= 0) return "Čas neurčen";
@@ -196,11 +210,41 @@ class PlaylistSongsPage extends StatelessWidget {
     return "Celkový čas: ${minStr.isNotEmpty ? '$minStr ' : ''}$secStr".trim();
   }
 
+  Future<void> _showMoveDialog(SongEntry song, int currentIndex, int totalSongs) async {
+    final controller = TextEditingController();
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Přesunout ${song.title}"),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(labelText: "Nová pozice (1 - $totalSongs)"),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
+          TextButton(
+            onPressed: () async {
+              final newPos = int.tryParse(controller.text);
+              if (newPos != null && newPos >= 1 && newPos <= totalSongs) {
+                await widget.db.movePlaylistSong(widget.playlist.id, song.id, newPos - 1);
+                tts.speak("Píseň ${song.title} přesunuta na ${newPos}. místo");
+                if (mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text("Přesunout"),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showBulkAddDialog(BuildContext context) async {
-    final allSongs = await db.getAllSongs();
-    final existingSongs = await (db.select(db.songs).join([innerJoin(db.playlistSongs, db.playlistSongs.songId.equalsExp(db.songs.id))])
-      ..where(db.playlistSongs.playlistId.equals(playlist.id))).get();
-    final existingIds = existingSongs.map((row) => row.readTable(db.songs).id).toSet();
+    final allSongs = await widget.db.getAllSongs();
+    final existingSongs = await (widget.db.select(widget.db.songs)..join([innerJoin(widget.db.playlistSongs, widget.db.playlistSongs.songId.equalsExp(widget.db.songs.id))])
+      ..where(widget.db.playlistSongs.playlistId.equals(widget.playlist.id))).get();
+    final existingIds = existingSongs.map((row) => row.readTable(widget.db.songs).id).toSet();
     
     // Filtrujeme pouze ty, které v playlistu ještě nejsou
     final availableSongs = allSongs.where((s) => !existingIds.contains(s.id)).toList();
@@ -213,9 +257,6 @@ class PlaylistSongsPage extends StatelessWidget {
     }
 
     final selectedIds = <int>{};
-    final FlutterTts tts = FlutterTts();
-    tts.setLanguage("cs-CZ");
-
     await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -248,7 +289,7 @@ class PlaylistSongsPage extends StatelessWidget {
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
             TextButton(
               onPressed: selectedIds.isEmpty ? null : () async {
-                await db.addSongsToPlaylist(playlist.id, selectedIds.toList());
+                await widget.db.addSongsToPlaylist(widget.playlist.id, selectedIds.toList());
                 tts.speak(AppStrings.bulkAddFinished(selectedIds.length));
                 if (context.mounted) Navigator.pop(context);
               },
@@ -262,16 +303,12 @@ class PlaylistSongsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final FlutterTts tts = FlutterTts();
-    tts.setLanguage("cs-CZ");
-    tts.setSpeechRate(0.5);
-
     return Scaffold(
       appBar: AppBar(
         title: StreamBuilder<List<SongEntry>>(
-          stream: db.watchSongsInPlaylist(playlist.id),
+          stream: widget.db.watchSongsInPlaylist(widget.playlist.id),
           builder: (context, snapshot) {
-            final String baseTitle = "Playlist: ${playlist.name}";
+            final String baseTitle = "Playlist: ${widget.playlist.name}";
             if (!snapshot.hasData || snapshot.data!.isEmpty) return Text(baseTitle);
             
             final totalSec = snapshot.data!.fold<int>(0, (sum, s) => sum + (s.duration ?? 0));
@@ -299,7 +336,7 @@ class PlaylistSongsPage extends StatelessWidget {
             onPressed: () => _showBulkAddDialog(context),
           ),
           StreamBuilder<List<SongEntry>>(
-            stream: db.watchSongsInPlaylist(playlist.id),
+            stream: widget.db.watchSongsInPlaylist(widget.playlist.id),
             builder: (context, snapshot) {
               if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox();
               return IconButton(
@@ -307,13 +344,13 @@ class PlaylistSongsPage extends StatelessWidget {
                 tooltip: "Spustit Setlist",
                 onPressed: () {
                   final ids = snapshot.data!.map((s) => s.id).toList();
-                  tts.speak(AppStrings.startSetlistMessage(playlist.name, snapshot.data!.first.title));
+                  tts.speak(AppStrings.startSetlistMessage(widget.playlist.name, snapshot.data!.first.title));
                   Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => PlayerPage(
                         songId: ids.first,
-                        db: db,
+                        db: widget.db,
                         setlistIds: ids,
                       ),
                     ),
@@ -325,7 +362,7 @@ class PlaylistSongsPage extends StatelessWidget {
         ],
       ),
       body: StreamBuilder<List<SongEntry>>(
-        stream: db.watchSongsInPlaylist(playlist.id),
+        stream: widget.db.watchSongsInPlaylist(widget.playlist.id),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const SizedBox();
           final songs = snapshot.data!;
@@ -348,48 +385,38 @@ class PlaylistSongsPage extends StatelessWidget {
               }
 
               return Semantics(
-                label: "Píseň ${i + 1} v pořadí: ${song.artist}, ${song.title}$durationSemantics",
+                label: "Píseň ${i + 1} v pořadí: ${song.artist}, ${song.title}$durationSemantics. Dlouhým stisknutím otevřete možnosti.",
+                button: true,
                 child: ListTile(
-                  leading: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (i > 0)
-                        IconButton(
-                          icon: const Icon(Icons.arrow_upward, size: 20),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          tooltip: "Posunout ${song.title} nahoru",
-                          onPressed: () async {
-                            await db.reorderPlaylistSongs(playlist.id, song.id, true);
-                            tts.speak("Píseň ${song.title} posunuta na ${i}. místo");
-                          },
-                        ),
-                      if (i < songs.length - 1)
-                        IconButton(
-                          icon: const Icon(Icons.arrow_downward, size: 20),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          tooltip: "Posunout ${song.title} dolů",
-                          onPressed: () async {
-                            await db.reorderPlaylistSongs(playlist.id, song.id, false);
-                            tts.speak("Píseň ${song.title} posunuta na ${i + 2}. místo");
-                          },
-                        ),
-                    ],
-                  ),
                   title: Text("${song.artist}$durationText"),
                   subtitle: Text(song.title),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.remove_circle_outline),
-                    tooltip: "Odebrat skladbu ${song.title} z playlistu",
-                    onPressed: () async {
-                      await db.removeSongFromPlaylist(playlist.id, song.id);
-                      tts.speak(AppStrings.songRemovedFromPlaylist(song.title));
-                    },
-                  ),
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: db)),
+                    MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db)),
+                  ),
+                  onLongPress: () => showDialog(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: Text(song.title),
+                      actions: [
+                        TextButton(
+                          onPressed: () async {
+                            await widget.db.removeSongFromPlaylist(widget.playlist.id, song.id);
+                            tts.speak(AppStrings.songRemovedFromPlaylist(song.title));
+                            if (mounted) Navigator.pop(context);
+                          },
+                          child: const Text("Odebrat", style: TextStyle(color: Colors.red)),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _showMoveDialog(song, i, songs.length);
+                          },
+                          child: const Text("Přesunout"),
+                        ),
+                        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zavřít")),
+                      ],
+                    ),
                   ),
                 ),
               );
