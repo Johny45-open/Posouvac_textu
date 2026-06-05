@@ -1,52 +1,68 @@
-class LyricElement {
-  final String text;
-  final String? chord;
+enum ElementType { text, chord, comment }
 
-  LyricElement(this.text, {this.chord});
+class ChordProElement {
+  final ElementType type;
+  final String content;
 
-  @override
-  String toString() => chord != null ? '[$chord]$text' : text;
+  ChordProElement(this.type, this.content);
 }
 
-class LyricLine {
-  final List<LyricElement> elements;
+class ChordProSection {
+  final String? title;
+  final List<List<ChordProElement>> lines;
 
-  LyricLine(this.elements);
+  ChordProSection(this.lines, {this.title});
 }
 
 class ChordProParser {
-  // Regex pro vyhledání akordů v hranatých závorkách
-  static final RegExp _chordRegex = RegExp(r'\[([^\]]*)\]');
-
-  static List<LyricLine> parse(String content) {
+  static List<ChordProSection> parse(String content) {
     final lines = content.split('\n');
-    return lines.map((line) {
-      final elements = <LyricElement>[];
-      int lastIndex = 0;
+    final sections = <ChordProSection>[];
+    List<List<ChordProElement>> currentLines = [];
+    String? currentSectionTitle;
 
-      final matches = _chordRegex.allMatches(line);
+    for (var line in lines) {
+      line = line.trim();
+      if (line.isEmpty) continue;
 
-      for (final match in matches) {
-        // Text před akordem
-        final textBefore = line.substring(lastIndex, match.start);
-        if (textBefore.isNotEmpty) {
-          elements.add(LyricElement(textBefore));
+      // Parsování direktiv {directive}
+      if (line.startsWith('{') && line.endsWith('}')) {
+        final directive = line.substring(1, line.length - 1);
+        if (directive.startsWith('soc') || directive.startsWith('chorus')) {
+          currentSectionTitle = "Refrén";
+        } else if (directive.startsWith('eoc')) {
+          sections.add(ChordProSection(currentLines, title: currentSectionTitle));
+          currentLines = [];
+          currentSectionTitle = null;
+        } else if (directive.startsWith('c:')) {
+          currentLines.add([ChordProElement(ElementType.comment, directive.substring(2))]);
         }
-
-        // Akord
-        final chord = match.group(1);
-        elements.add(LyricElement('', chord: chord));
-
-        lastIndex = match.end;
+        continue;
       }
 
-      // Zbývající text
-      final textAfter = line.substring(lastIndex);
-      if (textAfter.isNotEmpty) {
-        elements.add(LyricElement(textAfter));
-      }
+      // Parsování řádku s akordy [chord] a textem
+      currentLines.add(_parseLine(line));
+    }
 
-      return LyricLine(elements);
-    }).toList();
+    if (currentLines.isNotEmpty) {
+      sections.add(ChordProSection(currentLines, title: currentSectionTitle));
+    }
+
+    return sections;
+  }
+
+  static List<ChordProElement> _parseLine(String line) {
+    final elements = <ChordProElement>[];
+    final regex = RegExp(r'\[([^\]]*)\]|([^[\]]+)');
+    final matches = regex.allMatches(line);
+
+    for (final match in matches) {
+      if (match.group(1) != null) {
+        elements.add(ChordProElement(ElementType.chord, match.group(1)!));
+      } else if (match.group(2) != null) {
+        elements.add(ChordProElement(ElementType.text, match.group(2)!));
+      }
+    }
+    return elements;
   }
 }

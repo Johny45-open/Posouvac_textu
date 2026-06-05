@@ -5,6 +5,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:drift/drift.dart' show InsertMode, Value;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'database.dart';
 import 'song_entry.dart';
 import 'playlists_page.dart';
