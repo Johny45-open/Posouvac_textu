@@ -38,11 +38,14 @@ class LibraryPage extends StatefulWidget {
   State<LibraryPage> createState() => _LibraryPageState();
 }
 
+import 'package:package_info_plus/package_info_plus.dart';
+// ...
 class _LibraryPageState extends State<LibraryPage> {
   final FlutterTts _tts = FlutterTts();
   bool _onlyFavorites = false;
   bool _onlyUnplayed = false;
   bool _sortByArtist = true;
+  String _version = "";
 
   @override
   void initState() {
@@ -50,6 +53,16 @@ class _LibraryPageState extends State<LibraryPage> {
     _tts.setLanguage("cs-CZ");
     _tts.setSpeechRate(0.5);
     AppStrings.isInformal = widget.isInformalMode;
+    _initVersion();
+  }
+
+  Future<void> _initVersion() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() {
+        _version = packageInfo.version;
+      });
+    }
   }
 
   @override
