@@ -1442,6 +1442,214 @@ class StopMarksCompanion extends UpdateCompanion<StopMark> {
   }
 }
 
+class $CustomStringsTable extends CustomStrings
+    with TableInfo<$CustomStringsTable, CustomString> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CustomStringsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _keyMeta = const VerificationMeta('key');
+  @override
+  late final GeneratedColumn<String> key = GeneratedColumn<String>(
+    'key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _valueMeta = const VerificationMeta('value');
+  @override
+  late final GeneratedColumn<String> value = GeneratedColumn<String>(
+    'value',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [key, value];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'custom_strings';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CustomString> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('key')) {
+      context.handle(
+        _keyMeta,
+        key.isAcceptableOrUnknown(data['key']!, _keyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_keyMeta);
+    }
+    if (data.containsKey('value')) {
+      context.handle(
+        _valueMeta,
+        value.isAcceptableOrUnknown(data['value']!, _valueMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_valueMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => const {};
+  @override
+  CustomString map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CustomString(
+      key: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}key'],
+      )!,
+      value: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}value'],
+      )!,
+    );
+  }
+
+  @override
+  $CustomStringsTable createAlias(String alias) {
+    return $CustomStringsTable(attachedDatabase, alias);
+  }
+}
+
+class CustomString extends DataClass implements Insertable<CustomString> {
+  final String key;
+  final String value;
+  const CustomString({required this.key, required this.value});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['key'] = Variable<String>(key);
+    map['value'] = Variable<String>(value);
+    return map;
+  }
+
+  CustomStringsCompanion toCompanion(bool nullToAbsent) {
+    return CustomStringsCompanion(key: Value(key), value: Value(value));
+  }
+
+  factory CustomString.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CustomString(
+      key: serializer.fromJson<String>(json['key']),
+      value: serializer.fromJson<String>(json['value']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'key': serializer.toJson<String>(key),
+      'value': serializer.toJson<String>(value),
+    };
+  }
+
+  CustomString copyWith({String? key, String? value}) =>
+      CustomString(key: key ?? this.key, value: value ?? this.value);
+  CustomString copyWithCompanion(CustomStringsCompanion data) {
+    return CustomString(
+      key: data.key.present ? data.key.value : this.key,
+      value: data.value.present ? data.value.value : this.value,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CustomString(')
+          ..write('key: $key, ')
+          ..write('value: $value')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(key, value);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CustomString &&
+          other.key == this.key &&
+          other.value == this.value);
+}
+
+class CustomStringsCompanion extends UpdateCompanion<CustomString> {
+  final Value<String> key;
+  final Value<String> value;
+  final Value<int> rowid;
+  const CustomStringsCompanion({
+    this.key = const Value.absent(),
+    this.value = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CustomStringsCompanion.insert({
+    required String key,
+    required String value,
+    this.rowid = const Value.absent(),
+  }) : key = Value(key),
+       value = Value(value);
+  static Insertable<CustomString> custom({
+    Expression<String>? key,
+    Expression<String>? value,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (key != null) 'key': key,
+      if (value != null) 'value': value,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CustomStringsCompanion copyWith({
+    Value<String>? key,
+    Value<String>? value,
+    Value<int>? rowid,
+  }) {
+    return CustomStringsCompanion(
+      key: key ?? this.key,
+      value: value ?? this.value,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (key.present) {
+      map['key'] = Variable<String>(key.value);
+    }
+    if (value.present) {
+      map['value'] = Variable<String>(value.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CustomStringsCompanion(')
+          ..write('key: $key, ')
+          ..write('value: $value, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -1449,6 +1657,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $PlaylistsTable playlists = $PlaylistsTable(this);
   late final $PlaylistSongsTable playlistSongs = $PlaylistSongsTable(this);
   late final $StopMarksTable stopMarks = $StopMarksTable(this);
+  late final $CustomStringsTable customStrings = $CustomStringsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -1458,6 +1667,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     playlists,
     playlistSongs,
     stopMarks,
+    customStrings,
   ];
 }
 
@@ -2226,6 +2436,146 @@ typedef $$StopMarksTableProcessedTableManager =
       StopMark,
       PrefetchHooks Function()
     >;
+typedef $$CustomStringsTableCreateCompanionBuilder =
+    CustomStringsCompanion Function({
+      required String key,
+      required String value,
+      Value<int> rowid,
+    });
+typedef $$CustomStringsTableUpdateCompanionBuilder =
+    CustomStringsCompanion Function({
+      Value<String> key,
+      Value<String> value,
+      Value<int> rowid,
+    });
+
+class $$CustomStringsTableFilterComposer
+    extends Composer<_$AppDatabase, $CustomStringsTable> {
+  $$CustomStringsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CustomStringsTableOrderingComposer
+    extends Composer<_$AppDatabase, $CustomStringsTable> {
+  $$CustomStringsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CustomStringsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CustomStringsTable> {
+  $$CustomStringsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get key =>
+      $composableBuilder(column: $table.key, builder: (column) => column);
+
+  GeneratedColumn<String> get value =>
+      $composableBuilder(column: $table.value, builder: (column) => column);
+}
+
+class $$CustomStringsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $CustomStringsTable,
+          CustomString,
+          $$CustomStringsTableFilterComposer,
+          $$CustomStringsTableOrderingComposer,
+          $$CustomStringsTableAnnotationComposer,
+          $$CustomStringsTableCreateCompanionBuilder,
+          $$CustomStringsTableUpdateCompanionBuilder,
+          (
+            CustomString,
+            BaseReferences<_$AppDatabase, $CustomStringsTable, CustomString>,
+          ),
+          CustomString,
+          PrefetchHooks Function()
+        > {
+  $$CustomStringsTableTableManager(_$AppDatabase db, $CustomStringsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CustomStringsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CustomStringsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CustomStringsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> key = const Value.absent(),
+                Value<String> value = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) =>
+                  CustomStringsCompanion(key: key, value: value, rowid: rowid),
+          createCompanionCallback:
+              ({
+                required String key,
+                required String value,
+                Value<int> rowid = const Value.absent(),
+              }) => CustomStringsCompanion.insert(
+                key: key,
+                value: value,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CustomStringsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $CustomStringsTable,
+      CustomString,
+      $$CustomStringsTableFilterComposer,
+      $$CustomStringsTableOrderingComposer,
+      $$CustomStringsTableAnnotationComposer,
+      $$CustomStringsTableCreateCompanionBuilder,
+      $$CustomStringsTableUpdateCompanionBuilder,
+      (
+        CustomString,
+        BaseReferences<_$AppDatabase, $CustomStringsTable, CustomString>,
+      ),
+      CustomString,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -2238,4 +2588,6 @@ class $AppDatabaseManager {
       $$PlaylistSongsTableTableManager(_db, _db.playlistSongs);
   $$StopMarksTableTableManager get stopMarks =>
       $$StopMarksTableTableManager(_db, _db.stopMarks);
+  $$CustomStringsTableTableManager get customStrings =>
+      $$CustomStringsTableTableManager(_db, _db.customStrings);
 }

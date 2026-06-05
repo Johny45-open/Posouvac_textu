@@ -30,7 +30,12 @@ class StopMarks extends Table {
   IntColumn get durationBars => integer()(); // Délka pauzy v taktech
 }
 
-@DriftDatabase(tables: [Songs, Playlists, PlaylistSongs, StopMarks])
+class CustomStrings extends Table {
+  TextColumn get key => text().primaryKey()();
+  TextColumn get value => text()();
+}
+
+@DriftDatabase(tables: [Songs, Playlists, PlaylistSongs, StopMarks, CustomStrings])
 class AppDatabase extends _$AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
 
@@ -39,7 +44,7 @@ class AppDatabase extends _$AppDatabase {
   factory AppDatabase() => instance;
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration {
@@ -64,6 +69,9 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 7) {
           await m.addColumn(songs, songs.duration);
+        }
+        if (from < 8) {
+          await m.createTable(customStrings);
         }
       },
     );
