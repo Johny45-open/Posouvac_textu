@@ -402,6 +402,16 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
+                  // Tempo (BPM)
+                  IconButton(
+                    icon: const Icon(Icons.speed),
+                    iconSize: 40,
+                    color: Colors.purple,
+                    tooltip: "Nastavit tempo (BPM)",
+                    onPressed: _showBpmDialog,
+                  ),
+                  Text("BPM: ${(_bpm ?? 120).round()}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  
                   // Rychlost
                   IconButton(
                     icon: const Icon(Icons.fast_rewind),
