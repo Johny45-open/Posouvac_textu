@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/shared_plus.dart';
+import 'package:share_plus/share_plus.dart';
 import 'database.dart';
 import 'app_strings.dart';
 
