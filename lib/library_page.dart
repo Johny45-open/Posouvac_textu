@@ -359,6 +359,16 @@ class _LibraryPageState extends State<LibraryPage> {
         ),
         actions: [
           IconButton(
+            icon: Icon(_onlyFavorites ? Icons.favorite : Icons.favorite_border),
+            tooltip: _onlyFavorites ? "Zobrazit všechny" : "Pouze oblíbené",
+            onPressed: () => setState(() => _onlyFavorites = !_onlyFavorites),
+          ),
+          IconButton(
+            icon: Icon(_onlyUnplayed ? Icons.check_box : Icons.check_box_outline_blank),
+            tooltip: _onlyUnplayed ? "Zobrazit vše" : "Pouze k odehrání",
+            onPressed: () => setState(() => _onlyUnplayed = !_onlyUnplayed),
+          ),
+          IconButton(
             icon: const Icon(Icons.music_note),
             tooltip: "Ladička",
             onPressed: () => Navigator.push(
