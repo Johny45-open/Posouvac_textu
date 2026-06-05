@@ -1,6 +1,9 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:drift/drift.dart' show innerJoin;
+import 'package:file_picker/file_picker.dart';
 import 'database.dart';
 import 'player_page.dart';
 import 'app_strings.dart';
@@ -21,6 +24,27 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
     super.initState();
     _tts.setLanguage("cs-CZ");
     _tts.setSpeechRate(0.5);
+  }
+
+  Future<void> _importPlaylist() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    );
+
+    if (result != null && result.files.single.path != null) {
+      final file = File(result.files.single.path!);
+      final jsonString = await file.readAsString();
+      final data = jsonDecode(jsonString) as Map<String, dynamic>;
+      
+      await widget.db.syncPlaylistFromJson(data);
+      _tts.speak("Playlist importován");
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Playlist importován")));
+        setState(() {});
+      }
+    }
   }
 
   Future<void> _createPlaylist() async {
@@ -104,7 +128,16 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Moje playlisty")),
+      appBar: AppBar(
+        title: const Text("Moje playlisty"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.file_upload),
+            tooltip: "Importovat playlist ze souboru",
+            onPressed: _importPlaylist,
+          ),
+        ],
+      ),
       body: FutureBuilder<List<Playlist>>(
         future: widget.db.getAllPlaylists(),
         builder: (context, snapshot) {

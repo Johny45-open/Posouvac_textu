@@ -118,8 +118,39 @@ class AppDatabase extends _$AppDatabase {
 
   Future<int> deleteStopMark(int id) => (delete(stopMarks)..where((t) => t.id.equals(id))).go();
 
-  // Metody pro playlisty
-  Future<int> createPlaylist(String name) => into(playlists).insert(PlaylistsCompanion.insert(name: name));
+  Future<void> syncPlaylistFromJson(Map<String, dynamic> data) async {
+    final playlistName = data['name'] as String;
+    final songTitles = (data['songs'] as List<dynamic>).cast<String>();
+
+    await transaction(() async {
+      // 1. Najít nebo vytvořit playlist
+      Playlist? playlist = await (select(playlists)..where((t) => t.name.equals(playlistName))).getSingleOrNull();
+      int playlistId;
+      if (playlist == null) {
+        playlistId = await into(playlists).insert(PlaylistsCompanion.insert(name: playlistName));
+      } else {
+        playlistId = playlist.id;
+        // Vyčistit stávající songy v playlistu pro novou verzi
+        await (delete(playlistSongs)..where((t) => t.playlistId.equals(playlistId))).go();
+      }
+
+      // 2. Přiřadit písně
+      int order = 0;
+      for (final title in songTitles) {
+        final song = await (select(songs)..where((t) => t.title.equals(title))).getSingleOrNull();
+        if (song != null) {
+          await into(playlistSongs).insert(
+            PlaylistSongsCompanion.insert(
+              playlistId: playlistId,
+              songId: song.id,
+              orderIndex: Value(order++),
+            ),
+            mode: InsertMode.insertOrIgnore,
+          );
+        }
+      }
+    });
+  }
   Future<List<Playlist>> getAllPlaylists() => select(playlists).get();
   Future<int> deletePlaylist(int id) => (delete(playlists)..where((t) => t.id.equals(id))).go();
   Future<int> renamePlaylist(int id, String newName) =>

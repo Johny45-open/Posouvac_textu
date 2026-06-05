@@ -24,10 +24,10 @@ class PlayerPage extends StatefulWidget {
   State<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage> {
+class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   final FlutterTts _tts = FlutterTts();
-  Timer? _scrollTimer;
+  late AnimationController _scrollAnimationController;
   bool _isScrolling = false;
   
   late SongEntry _song;
@@ -199,64 +199,24 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void _startScrolling() {
-    _scrollTimer?.cancel();
+    if (!_scrollController.hasClients) return;
     
-    _scrollTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      if (_scrollController.hasClients) {
-
-        final double pixelsPerBeat = (_fontSize * 1.5) / 4.0;
-        final double beatsPerSecond = (_bpm ?? 120) / 60.0;
-        final double pixelsPerSecond = pixelsPerBeat * beatsPerSecond;
-        final double scrollStep = (pixelsPerSecond / 20.0) * _scrollMultiplier;
-
-        final newOffset = _scrollController.offset + scrollStep;
-        final maxExtent = _scrollController.position.maxScrollExtent;
-
-        // Kontrola zarážek
-        final currentRatio = newOffset / maxExtent;
-        for (final mark in _stopMarks) {
-          if (currentRatio >= mark.positionRatio && currentRatio < mark.positionRatio + 0.02) {
-            _handleStopMark(mark);
-            return;
-          }
-        }
-
-        if (newOffset < maxExtent) {
-          _scrollController.jumpTo(newOffset);
-        } else {
-          _stopScrolling();
-        }
-      }
-    });
-  }
-
-  void _pauseScrolling() {
-    _scrollTimer?.cancel();
-  }
-
-  Future<void> _handleStopMark(StopMark mark) async {
-    _pauseScrolling();
-    _tts.speak(AppStrings.stopMarkMessage(mark.durationBars));
-    HapticFeedback.mediumImpact(); // Vibrace na začátku pauzy
+    final maxExtent = _scrollController.position.maxScrollExtent;
+    final currentOffset = _scrollController.offset;
+    final remainingScroll = maxExtent - currentOffset;
     
-    final totalMs = ((60000 / (_bpm ?? 120)) * mark.durationBars * 4).round();
+    // Výpočet trvání: (px / px_za_beat) * (60 / bpm)
+    final pixelsPerBeat = (_fontSize * 1.5) / 4.0;
+    final totalBeats = remainingScroll / pixelsPerBeat;
+    final durationInSeconds = (totalBeats * 60.0 / (_bpm ?? 120.0)) / _scrollMultiplier;
     
-    // Pokud je pauza delší než 2 sekundy, zavibrujeme sekundu před koncem jako varování
-    if (totalMs > 2000) {
-      await Future.delayed(Duration(milliseconds: totalMs - 1000));
-      if (mounted && _isScrolling) HapticFeedback.lightImpact(); // Varování před rozjezdem
-      await Future.delayed(const Duration(milliseconds: 1000));
-    } else {
-      await Future.delayed(Duration(milliseconds: totalMs));
-    }
-    
-    if (mounted && _isScrolling) {
-      _startScrolling();
-    }
+    _scrollAnimationController.duration = Duration(milliseconds: (durationInSeconds * 1000).round());
+    _scrollAnimationController.value = currentOffset / maxExtent;
+    _scrollAnimationController.forward();
   }
 
   void _stopScrolling() {
-    _scrollTimer?.cancel();
+    _scrollAnimationController.stop();
     setState(() {
       _isScrolling = false;
       _countdown = 0;
@@ -299,82 +259,16 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void _toggleScrolling() {
-    if (_isScrolling || _countdown > 0) {
+    if (_isScrolling) {
       _stopScrolling();
     } else {
       _startWithCountdown();
     }
   }
 
-  Future<void> _showBpmDialog() async {
-    final controller = TextEditingController(text: _bpm?.round().toString() ?? "120");
-    List<DateTime> tapTimes = [];
-    
-    await showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(AppStrings.bpmDialogTitle),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "Zadejte číslo nebo klepejte níže",
-                  suffixText: "BPM",
-                ),
-                autofocus: true,
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.maxFinite, 60),
-                  backgroundColor: Colors.blue.withOpacity(0.1),
-                ),
-                onPressed: () {
-                  final now = DateTime.now();
-                  tapTimes.add(now);
-                  if (tapTimes.length > 8) tapTimes.removeAt(0);
-                  
-                  if (tapTimes.length >= 2) {
-                    final intervals = <int>[];
-                    for (int i = 1; i < tapTimes.length; i++) {
-                      intervals.add(tapTimes[i].difference(tapTimes[i - 1]).inMilliseconds);
-                    }
-                    final avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
-                    final calculatedBpm = (60000 / avgInterval).round();
-                    
-                    setDialogState(() {
-                      controller.text = calculatedBpm.toString();
-                    });
-                  }
-                },
-                icon: const Icon(Icons.touch_app),
-                label: Text(AppStrings.tapTempoButton),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
-            TextButton(
-              onPressed: () {
-                setState(() => _bpm = double.tryParse(controller.text));
-                _saveSettings();
-                Navigator.pop(context);
-              },
-              child: const Text("OK"),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   void dispose() {
-    _scrollTimer?.cancel();
+    _scrollAnimationController.dispose();
     _scrollController.dispose();
     _tts.stop();
     super.dispose();
