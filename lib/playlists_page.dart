@@ -27,7 +27,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
   }
 
   Future<void> _importPlaylist() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json'],
     );
@@ -185,13 +185,14 @@ class PlaylistSongsPage extends StatelessWidget {
   const PlaylistSongsPage({super.key, required this.playlist, required this.db});
 
   String _formatTotalTime(int totalSeconds) {
-    if (totalSeconds == 0) return "Čas neurčen";
+    if (totalSeconds <= 0) return "Čas neurčen";
     final minutes = totalSeconds ~/ 60;
     final seconds = totalSeconds % 60;
-    if (minutes > 0) {
-      return "Celkový čas: $minutes min ${seconds > 0 ? '$seconds s' : ''}";
-    }
-    return "Celkový čas: $seconds s";
+    
+    String minStr = minutes > 0 ? "$minutes min" : "";
+    String secStr = seconds > 0 ? "$seconds s" : "";
+    
+    return "Celkový čas: ${minStr.isNotEmpty ? '$minStr ' : ''}$secStr".trim();
   }
 
   Future<void> _showBulkAddDialog(BuildContext context) async {

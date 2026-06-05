@@ -399,7 +399,18 @@ class _LibraryPageState extends State<LibraryPage> {
               title: Text(AppStrings.settingsTitle),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => SettingsPage(db: widget.db)));
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => SettingsPage(
+                      db: widget.db,
+                      themeMode: widget.themeMode,
+                      onThemeModeChanged: widget.onThemeModeChanged,
+                      isInformalMode: widget.isInformalMode,
+                      onInformalModeChanged: widget.onInformalModeChanged,
+                    ),
+                  ),
+                );
               },
             ),
             ListTile(

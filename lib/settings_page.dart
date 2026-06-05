@@ -10,7 +10,19 @@ import 'app_strings.dart';
 
 class SettingsPage extends StatefulWidget {
   final AppDatabase db;
-  const SettingsPage({super.key, required this.db});
+  final ThemeMode themeMode;
+  final Function(ThemeMode) onThemeModeChanged;
+  final bool isInformalMode;
+  final Function(bool) onInformalModeChanged;
+
+  const SettingsPage({
+    super.key, 
+    required this.db,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+    required this.isInformalMode,
+    required this.onInformalModeChanged,
+  });
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -127,18 +139,17 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           SwitchListTile(
             title: const Text("Neformální režim"),
-            subtitle: Text(AppStrings.isInformal ? "Zapnuto" : "Vypnuto"),
-            value: AppStrings.isInformal,
-            onChanged: (val) {
-              setState(() => AppStrings.isInformal = val);
-            },
+            subtitle: Text(widget.isInformalMode ? "Zapnuto" : "Vypnuto"),
+            value: widget.isInformalMode,
+            onChanged: widget.onInformalModeChanged,
           ),
           ListTile(
             leading: const Icon(Icons.palette),
             title: const Text("Motiv aplikace"),
-            subtitle: const Text("Přepínání světlý/tmavý (bude implementováno)"),
+            subtitle: Text("Aktuálně: ${widget.themeMode.name}"),
             onTap: () {
-              // Zde by byla logika pro změnu motivu, pokud ji aplikace podporuje
+              final nextMode = ThemeMode.values[(widget.themeMode.index + 1) % ThemeMode.values.length];
+              widget.onThemeModeChanged(nextMode);
             },
           ),
         ],

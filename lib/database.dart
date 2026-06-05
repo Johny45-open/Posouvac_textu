@@ -151,6 +151,9 @@ class AppDatabase extends _$AppDatabase {
       }
     });
   }
+
+  Future<int> createPlaylist(String name) => into(playlists).insert(PlaylistsCompanion.insert(name: name));
+  
   Future<List<Playlist>> getAllPlaylists() => select(playlists).get();
   Future<int> deletePlaylist(int id) => (delete(playlists)..where((t) => t.id.equals(id))).go();
   Future<int> renamePlaylist(int id, String newName) =>
