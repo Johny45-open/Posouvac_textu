@@ -361,12 +361,22 @@ class _LibraryPageState extends State<LibraryPage> {
           IconButton(
             icon: Icon(_onlyFavorites ? Icons.favorite : Icons.favorite_border),
             tooltip: _onlyFavorites ? "Zobrazit všechny" : "Pouze oblíbené",
-            onPressed: () => setState(() => _onlyFavorites = !_onlyFavorites),
+            onPressed: () {
+              setState(() => _onlyFavorites = !_onlyFavorites);
+              _tts.speak(_onlyFavorites 
+                  ? (AppStrings.isInformal ? "Ukazuju jen oblíbený." : "Zobrazuji pouze oblíbené.")
+                  : (AppStrings.isInformal ? "Ukazuju úplně všechno." : "Zobrazuji všechny skladby."));
+            },
           ),
           IconButton(
             icon: Icon(_onlyUnplayed ? Icons.check_box : Icons.check_box_outline_blank),
             tooltip: _onlyUnplayed ? "Zobrazit vše" : "Pouze k odehrání",
-            onPressed: () => setState(() => _onlyUnplayed = !_onlyUnplayed),
+            onPressed: () {
+              setState(() => _onlyUnplayed = !_onlyUnplayed);
+              _tts.speak(_onlyUnplayed 
+                  ? (AppStrings.isInformal ? "Ukazuju věci, co čekají na zahrání." : "Zobrazuji pouze skladby k odehrání.")
+                  : (AppStrings.isInformal ? "Ukazuju úplně všechno." : "Zobrazuji všechny skladby."));
+            },
           ),
           IconButton(
             icon: const Icon(Icons.music_note),
