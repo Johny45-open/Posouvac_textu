@@ -403,6 +403,7 @@ class _LibraryPageState extends State<LibraryPage> {
                     "Posouvač textu v$_version",
                     style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                   ),
+
                 ],
               ),
             ),
