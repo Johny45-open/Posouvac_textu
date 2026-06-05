@@ -31,8 +31,11 @@ class StopMarks extends Table {
 }
 
 class CustomStrings extends Table {
-  TextColumn get key => text().primaryKey()();
+  TextColumn get key => text()();
   TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
 }
 
 @DriftDatabase(tables: [Songs, Playlists, PlaylistSongs, StopMarks, CustomStrings])
