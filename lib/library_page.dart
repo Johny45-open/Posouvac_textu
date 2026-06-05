@@ -394,11 +394,11 @@ class _LibraryPageState extends State<LibraryPage> {
           children: [
             DrawerHeader(
               decoration: BoxDecoration(color: Theme.of(context).primaryColor),
-              child: const Column(
+              child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.auto_stories, size: 50, color: Colors.white),
-                  SizedBox(height: 10),
+                  const Icon(Icons.auto_stories, size: 50, color: Colors.white),
+                  const SizedBox(height: 10),
                   Text(
                     "Posouvač textu v$_version",
                     style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),

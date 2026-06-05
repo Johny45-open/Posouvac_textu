@@ -99,6 +99,27 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     }
   }
 
+  Future<void> _handleStopMark(StopMark mark) async {
+    _scrollAnimationController.stop();
+    _tts.speak(AppStrings.stopMarkMessage(mark.durationBars));
+    HapticFeedback.mediumImpact(); // Vibrace na začátku pauzy
+    
+    final totalMs = ((60000 / (_bpm ?? 120)) * mark.durationBars * 4).round();
+    
+    // Pokud je pauza delší než 2 sekundy, zavibrujeme sekundu před koncem jako varování
+    if (totalMs > 2000) {
+      await Future.delayed(Duration(milliseconds: totalMs - 1000));
+      if (mounted && _isScrolling) HapticFeedback.lightImpact(); // Varování před rozjezdem
+      await Future.delayed(const Duration(milliseconds: 1000));
+    } else {
+      await Future.delayed(Duration(milliseconds: totalMs));
+    }
+    
+    if (mounted && _isScrolling) {
+      _scrollAnimationController.forward();
+    }
+  }
+
   Future<void> _loadSongData() async {
     try {
       _song = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).getSingle();
