@@ -255,81 +255,6 @@ class _PlayerPageState extends State<PlayerPage> {
     }
   }
 
-  void _showControlsBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text("Nastavení posuvu a písma", style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  Column(
-                    children: [
-                      const Text("Rychlost"),
-                      Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.remove_circle, size: 40),
-                            onPressed: () {
-                              setState(() => _scrollMultiplier = (_scrollMultiplier - 0.1).clamp(0.1, 5.0));
-                              setSheetState(() {});
-                              _saveSettings();
-                            },
-                          ),
-                          Text("${(_scrollMultiplier * 100).round()}%", style: const TextStyle(fontSize: 20)),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle, size: 40),
-                            onPressed: () {
-                              setState(() => _scrollMultiplier += 0.1);
-                              setSheetState(() {});
-                              _saveSettings();
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  Column(
-                    children: [
-                      const Text("Písmo"),
-                      Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.remove_circle, size: 40),
-                            onPressed: () {
-                              setState(() => _fontSize = (_fontSize - 2).clamp(10, 100));
-                              setSheetState(() {});
-                              _saveSettings();
-                            },
-                          ),
-                          Text("${_fontSize.round()}", style: const TextStyle(fontSize: 20)),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle, size: 40),
-                            onPressed: () {
-                              setState(() => _fontSize += 2);
-                              setSheetState(() {});
-                              _saveSettings();
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   void _stopScrolling() {
     _scrollTimer?.cancel();
     setState(() {
@@ -460,57 +385,6 @@ class _PlayerPageState extends State<PlayerPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_song.title),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: "Nastavení zobrazení a rychlosti",
-            onPressed: _showControlsBottomSheet,
-          ),
-          IconButton(
-            icon: const Icon(Icons.speed),
-            tooltip: "Tempo (BPM)",
-            onPressed: _showBpmDialog,
-          ),
-          Semantics(
-            customSemanticsActions: {
-              CustomSemanticsAction(label: "Spravovat pauzy"): _manageStopMarks,
-            },
-            child: GestureDetector(
-              onLongPress: _manageStopMarks,
-              child: IconButton(
-                icon: const Icon(Icons.add_circle_outline),
-                tooltip: "Přidat pauzu (sólo) - podržením spravujete",
-                onPressed: _addStopMark,
-              ),
-            ),
-          ),
-          // Transpozice
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Text("b", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                tooltip: "Transponovat o půltón níž",
-                onPressed: () {
-                  setState(() => _transpose--);
-                  _tts.speak("Transpozice na ${_transpose}");
-                },
-              ),
-              Semantics(
-                label: "Aktuální transpozice",
-                child: Text("${_transpose > 0 ? '+' : ''}$_transpose", style: const TextStyle(fontWeight: FontWeight.bold)),
-              ),
-              IconButton(
-                icon: const Text("#", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                tooltip: "Transponovat o půltón výš",
-                onPressed: () {
-                  setState(() => _transpose++);
-                  _tts.speak("Transpozice na ${_transpose}");
-                },
-              ),
-            ],
-          ),
-        ],
       ),
       body: _isLoading 
         ? const Center(child: AppProgressIndicator(label: "Načítám text..."))
@@ -547,29 +421,105 @@ class _PlayerPageState extends State<PlayerPage> {
         child: Icon(_isScrolling || _countdown > 0 ? Icons.pause : Icons.play_arrow),
       ),
       bottomNavigationBar: BottomAppBar(
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ElevatedButton.icon(
-              icon: const Icon(Icons.bookmark_add),
-              label: const Text("OZNAČIT PAUZU"),
-              onPressed: _quickAddStopMark,
-            ),
-            ElevatedButton.icon(
-              icon: Icon(_song.isPlayed ? Icons.replay : Icons.check_circle),
-              label: Text(_song.isPlayed ? AppStrings.encoreButton : AppStrings.playedButton),
-              onPressed: () async {
-                final newStatus = !_song.isPlayed;
-                await widget.db.togglePlayed(_song.id, newStatus);
-                _tts.speak(newStatus 
-                  ? AppStrings.songMarkedPlayed(_song.title) 
-                  : AppStrings.songMarkedNotPlayed(_song.title));
-                setState(() {
-                  _song = _song.copyWith(isPlayed: newStatus);
-                });
-              },
-            ),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Transpozice
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle),
+                    iconSize: 40,
+                    color: Colors.blue,
+                    tooltip: "Transponovat níž",
+                    onPressed: () { setState(() => _transpose--); _tts.speak("Transpozice na $_transpose"); },
+                  ),
+                  Text("T: $_transpose", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle),
+                    iconSize: 40,
+                    color: Colors.blue,
+                    tooltip: "Transponovat výš",
+                    onPressed: () { setState(() => _transpose++); _tts.speak("Transpozice na $_transpose"); },
+                  ),
+                  // Písmo
+                  IconButton(
+                    icon: const Icon(Icons.text_decrease),
+                    iconSize: 40,
+                    color: Colors.green,
+                    tooltip: "Zmenšit písmo",
+                    onPressed: () { setState(() => _fontSize = (_fontSize - 2).clamp(10, 100)); _saveSettings(); },
+                  ),
+                  Text("P: ${_fontSize.round()}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.text_increase),
+                    iconSize: 40,
+                    color: Colors.green,
+                    tooltip: "Zvětšit písmo",
+                    onPressed: () { setState(() => _fontSize += 2); _saveSettings(); },
+                  ),
+                ],
+              ),
+              const Divider(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Rychlost
+                  IconButton(
+                    icon: const Icon(Icons.fast_rewind),
+                    iconSize: 40,
+                    color: Colors.orange,
+                    tooltip: "Zpomalit",
+                    onPressed: () { setState(() => _scrollMultiplier = (_scrollMultiplier - 0.1).clamp(0.1, 5.0)); _saveSettings(); },
+                  ),
+                  Text("R: ${(_scrollMultiplier * 100).round()}%", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.fast_forward),
+                    iconSize: 40,
+                    color: Colors.orange,
+                    tooltip: "Zrychlit",
+                    onPressed: () { setState(() => _scrollMultiplier += 0.1); _saveSettings(); },
+                  ),
+                ],
+              ),
+              const Divider(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  InkWell(
+                    onTap: _quickAddStopMark,
+                    onLongPress: _manageStopMarks,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.bookmark_add, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Text("PAUZA", style: TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    icon: Icon(_song.isPlayed ? Icons.replay : Icons.check_circle),
+                    label: Text(_song.isPlayed ? "Znovu" : "Hotovo"),
+                    onPressed: () async {
+                      final newStatus = !_song.isPlayed;
+                      await widget.db.togglePlayed(_song.id, newStatus);
+                      setState(() => _song = _song.copyWith(isPlayed: newStatus));
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
