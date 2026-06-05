@@ -223,6 +223,14 @@ class _SettingsPageState extends State<SettingsPage> {
               widget.onThemeModeChanged(nextMode);
             },
           ),
+          ListTile(
+            leading: const Icon(Icons.record_voice_over),
+            title: const Text("Vlastní hlasové zprávy"),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => CustomTtsSettingsPage(db: widget.db)),
+            ),
+          ),
         ],
       ),
     );
