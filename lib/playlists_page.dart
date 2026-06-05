@@ -242,9 +242,8 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
 
   Future<void> _showBulkAddDialog(BuildContext context) async {
     final allSongs = await widget.db.getAllSongs();
-    final existingSongs = await (widget.db.select(widget.db.songs)..join([innerJoin(widget.db.playlistSongs, widget.db.playlistSongs.songId.equalsExp(widget.db.songs.id))])
-      ..where(widget.db.playlistSongs.playlistId.equals(widget.playlist.id))).get();
-    final existingIds = existingSongs.map((row) => row.readTable(widget.db.songs).id).toSet();
+    final existingSongs = await widget.db.watchSongsInPlaylist(widget.playlist.id).first;
+    final existingIds = existingSongs.map((song) => song.id).toSet();
     
     // Filtrujeme pouze ty, které v playlistu ještě nejsou
     final availableSongs = allSongs.where((s) => !existingIds.contains(s.id)).toList();

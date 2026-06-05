@@ -260,10 +260,17 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
-  Future<int> removeSongFromPlaylist(int playlistId, int songId) =>
+  Future<void> removeSongFromPlaylist(int playlistId, int songId) =>
       (delete(playlistSongs)..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId))).go();
 
+  Future<void> movePlaylistSong(int playlistId, int songId, int newOrderIndex) async {
+    await (update(playlistSongs)
+          ..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId)))
+        .write(PlaylistSongsCompanion(orderIndex: Value(newOrderIndex)));
+  }
+
   Stream<List<SongEntry>> watchSongsInPlaylist(int playlistId) {
+
     final query = select(songs).join([innerJoin(playlistSongs, playlistSongs.songId.equalsExp(songs.id))])
       ..where(playlistSongs.playlistId.equals(playlistId))
       ..orderBy([OrderingTerm.asc(playlistSongs.orderIndex)]);
