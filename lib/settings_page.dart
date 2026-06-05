@@ -117,7 +117,30 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const Divider(height: 40),
-          // Zde můžeme později přidat další nastavení verze 3.0 (Tlačítka hlasitosti atd.)
+          ListTile(
+            leading: const Icon(Icons.refresh),
+            title: const Text("Vynulovat koncert"),
+            onTap: () async {
+              await widget.db.resetPlayedStatus();
+              _tts.speak(AppStrings.resetPlayed);
+            },
+          ),
+          SwitchListTile(
+            title: const Text("Neformální režim"),
+            subtitle: Text(AppStrings.isInformal ? "Zapnuto" : "Vypnuto"),
+            value: AppStrings.isInformal,
+            onChanged: (val) {
+              setState(() => AppStrings.isInformal = val);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.palette),
+            title: const Text("Motiv aplikace"),
+            subtitle: const Text("Přepínání světlý/tmavý (bude implementováno)"),
+            onTap: () {
+              // Zde by byla logika pro změnu motivu, pokud ji aplikace podporuje
+            },
+          ),
         ],
       ),
     );

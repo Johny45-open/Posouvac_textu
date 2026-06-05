@@ -12,10 +12,10 @@ class AppStrings {
       ? "Tady máš všechen svůj repertoár. Nový fláky v .txt tam hodíš tlačítkem vpravo dole. Když chceš něco upravit, stačí na tom songu podržet prst."
       : "V Knihovně najdete své písně. Nové texty ve formátu .txt importujete tlačítkem vpravo dole. Pokud chcete upravit jméno interpreta nebo název, podržte na písni prst déle.";
 
-  static String get playerTitle => isInformal ? "Přehrávač a jízda" : "Přehrávač a tempo";
+  static String get playerTitle => isInformal ? "Přehrávač a jízda" : "Přehrávač a ovládání";
   static String get playerContent => isInformal 
-      ? "Klepni na text a odstartuješ odpočet i jízdu. Tempo si poladíš tou ikonou tachometru nahoře. Každej song si pamatuje svý."
-      : "Klepnutím na text v přehrávači spustíte hlasový odpočet a automatický posuv. Tempo BPM nastavíte ikonou tachometru v horní liště. Nastavení se uloží pro každou píseň zvlášť.";
+      ? "Klepni na text a odstartuješ odpočet i jízdu. Všechno ovládání (tempo, transpozici, velikost písma i rychlost) najdeš pohodlně dole. Pauzu přidáš krátkým klepnutím, podržením je spravuješ."
+      : "Klepnutím na text v přehrávači spustíte hlasový odpočet a automatický posuv. Všechny ovládací prvky (tempo, transpozice, velikost písma, rychlost posuvu) jsou nyní pohodlně umístěny v dolní části obrazovky pro snadný přístup. Pauzu přidáte krátkým klepnutím na tlačítko PAUZA, dlouhým podržením tohoto tlačítka otevřete jejich správu.";
 
   static String get extraTitle => isInformal ? "Ladička a setlisty" : "Ladička a Playlisty";
   static String get extraContent => isInformal 
