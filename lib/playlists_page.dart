@@ -32,6 +32,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
       allowedExtensions: ['json'],
     );
 
+
     if (result != null && result.files.single.path != null) {
       final file = File(result.files.single.path!);
       final jsonString = await file.readAsString();

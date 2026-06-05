@@ -68,6 +68,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     if (!mounted || !_isScrolling) return;
     setState(() => _countdown = 0);
     HapticFeedback.vibrate(); // Delší vibrace při startu samotného posuvu
+    
+    debugPrint("Countdown finished, calling _startScrolling");
     _startScrolling();
   }
 
@@ -76,7 +78,25 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     super.initState();
     _tts.setLanguage("cs-CZ");
     _tts.setSpeechRate(0.5);
+    _scrollAnimationController = AnimationController(vsync: this);
+    _scrollAnimationController.addListener(_onAnimationUpdate);
     _loadSongData();
+  }
+
+  void _onAnimationUpdate() {
+    if (_scrollController.hasClients) {
+      final maxExtent = _scrollController.position.maxScrollExtent;
+      _scrollController.jumpTo(_scrollAnimationController.value * maxExtent);
+      
+      // Kontrola zarážek
+      final currentRatio = _scrollAnimationController.value;
+      for (final mark in _stopMarks) {
+        if (currentRatio >= mark.positionRatio && currentRatio < mark.positionRatio + 0.01) {
+          _handleStopMark(mark);
+          break;
+        }
+      }
+    }
   }
 
   Future<void> _loadSongData() async {

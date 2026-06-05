@@ -76,6 +76,7 @@ class _SettingsPageState extends State<SettingsPage> {
         allowedExtensions: ['json'],
       );
 
+
       if (result != null && result.files.single.path != null) {
         final file = File(result.files.single.path!);
         final jsonString = await file.readAsString();
@@ -113,10 +114,11 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _importCsv() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['csv'],
+        allowedExtensions: ['json'],
       );
+
 
       if (result != null && result.files.single.path != null) {
         final file = File(result.files.single.path!);
