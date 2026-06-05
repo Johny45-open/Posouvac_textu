@@ -39,8 +39,6 @@ class LibraryPage extends StatefulWidget {
   State<LibraryPage> createState() => _LibraryPageState();
 }
 
-import 'package:package_info_plus/package_info_plus.dart';
-// ...
 class _LibraryPageState extends State<LibraryPage> {
   final FlutterTts _tts = FlutterTts();
   bool _onlyFavorites = false;
