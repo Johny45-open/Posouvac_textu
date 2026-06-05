@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'database.dart';
 import 'app_strings.dart';
+import 'custom_tts_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final AppDatabase db;
