@@ -121,7 +121,7 @@ class _SettingsPageState extends State<SettingsPage> {
             leading: const Icon(Icons.refresh),
             title: const Text("Vynulovat koncert"),
             onTap: () async {
-              await widget.db.resetPlayedStatus();
+              await widget.db.resetAllPlayed();
               _tts.speak(AppStrings.resetPlayed);
             },
           ),
