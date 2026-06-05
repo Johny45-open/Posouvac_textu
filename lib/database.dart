@@ -118,6 +118,46 @@ class AppDatabase extends _$AppDatabase {
 
   Future<int> deleteStopMark(int id) => (delete(stopMarks)..where((t) => t.id.equals(id))).go();
 
+  Future<String> exportSongsToCsv() async {
+    final songs = await select(this.songs).get();
+    final buffer = StringBuffer();
+    buffer.writeln("id,artist,title,duration");
+    for (final song in songs) {
+      buffer.writeln("${song.id},\"${song.artist}\",\"${song.title}\",${song.duration ?? 0}");
+    }
+    return buffer.toString();
+  }
+
+  Future<void> importSongsFromCsv(String csvContent) async {
+    final lines = csvContent.split('\n');
+    if (lines.isEmpty) return;
+
+    await transaction(() async {
+      for (var i = 1; i < lines.length; i++) {
+        final line = lines[i].trim();
+        if (line.isEmpty) continue;
+        
+        final parts = line.split(',');
+        if (parts.length < 4) continue;
+        
+        final id = int.tryParse(parts[0]);
+        final artist = parts[1].replaceAll('"', '');
+        final title = parts[2].replaceAll('"', '');
+        final duration = int.tryParse(parts[3]);
+
+        if (id != null) {
+          await (update(songs)..where((t) => t.id.equals(id))).write(
+            SongsCompanion(
+              artist: Value(artist),
+              title: Value(title),
+              duration: Value(duration != null && duration > 0 ? duration : null),
+            ),
+          );
+        }
+      }
+    });
+  }
+
   Future<void> syncPlaylistFromJson(Map<String, dynamic> data) async {
     final playlistName = data['name'] as String;
     final songTitles = (data['songs'] as List<dynamic>).cast<String>();

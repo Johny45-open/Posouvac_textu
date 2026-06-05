@@ -95,6 +95,47 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _exportCsv() async {
+    try {
+      final csvString = await widget.db.exportSongsToCsv();
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/metadata_pisni.csv');
+      await file.writeAsString(csvString, encoding: utf8);
+
+      await Share.shareXFiles([XFile(file.path)], text: 'Metadata písní z aplikace Posouvač textu');
+      _tts.speak("Metadata exportována do CSV");
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při exportu: $e")));
+      }
+    }
+  }
+
+  Future<void> _importCsv() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final csvString = await file.readAsString(encoding: utf8);
+        
+        await widget.db.importSongsFromCsv(csvString);
+        _tts.speak("Metadata importována z CSV");
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Metadata importována")));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při importu: $e")));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -103,6 +144,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       body: ListView(
         children: [
+          // Původní část pro zálohu
           ListTile(
             leading: const Icon(Icons.backup),
             title: Text(AppStrings.backupTitle),
@@ -124,6 +166,33 @@ class _SettingsPageState extends State<SettingsPage> {
                   icon: const Icon(Icons.download),
                   label: Text(AppStrings.backupImportButton),
                   onPressed: _importBackup,
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 40),
+          // Nová část pro CSV
+          ListTile(
+            leading: const Icon(Icons.table_chart),
+            title: const Text("Hromadná úprava (CSV)"),
+            subtitle: const Text("Export a import metadat písní v Excelu"),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Column(
+              children: [
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(double.maxFinite, 50)),
+                  icon: const Icon(Icons.upload_file),
+                  label: const Text("Exportovat CSV"),
+                  onPressed: _exportCsv,
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(double.maxFinite, 50)),
+                  icon: const Icon(Icons.download_for_offline),
+                  label: const Text("Importovat CSV"),
+                  onPressed: _importCsv,
                 ),
               ],
             ),
