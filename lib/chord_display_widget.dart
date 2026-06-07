@@ -60,6 +60,15 @@ class ChordDisplayWidget extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 4.0),
               child: Text(element.content, style: commentStyle),
             );
+          } else if (element.type == ElementType.stopMark) {
+            final bars = element.stopMarkBars ?? 0;
+            return Semantics(
+              label: "Pauza, ${bars > 0 ? '$bars takty' : 'manuální'}",
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4.0),
+                child: Icon(Icons.pause_circle_outline, size: 20, color: Colors.red),
+              ),
+            );
           }
           return Text(element.content, style: textStyle);
         }).toList(),

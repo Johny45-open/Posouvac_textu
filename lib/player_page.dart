@@ -267,6 +267,53 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     );
   }
 
+  void _showPlayerControls() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Ovládání přehrávače", style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            // Transpozice
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                IconButton(icon: const Icon(Icons.remove_circle, size: 48), color: Colors.blue, onPressed: () { setState(() => _transpose--); _tts.speak("Transpozice $_transpose"); }),
+                Text("T: $_transpose", style: const TextStyle(fontSize: 20)),
+                IconButton(icon: const Icon(Icons.add_circle, size: 48), color: Colors.blue, onPressed: () { setState(() => _transpose++); _tts.speak("Transpozice $_transpose"); }),
+              ],
+            ),
+            const Divider(),
+            // Tempo a Rychlost
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                IconButton(icon: const Icon(Icons.speed, size: 48), color: Colors.purple, onPressed: _showBpmDialog),
+                IconButton(icon: const Icon(Icons.fast_rewind, size: 48), color: Colors.orange, onPressed: () => setState(() => _scrollMultiplier = (_scrollMultiplier - 0.1).clamp(0.1, 5.0))),
+                Text("${(_scrollMultiplier * 100).round()}%", style: const TextStyle(fontSize: 20)),
+                IconButton(icon: const Icon(Icons.fast_forward, size: 48), color: Colors.orange, onPressed: () => setState(() => _scrollMultiplier += 0.1)),
+              ],
+            ),
+            const Divider(),
+            // Pauzy a Dohráno
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton.icon(icon: const Icon(Icons.bookmark_add), label: const Text("PAUZA"), onPressed: _quickAddStopMark),
+                ElevatedButton.icon(icon: const Icon(Icons.list), label: const Text("SPRÁVA PAUZ"), onPressed: _manageStopMarks),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _addStopMark() async {
     final barsController = TextEditingController(text: "2");
     final ratio = _scrollController.offset / _scrollController.position.maxScrollExtent;
@@ -386,6 +433,13 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     return Scaffold(
       appBar: AppBar(
         title: Text(_song.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: "Ovládání přehrávače",
+            onPressed: _showPlayerControls,
+          ),
+        ],
       ),
       body: _isLoading 
         ? const Center(child: AppProgressIndicator(label: "Načítám text..."))

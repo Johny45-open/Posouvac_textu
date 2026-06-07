@@ -1,10 +1,11 @@
-enum ElementType { text, chord, comment }
+enum ElementType { text, chord, comment, stopMark }
 
 class ChordProElement {
   final ElementType type;
   final String content;
+  final int? stopMarkBars; // Pro stopMark
 
-  ChordProElement(this.type, this.content);
+  ChordProElement(this.type, this.content, {this.stopMarkBars});
 }
 
 class ChordProSection {
@@ -36,6 +37,10 @@ class ChordProParser {
           currentSectionTitle = null;
         } else if (directive.startsWith('c:')) {
           currentLines.add([ChordProElement(ElementType.comment, directive.substring(2))]);
+        } else if (directive.startsWith('stop:') || directive.startsWith('pause:')) {
+          final parts = directive.split(':');
+          final bars = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+          currentLines.add([ChordProElement(ElementType.stopMark, "Pauza", stopMarkBars: bars)]);
         }
         continue;
       }
