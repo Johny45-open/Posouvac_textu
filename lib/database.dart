@@ -142,7 +142,6 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> importSongsFromCsv(String csvContent) async {
-    // Odstranění potenciálního BOM ze začátku
     final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
     final lines = content.split('\n');
     if (lines.isEmpty) return;
@@ -152,13 +151,16 @@ class AppDatabase extends _$AppDatabase {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
         
-        final parts = line.split(',');
+        // Jednoduchý parser pro CSV s uvozovkami
+        final regex = RegExp(r'("[^"]*"|[^,]+)');
+        final matches = regex.allMatches(line);
+        final parts = matches.map((m) => m.group(0)!.replaceAll('"', '').trim()).toList();
+
         if (parts.length < 4) continue;
         
         final id = int.tryParse(parts[0]);
-        // Oprava: parseování citací, pokud jsou přítomny
-        final artist = parts[1].replaceAll('"', '').trim();
-        final title = parts[2].replaceAll('"', '').trim();
+        final artist = parts[1];
+        final title = parts[2];
         final duration = int.tryParse(parts[3]);
 
         if (id != null) {
