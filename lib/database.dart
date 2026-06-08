@@ -156,19 +156,23 @@ class AppDatabase extends _$AppDatabase {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
         
-        // Robustní split: dělí čárkou mimo uvozovky a čistí uvozovky
-        final pattern = RegExp(r',(?=(?:(?:[^"]*"){2})*[^"]*$)');
-        final parts = line.split(pattern).map((p) => p.trim().replaceAll('"', '').trim()).toList();
-
-        if (parts.length < 4) continue;
+        final parts = line.split(',').map((p) => p.trim().replaceAll('"', '').trim()).toList();
         
-        // ID může být obalené uvozovkami, vyčistíme ho
-        final id = int.tryParse(parts[0].replaceAll('"', '').trim());
+        print("DEBUG: Řádek $i, počet částí: ${parts.length}, části: $parts");
+
+        if (parts.length < 4) {
+          print("DEBUG: Přeskakuji řádek $i, málo sloupců (délka: ${parts.length})");
+          continue;
+        }
+        
+        // ID může být obalené uvozovkami nebo obsahovat jiné znaky, vyčistíme ho na čisté číslo
+        final idStr = parts[0].replaceAll(RegExp(r'[^0-9]'), '').trim();
+        final id = int.tryParse(idStr);
         final artist = parts[1].trim();
         final title = parts[2].trim();
         final duration = int.tryParse(parts[3].trim());
 
-        print("DEBUG: Importovat ID: $id, Interpret: $artist, Název: $title");
+        print("DEBUG: Importovat ID: $id (původně: ${parts[0]}), Interpret: $artist, Název: $title");
 
         if (id != null) {
           final result = await (update(songs)..where((t) => t.id.equals(id))).write(
@@ -199,10 +203,18 @@ class AppDatabase extends _$AppDatabase {
       if (line.isEmpty) continue;
       
       final pattern = RegExp(r',(?=(?:(?:[^"]*"){2})*[^"]*$)');
-      final parts = line.split(pattern).map((p) => p.trim().replaceAll('"', '')).toList();
-      if (parts.length < 4) continue;
+      final parts = line.split(pattern).map((p) => p.trim().replaceAll('"', '').trim()).toList();
+      
+      print("DEBUG: Řádek $i, díly: $parts"); 
+
+      if (parts.length < 4) {
+        print("DEBUG: Přeskakuji řádek $i, málo sloupců");
+        continue;
+      }
       
       final id = int.tryParse(parts[0]);
+      print("DEBUG: Zkouším ID: $id");
+      
       if (id != null) {
         final song = await (select(songs)..where((t) => t.id.equals(id))).getSingleOrNull();
         if (song != null) {
@@ -214,7 +226,11 @@ class AppDatabase extends _$AppDatabase {
             'newTitle': parts[2],
             'newDuration': int.tryParse(parts[3]) ?? 0,
           });
+        } else {
+          print("DEBUG: Píseň s ID $id nenalezena v databázi");
         }
+      } else {
+         print("DEBUG: Nepodařilo se naparsovat ID: ${parts[0]}");
       }
     }
     return preview;
