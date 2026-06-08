@@ -156,21 +156,23 @@ class AppDatabase extends _$AppDatabase {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
         
+        // Robustnější split: prostě rozdělit podle čárky, pak vyčistit uvozovky
         final parts = line.split(',').map((p) => p.trim().replaceAll('"', '').trim()).toList();
         
         print("DEBUG: Řádek $i, počet částí: ${parts.length}, části: $parts");
 
-        if (parts.length < 4) {
-          print("DEBUG: Přeskakuji řádek $i, málo sloupců (délka: ${parts.length})");
+        // Tolerantnější kontrola
+        if (parts.length < 3) {
+          print("DEBUG: Přeskakuji řádek $i, málo dat (délka: ${parts.length})");
           continue;
         }
         
         // ID může být obalené uvozovkami nebo obsahovat jiné znaky, vyčistíme ho na čisté číslo
         final idStr = parts[0].replaceAll(RegExp(r'[^0-9]'), '').trim();
         final id = int.tryParse(idStr);
-        final artist = parts[1].trim();
-        final title = parts[2].trim();
-        final duration = int.tryParse(parts[3].trim());
+        final artist = parts.length > 1 ? parts[1].trim() : "Neznámý";
+        final title = parts.length > 2 ? parts[2].trim() : "Neznámý";
+        final duration = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
 
         print("DEBUG: Importovat ID: $id (původně: ${parts[0]}), Interpret: $artist, Název: $title");
 
@@ -179,7 +181,7 @@ class AppDatabase extends _$AppDatabase {
             SongsCompanion(
               artist: Value(artist),
               title: Value(title),
-              duration: Value(duration != null && duration > 0 ? duration : null),
+              duration: Value(duration > 0 ? duration : null),
             ),
           );
           print("DEBUG: Výsledek aktualizace ID $id: $result");
