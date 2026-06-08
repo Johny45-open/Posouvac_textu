@@ -97,6 +97,25 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _showCsvHelp() async {
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Jak upravit metadata"),
+        content: const Text(
+          "1. Exportujte CSV soubor.\n"
+          "2. Otevřete ho v Excelu nebo tabulkovém procesoru.\n"
+          "3. Upravujte pouze sloupce 'artist' (interpret), 'title' (název) a 'duration' (délka v sekundách).\n"
+          "4. ID sloupec (id) NIKDY neupravujte, slouží k identifikaci písně!\n"
+          "5. Po úpravě soubor uložte jako CSV (UTF-8) a importujte zpět.",
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Rozumím")),
+        ],
+      ),
+    );
+  }
+
   Future<void> _exportCsv() async {
     try {
       final csvString = await widget.db.exportSongsToCsv();
@@ -179,6 +198,7 @@ class _SettingsPageState extends State<SettingsPage> {
             leading: const Icon(Icons.table_chart),
             title: const Text("Hromadná úprava (CSV)"),
             subtitle: const Text("Export a import metadat písní v Excelu"),
+            onTap: _showCsvHelp,
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
