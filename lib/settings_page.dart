@@ -201,6 +201,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _tts.speak("Importováno $updatedCount písní");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Aktualizováno $updatedCount písní")));
+          setState(() {});
         }
       }
     } catch (e) {

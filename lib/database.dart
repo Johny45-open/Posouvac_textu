@@ -191,17 +191,14 @@ class AppDatabase extends _$AppDatabase {
       final line = lines[i].trim();
       if (line.isEmpty) continue;
       
-      final pattern = RegExp(r',(?=(?:(?:[^"]*"){2})*[^"]*$)');
-      final parts = line.split(pattern).map((p) => p.trim().replaceAll('"', '').trim()).toList();
+      final parts = line.split(',').map((p) => p.trim().replaceAll('"', '').trim()).toList();
       
       print("DEBUG: Řádek $i, díly: $parts"); 
-
-      if (parts.length < 4) {
-        print("DEBUG: Přeskakuji řádek $i, málo sloupců");
-        continue;
-      }
       
-      final id = int.tryParse(parts[0]);
+      if (parts.isEmpty || parts[0].isEmpty) continue;
+
+      final idStr = parts[0].replaceAll(RegExp(r'[^0-9]'), '').trim();
+      final id = int.tryParse(idStr);
       print("DEBUG: Zkouším ID: $id");
       
       if (id != null) {
@@ -210,10 +207,10 @@ class AppDatabase extends _$AppDatabase {
           preview.add({
             'id': id,
             'oldArtist': song.artist,
-            'newArtist': parts[1],
+            'newArtist': parts.length > 1 ? parts[1].trim() : song.artist,
             'oldTitle': song.title,
-            'newTitle': parts[2],
-            'newDuration': int.tryParse(parts[3]) ?? 0,
+            'newTitle': parts.length > 2 ? parts[2].trim() : song.title,
+            'newDuration': parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : song.duration ?? 0,
           });
         } else {
           print("DEBUG: Píseň s ID $id nenalezena v databázi");
