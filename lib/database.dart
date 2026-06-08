@@ -178,6 +178,38 @@ class AppDatabase extends _$AppDatabase {
     return updatedCount;
   }
 
+  Future<List<Map<String, dynamic>>> previewSongsFromCsv(String csvContent) async {
+    final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
+    final lines = content.split('\n');
+    if (lines.length < 2) return [];
+
+    final preview = <Map<String, dynamic>>[];
+    for (var i = 1; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) continue;
+      
+      final pattern = RegExp(r',(?=(?:(?:[^"]*"){2})*[^"]*$)');
+      final parts = line.split(pattern).map((p) => p.trim().replaceAll('"', '')).toList();
+      if (parts.length < 4) continue;
+      
+      final id = int.tryParse(parts[0]);
+      if (id != null) {
+        final song = await (select(songs)..where((t) => t.id.equals(id))).getSingleOrNull();
+        if (song != null) {
+          preview.add({
+            'id': id,
+            'oldArtist': song.artist,
+            'newArtist': parts[1],
+            'oldTitle': song.title,
+            'newTitle': parts[2],
+            'newDuration': int.tryParse(parts[3]) ?? 0,
+          });
+        }
+      }
+    }
+    return preview;
+  }
+
   Future<void> syncPlaylistFromJson(Map<String, dynamic> data) async {
     final playlistName = data['name'] as String;
     final songTitles = (data['songs'] as List<dynamic>).cast<String>();

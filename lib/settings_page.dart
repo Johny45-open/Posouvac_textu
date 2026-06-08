@@ -142,16 +142,50 @@ class _SettingsPageState extends State<SettingsPage> {
         allowedExtensions: ['csv'],
       );
 
-
       if (result != null && result.files.single.path != null) {
         final file = File(result.files.single.path!);
         final csvString = await file.readAsString(encoding: utf8);
         
-        final updatedCount = await widget.db.importSongsFromCsv(csvString);
-        _tts.speak("Importováno $updatedCount písní");
+        final previewData = await widget.db.previewSongsFromCsv(csvString);
         
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Aktualizováno $updatedCount písní")));
+        if (!mounted) return;
+        
+        if (previewData.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Žádné platné změny k importu.")));
+          return;
+        }
+
+        final bool? confirm = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text("Náhled změn"),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: previewData.length,
+                itemBuilder: (context, i) {
+                  final p = previewData[i];
+                  return ListTile(
+                    title: Text("${p['oldTitle']} -> ${p['newTitle']}"),
+                    subtitle: Text("Interpret: ${p['oldArtist']} -> ${p['newArtist']}"),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
+              TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Potvrdit import")),
+            ],
+          ),
+        );
+
+        if (confirm == true) {
+          final updatedCount = await widget.db.importSongsFromCsv(csvString);
+          _tts.speak("Importováno $updatedCount písní");
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Aktualizováno $updatedCount písní")));
+          }
         }
       }
     } catch (e) {
