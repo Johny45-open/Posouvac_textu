@@ -278,7 +278,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           children: [
             Text("Ovládání přehrávače", style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
-            // Transpozice
+            // Transpozice a Písmo
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -287,7 +287,16 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                 IconButton(icon: const Icon(Icons.add_circle, size: 48), color: Colors.blue, onPressed: () { setState(() => _transpose++); _tts.speak("Transpozice $_transpose"); }),
               ],
             ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                IconButton(icon: const Icon(Icons.text_decrease, size: 48), color: Colors.green, onPressed: () { setState(() => _fontSize = (_fontSize - 2).clamp(10, 100)); _saveSettings(); }),
+                Text("P: ${_fontSize.round()}", style: const TextStyle(fontSize: 20)),
+                IconButton(icon: const Icon(Icons.text_increase, size: 48), color: Colors.green, onPressed: () { setState(() => _fontSize += 2); _saveSettings(); }),
+              ],
+            ),
             const Divider(),
+
             // Tempo a Rychlost
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -474,118 +483,6 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       floatingActionButton: FloatingActionButton(
         onPressed: _toggleScrolling,
         child: Icon(_isScrolling || _countdown > 0 ? Icons.pause : Icons.play_arrow),
-      ),
-      bottomNavigationBar: BottomAppBar(
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  // Transpozice
-                  IconButton(
-                    icon: const Icon(Icons.remove_circle),
-                    iconSize: 40,
-                    color: Colors.blue,
-                    tooltip: "Transponovat níž",
-                    onPressed: () { setState(() => _transpose--); _tts.speak("Transpozice na $_transpose"); },
-                  ),
-                  Text("T: $_transpose", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle),
-                    iconSize: 40,
-                    color: Colors.blue,
-                    tooltip: "Transponovat výš",
-                    onPressed: () { setState(() => _transpose++); _tts.speak("Transpozice na $_transpose"); },
-                  ),
-                  // Písmo
-                  IconButton(
-                    icon: const Icon(Icons.text_decrease),
-                    iconSize: 40,
-                    color: Colors.green,
-                    tooltip: "Zmenšit písmo",
-                    onPressed: () { setState(() => _fontSize = (_fontSize - 2).clamp(10, 100)); _saveSettings(); },
-                  ),
-                  Text("P: ${_fontSize.round()}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  IconButton(
-                    icon: const Icon(Icons.text_increase),
-                    iconSize: 40,
-                    color: Colors.green,
-                    tooltip: "Zvětšit písmo",
-                    onPressed: () { setState(() => _fontSize += 2); _saveSettings(); },
-                  ),
-                ],
-              ),
-              const Divider(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  // Tempo (BPM)
-                  IconButton(
-                    icon: const Icon(Icons.speed),
-                    iconSize: 40,
-                    color: Colors.purple,
-                    tooltip: "Nastavit tempo (BPM)",
-                    onPressed: _showBpmDialog,
-                  ),
-                  Text("BPM: ${(_bpm ?? 120).round()}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  
-                  // Rychlost
-                  IconButton(
-                    icon: const Icon(Icons.fast_rewind),
-                    iconSize: 40,
-                    color: Colors.orange,
-                    tooltip: "Zpomalit",
-                    onPressed: () { setState(() => _scrollMultiplier = (_scrollMultiplier - 0.1).clamp(0.1, 5.0)); _saveSettings(); },
-                  ),
-                  Text("R: ${(_scrollMultiplier * 100).round()}%", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  IconButton(
-                    icon: const Icon(Icons.fast_forward),
-                    iconSize: 40,
-                    color: Colors.orange,
-                    tooltip: "Zrychlit",
-                    onPressed: () { setState(() => _scrollMultiplier += 0.1); _saveSettings(); },
-                  ),
-                ],
-              ),
-              const Divider(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  InkWell(
-                    onTap: _quickAddStopMark,
-                    onLongPress: _manageStopMarks,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.bookmark_add, color: Colors.blue),
-                          SizedBox(width: 8),
-                          Text("PAUZA", style: TextStyle(fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    icon: Icon(_song.isPlayed ? Icons.replay : Icons.check_circle),
-                    label: Text(_song.isPlayed ? "Znovu" : "Hotovo"),
-                    onPressed: () async {
-                      final newStatus = !_song.isPlayed;
-                      await widget.db.togglePlayed(_song.id, newStatus);
-                      setState(() => _song = _song.copyWith(isPlayed: newStatus));
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
