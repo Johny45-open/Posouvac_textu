@@ -141,20 +141,20 @@ class AppDatabase extends _$AppDatabase {
     return buffer.toString();
   }
 
-  Future<void> importSongsFromCsv(String csvContent) async {
+  Future<int> importSongsFromCsv(String csvContent) async {
     final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
     final lines = content.split('\n');
-    if (lines.isEmpty) return;
+    if (lines.length < 2) return 0; // Header + at least one data line
 
+    int updatedCount = 0;
     await transaction(() async {
       for (var i = 1; i < lines.length; i++) {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
         
-        // Jednoduchý parser pro CSV s uvozovkami
-        final regex = RegExp(r'("[^"]*"|[^,]+)');
-        final matches = regex.allMatches(line);
-        final parts = matches.map((m) => m.group(0)!.replaceAll('"', '').trim()).toList();
+        // Robustní split: dělí čárkou pouze mimo uvozovky
+        final pattern = RegExp(r',(?=(?:(?:[^"]*"){2})*[^"]*$)');
+        final parts = line.split(pattern).map((p) => p.trim().replaceAll('"', '')).toList();
 
         if (parts.length < 4) continue;
         
@@ -164,16 +164,18 @@ class AppDatabase extends _$AppDatabase {
         final duration = int.tryParse(parts[3]);
 
         if (id != null) {
-          await (update(songs)..where((t) => t.id.equals(id))).write(
+          final result = await (update(songs)..where((t) => t.id.equals(id))).write(
             SongsCompanion(
               artist: Value(artist),
               title: Value(title),
               duration: Value(duration != null && duration > 0 ? duration : null),
             ),
           );
+          if (result > 0) updatedCount++;
         }
       }
     });
+    return updatedCount;
   }
 
   Future<void> syncPlaylistFromJson(Map<String, dynamic> data) async {

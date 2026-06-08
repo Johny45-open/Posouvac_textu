@@ -139,7 +139,7 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['json'],
+        allowedExtensions: ['csv'],
       );
 
 
@@ -147,11 +147,11 @@ class _SettingsPageState extends State<SettingsPage> {
         final file = File(result.files.single.path!);
         final csvString = await file.readAsString(encoding: utf8);
         
-        await widget.db.importSongsFromCsv(csvString);
-        _tts.speak("Metadata importována z CSV");
+        final updatedCount = await widget.db.importSongsFromCsv(csvString);
+        _tts.speak("Importováno $updatedCount písní");
         
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Metadata importována")));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Aktualizováno $updatedCount písní")));
         }
       }
     } catch (e) {
