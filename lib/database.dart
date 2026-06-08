@@ -142,7 +142,6 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<int> importSongsFromCsv(String csvContent) async {
-    print("DEBUG: ZAHÁJEN IMPORT S DÉLKOU: ${csvContent.length}");
     final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
     final lines = content.split('\n');
     if (lines.length < 2) return 0;
@@ -154,15 +153,11 @@ class AppDatabase extends _$AppDatabase {
         if (line.isEmpty) continue;
         
         final parts = line.split(',').map((p) => p.trim().replaceAll('"', '').trim()).toList();
-        print("DEBUG: Řádek $i, počet částí: ${parts.length}, části: $parts");
-
-        if (parts.isEmpty || parts[0].isEmpty) continue;
+        if (parts.length < 3) continue;
         
-        final artist = parts.length > 1 ? parts[1].trim() : "Neznámý";
-        final title = parts.length > 2 ? parts[2].trim() : "Neznámý";
+        final artist = parts[1].trim();
+        final title = parts[2].trim();
         final duration = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
-
-        print("DEBUG: Hledám: Interpret: $artist, Název: $title");
 
         final songsList = await (select(songs)
               ..where((t) => t.artist.equals(artist) & t.title.equals(title)))
@@ -175,10 +170,7 @@ class AppDatabase extends _$AppDatabase {
               duration: Value(duration > 0 ? duration : null),
             ),
           );
-          print("DEBUG: Píseň ${song.title} nalezena (ID ${song.id}), aktualizována: $result");
           if (result > 0) updatedCount++;
-        } else {
-          print("DEBUG: Píseň '$title' od '$artist' nenalezena");
         }
       }
     });
