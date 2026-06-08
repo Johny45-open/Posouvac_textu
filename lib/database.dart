@@ -158,23 +158,27 @@ class AppDatabase extends _$AppDatabase {
 
         if (parts.isEmpty || parts[0].isEmpty) continue;
         
-        final idStr = parts[0].replaceAll(RegExp(r'[^0-9]'), '').trim();
-        final id = int.tryParse(idStr);
         final artist = parts.length > 1 ? parts[1].trim() : "Neznámý";
         final title = parts.length > 2 ? parts[2].trim() : "Neznámý";
         final duration = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
 
-        print("DEBUG: Importovat ID: $id, Interpret: $artist, Název: $title");
+        print("DEBUG: Hledám: Interpret: $artist, Název: $title");
 
-        if (id != null) {
-          final result = await (update(songs)..where((t) => t.id.equals(id))).write(
+        final songsList = await (select(songs)
+              ..where((t) => t.artist.equals(artist) & t.title.equals(title)))
+            .get();
+
+        if (songsList.isNotEmpty) {
+          final song = songsList.first;
+          final result = await (update(songs)..where((t) => t.id.equals(song.id))).write(
             SongsCompanion(
-              artist: Value(artist),
-              title: Value(title),
               duration: Value(duration > 0 ? duration : null),
             ),
           );
+          print("DEBUG: Píseň ${song.title} nalezena (ID ${song.id}), aktualizována: $result");
           if (result > 0) updatedCount++;
+        } else {
+          print("DEBUG: Píseň '$title' od '$artist' nenalezena");
         }
       }
     });
