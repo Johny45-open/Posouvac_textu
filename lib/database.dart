@@ -161,9 +161,9 @@ class AppDatabase extends _$AppDatabase {
         
         print("DEBUG: Řádek $i, počet částí: ${parts.length}, části: $parts");
 
-        // Tolerantnější kontrola
-        if (parts.length < 3) {
-          print("DEBUG: Přeskakuji řádek $i, málo dat (délka: ${parts.length})");
+        // Pokud máme alespoň ID, pokusíme se o import i s menším počtem sloupců
+        if (parts.isEmpty) {
+          print("DEBUG: Přeskakuji řádek $i, prázdný");
           continue;
         }
         
