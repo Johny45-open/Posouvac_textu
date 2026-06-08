@@ -132,6 +132,8 @@ class AppDatabase extends _$AppDatabase {
   Future<String> exportSongsToCsv() async {
     final songs = await select(this.songs).get();
     final buffer = StringBuffer();
+    // Přidání UTF-8 BOM pro správnou interpretaci v Excelu
+    buffer.write('\uFEFF');
     buffer.writeln("id,artist,title,duration");
     for (final song in songs) {
       buffer.writeln("${song.id},\"${song.artist}\",\"${song.title}\",${song.duration ?? 0}");
@@ -140,7 +142,9 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> importSongsFromCsv(String csvContent) async {
-    final lines = csvContent.split('\n');
+    // Odstranění potenciálního BOM ze začátku
+    final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
+    final lines = content.split('\n');
     if (lines.isEmpty) return;
 
     await transaction(() async {
@@ -152,8 +156,9 @@ class AppDatabase extends _$AppDatabase {
         if (parts.length < 4) continue;
         
         final id = int.tryParse(parts[0]);
-        final artist = parts[1].replaceAll('"', '');
-        final title = parts[2].replaceAll('"', '');
+        // Oprava: parseování citací, pokud jsou přítomny
+        final artist = parts[1].replaceAll('"', '').trim();
+        final title = parts[2].replaceAll('"', '').trim();
         final duration = int.tryParse(parts[3]);
 
         if (id != null) {
