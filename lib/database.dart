@@ -142,9 +142,13 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<int> importSongsFromCsv(String csvContent) async {
+    print("DEBUG: ZAHÁJEN IMPORT S DÉLKOU: ${csvContent.length}");
     final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
     final lines = content.split('\n');
-    if (lines.length < 2) return 0; // Header + at least one data line
+    if (lines.length < 2) {
+      print("DEBUG: Import ukončen - příliš krátký soubor");
+      return 0; // Header + at least one data line
+    }
 
     int updatedCount = 0;
     await transaction(() async {
@@ -164,6 +168,8 @@ class AppDatabase extends _$AppDatabase {
         final title = parts[2].trim();
         final duration = int.tryParse(parts[3].trim());
 
+        print("DEBUG: Importovat ID: $id, Interpret: $artist, Název: $title");
+
         if (id != null) {
           final result = await (update(songs)..where((t) => t.id.equals(id))).write(
             SongsCompanion(
@@ -172,7 +178,10 @@ class AppDatabase extends _$AppDatabase {
               duration: Value(duration != null && duration > 0 ? duration : null),
             ),
           );
+          print("DEBUG: Výsledek aktualizace ID $id: $result");
           if (result > 0) updatedCount++;
+        } else {
+          print("DEBUG: Nepodařilo se naparsovat ID: ${parts[0]}");
         }
       }
     });

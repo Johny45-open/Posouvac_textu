@@ -136,59 +136,75 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _importCsv() async {
+    print("DEBUG: Tlačítko importu stisknuto");
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['csv'],
       );
 
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
-        final csvString = await file.readAsString(encoding: utf8);
-        
-        final previewData = await widget.db.previewSongsFromCsv(csvString);
-        
-        if (!mounted) return;
-        
-        if (previewData.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Žádné platné změny k importu.")));
-          return;
+      if (result == null) {
+        print("DEBUG: Uživatel nevybral žádný soubor");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Import zrušen.")));
         }
+        return;
+      }
 
-        final bool? confirm = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text("Náhled změn"),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: previewData.length,
-                itemBuilder: (context, i) {
-                  final p = previewData[i];
-                  return ListTile(
-                    title: Text("${p['oldTitle']} -> ${p['newTitle']}"),
-                    subtitle: Text("Interpret: ${p['oldArtist']} -> ${p['newArtist']}"),
-                  );
-                },
-              ),
+      print("DEBUG: Soubor vybrán: ${result.files.single.path}");
+      
+      final file = File(result.files.single.path!);
+      final csvString = await file.readAsString(encoding: utf8);
+      
+      print("DEBUG: Soubor přečten, délka: ${csvString.length}");
+      
+      final previewData = await widget.db.previewSongsFromCsv(csvString);
+      
+      print("DEBUG: Počet položek k náhledu: ${previewData.length}");
+      
+      if (!mounted) return;
+      
+      if (previewData.isEmpty) {
+        print("DEBUG: Žádné platné změny k importu.");
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Žádné platné změny k importu.")));
+        return;
+      }
+
+      final bool? confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Náhled změn"),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: previewData.length,
+              itemBuilder: (context, i) {
+                final p = previewData[i];
+                return ListTile(
+                  title: Text("${p['oldTitle']} -> ${p['newTitle']}"),
+                  subtitle: Text("Interpret: ${p['oldArtist']} -> ${p['newArtist']}"),
+                );
+              },
             ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
-              TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Potvrdit import")),
-            ],
           ),
-        );
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Potvrdit import")),
+          ],
+        ),
+      );
 
-        if (confirm == true) {
-          final updatedCount = await widget.db.importSongsFromCsv(csvString);
-          _tts.speak("Importováno $updatedCount písní");
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Aktualizováno $updatedCount písní")));
-          }
+      if (confirm == true) {
+        print("DEBUG: Potvrzen import, spouštím zápis do databáze");
+        final updatedCount = await widget.db.importSongsFromCsv(csvString);
+        _tts.speak("Importováno $updatedCount písní");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Aktualizováno $updatedCount písní")));
         }
       }
     } catch (e) {
+      print("DEBUG: CHYBA PŘI IMPORTU: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při importu: $e")));
       }
