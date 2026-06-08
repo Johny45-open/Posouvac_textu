@@ -98,17 +98,20 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _showCsvHelp() async {
+    const helpText = 
+          "1. Exportujte CSV soubor.\n"
+          "2. Otevřete ho v Excelu.\n"
+          "3. Sloupec 'id' je klíčový, NEUPRAVUJTE HO ANI NESMAŽTE, jinak se písně správně neaktualizují.\n"
+          "4. Upravujte pouze sloupce 'artist', 'title' a 'duration'.\n"
+          "5. Po úpravě uložte jako CSV (UTF-8) a importujte zpět.";
+    
+    _tts.speak("Návod pro úpravu CSV: " + helpText.replaceAll(RegExp(r'\d+\.\s'), ''));
+
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Jak upravit metadata"),
-        content: const Text(
-          "1. Exportujte CSV soubor.\n"
-          "2. Otevřete ho v Excelu nebo tabulkovém procesoru.\n"
-          "3. Upravujte pouze sloupce 'artist' (interpret), 'title' (název) a 'duration' (délka v sekundách).\n"
-          "4. ID sloupec (id) NIKDY neupravujte, slouží k identifikaci písně!\n"
-          "5. Po úpravě soubor uložte jako CSV (UTF-8) a importujte zpět.",
-        ),
+        content: const Text(helpText),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Rozumím")),
         ],
