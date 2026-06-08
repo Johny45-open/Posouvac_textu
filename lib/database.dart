@@ -152,16 +152,17 @@ class AppDatabase extends _$AppDatabase {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
         
-        // Robustní split: dělí čárkou pouze mimo uvozovky
+        // Robustní split: dělí čárkou mimo uvozovky a čistí uvozovky
         final pattern = RegExp(r',(?=(?:(?:[^"]*"){2})*[^"]*$)');
-        final parts = line.split(pattern).map((p) => p.trim().replaceAll('"', '')).toList();
+        final parts = line.split(pattern).map((p) => p.trim().replaceAll('"', '').trim()).toList();
 
         if (parts.length < 4) continue;
         
-        final id = int.tryParse(parts[0]);
-        final artist = parts[1];
-        final title = parts[2];
-        final duration = int.tryParse(parts[3]);
+        // ID může být obalené uvozovkami, vyčistíme ho
+        final id = int.tryParse(parts[0].replaceAll('"', '').trim());
+        final artist = parts[1].trim();
+        final title = parts[2].trim();
+        final duration = int.tryParse(parts[3].trim());
 
         if (id != null) {
           final result = await (update(songs)..where((t) => t.id.equals(id))).write(
