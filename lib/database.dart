@@ -145,10 +145,7 @@ class AppDatabase extends _$AppDatabase {
     print("DEBUG: ZAHÁJEN IMPORT S DÉLKOU: ${csvContent.length}");
     final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
     final lines = content.split('\n');
-    if (lines.length < 2) {
-      print("DEBUG: Import ukončen - příliš krátký soubor");
-      return 0; // Header + at least one data line
-    }
+    if (lines.length < 2) return 0;
 
     int updatedCount = 0;
     await transaction(() async {
@@ -156,25 +153,18 @@ class AppDatabase extends _$AppDatabase {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
         
-        // Robustnější split: prostě rozdělit podle čárky, pak vyčistit uvozovky
         final parts = line.split(',').map((p) => p.trim().replaceAll('"', '').trim()).toList();
-        
         print("DEBUG: Řádek $i, počet částí: ${parts.length}, části: $parts");
 
-        // Pokud máme alespoň ID, pokusíme se o import i s menším počtem sloupců
-        if (parts.isEmpty) {
-          print("DEBUG: Přeskakuji řádek $i, prázdný");
-          continue;
-        }
+        if (parts.isEmpty || parts[0].isEmpty) continue;
         
-        // ID může být obalené uvozovkami nebo obsahovat jiné znaky, vyčistíme ho na čisté číslo
         final idStr = parts[0].replaceAll(RegExp(r'[^0-9]'), '').trim();
         final id = int.tryParse(idStr);
         final artist = parts.length > 1 ? parts[1].trim() : "Neznámý";
         final title = parts.length > 2 ? parts[2].trim() : "Neznámý";
         final duration = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
 
-        print("DEBUG: Importovat ID: $id (původně: ${parts[0]}), Interpret: $artist, Název: $title");
+        print("DEBUG: Importovat ID: $id, Interpret: $artist, Název: $title");
 
         if (id != null) {
           final result = await (update(songs)..where((t) => t.id.equals(id))).write(
@@ -184,10 +174,7 @@ class AppDatabase extends _$AppDatabase {
               duration: Value(duration > 0 ? duration : null),
             ),
           );
-          print("DEBUG: Výsledek aktualizace ID $id: $result");
           if (result > 0) updatedCount++;
-        } else {
-          print("DEBUG: Nepodařilo se naparsovat ID: ${parts[0]}");
         }
       }
     });
