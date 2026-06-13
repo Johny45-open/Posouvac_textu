@@ -296,6 +296,21 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: () {
               final nextMode = ThemeMode.values[(widget.themeMode.index + 1) % ThemeMode.values.length];
               widget.onThemeModeChanged(nextMode);
+              
+              String message;
+              switch (nextMode) {
+                case ThemeMode.light:
+                  message = AppStrings.themeLight;
+                  break;
+                case ThemeMode.dark:
+                  message = AppStrings.themeDark;
+                  break;
+                case ThemeMode.system:
+                default:
+                  message = AppStrings.themeSystem;
+                  break;
+              }
+              _tts.speak(message);
             },
           ),
           ListTile(
