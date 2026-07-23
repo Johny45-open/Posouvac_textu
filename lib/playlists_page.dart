@@ -146,7 +146,11 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
 
           final playlists = snapshot.data!;
           if (playlists.isEmpty) {
-            return const Center(child: Text("Zatím nemáte žádné playlisty."));
+            return Semantics(
+              liveRegion: true,
+              label: "Zatím nemáte žádné playlisty. Vytvořte nový tlačítkem vpravo dole.",
+              child: const Center(child: Text("Zatím nemáte žádné playlisty.")),
+            );
           }
 
           return ListView.builder(
@@ -269,17 +273,20 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
               itemBuilder: (context, i) {
                 final song = availableSongs[i];
                 final isSelected = selectedIds.contains(song.id);
-                return CheckboxListTile(
-                  title: Text(song.artist),
-                  subtitle: Text(song.title),
-                  value: isSelected,
-                  onChanged: (val) {
+                return Semantics(
+                  label: "Vybrat ${song.title} od ${song.artist}",
+                  child: CheckboxListTile(
+                    title: Text(song.artist),
+                    subtitle: Text(song.title),
+                    value: isSelected,
+                    onChanged: (val) {
                     setDialogState(() {
                       if (val == true) selectedIds.add(song.id);
                       else selectedIds.remove(song.id);
                     });
                     tts.speak(val == true ? "Vybráno: ${song.title}" : "Odebráno z výběru: ${song.title}");
                   },
+                ),
                 );
               },
             ),
@@ -367,7 +374,11 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
           final songs = snapshot.data!;
 
           if (songs.isEmpty) {
-            return const Center(child: Text("V tomto playlistu nejsou žádné písně."));
+            return Semantics(
+              liveRegion: true,
+              label: "V tomto playlistu nejsou žádné písně. Přidejte je tlačítkem vpravo nahoře.",
+              child: const Center(child: Text("V tomto playlistu nejsou žádné písně.")),
+            );
           }
 
           return ListView.builder(

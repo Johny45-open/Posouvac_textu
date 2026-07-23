@@ -105,7 +105,7 @@ class _SettingsPageState extends State<SettingsPage> {
           "4. Upravujte pouze sloupce 'artist', 'title' a 'duration'.\n"
           "5. Po úpravě uložte jako CSV (UTF-8) a importujte zpět.";
     
-    _tts.speak("Návod pro úpravu CSV: " + helpText.replaceAll(RegExp(r'\d+\.\s'), ''));
+    _tts.speak("Návod pro úpravu CSV: " + helpText);
 
     await showDialog(
       context: context,
@@ -279,6 +279,18 @@ class _SettingsPageState extends State<SettingsPage> {
             leading: const Icon(Icons.refresh),
             title: const Text("Vynulovat koncert"),
             onTap: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text("Vynulovat koncert"),
+                  content: const Text("Opravdu chcete vynulovat všechny odehrané písně?"),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
+                    TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Vynulovat", style: TextStyle(color: Colors.red))),
+                  ],
+                ),
+              );
+              if (confirm != true) return;
               await widget.db.resetAllPlayed();
               _tts.speak(AppStrings.resetPlayed);
             },

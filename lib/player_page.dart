@@ -214,10 +214,16 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           });
         }
       } else {
-        if (mounted) setState(() { _loadedContent = "Soubor nenalezen"; _isLoading = false; });
+        if (mounted) {
+          setState(() { _loadedContent = "Soubor nenalezen"; _isLoading = false; });
+          _tts.speak("Soubor nenalezen");
+        }
       }
     } catch (e) {
-      if (mounted) setState(() { _loadedContent = "Chyba: $e"; _isLoading = false; });
+      if (mounted) {
+        setState(() { _loadedContent = "Chyba: $e"; _isLoading = false; });
+        _tts.speak("Chyba při načítání souboru");
+      }
     }
   }
 
@@ -297,6 +303,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                     IconButton(
                       icon: const Icon(Icons.remove_circle, size: 48),
                       color: Colors.blue,
+                      tooltip: "Snížit transpozici",
                       onPressed: () {
                         setSheetState(() => localTranspose--);
                         syncToPage();
@@ -307,6 +314,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                     IconButton(
                       icon: const Icon(Icons.add_circle, size: 48),
                       color: Colors.blue,
+                      tooltip: "Zvýšit transpozici",
                       onPressed: () {
                         setSheetState(() => localTranspose++);
                         syncToPage();
@@ -321,6 +329,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                     IconButton(
                       icon: const Icon(Icons.text_decrease, size: 48),
                       color: Colors.green,
+                      tooltip: "Zmenšit písmo",
                       onPressed: () {
                         setSheetState(() => localFontSize = (localFontSize - 2).clamp(10, 100));
                         syncToPage();
@@ -331,6 +340,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                     IconButton(
                       icon: const Icon(Icons.text_increase, size: 48),
                       color: Colors.green,
+                      tooltip: "Zvětšit písmo",
                       onPressed: () {
                         setSheetState(() => localFontSize = (localFontSize + 2).clamp(10, 100));
                         syncToPage();
@@ -343,10 +353,11 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    IconButton(icon: const Icon(Icons.speed, size: 48), color: Colors.purple, onPressed: _showBpmDialog),
+                    IconButton(icon: const Icon(Icons.speed, size: 48), color: Colors.purple, tooltip: "Nastavit BPM", onPressed: _showBpmDialog),
                     IconButton(
                       icon: const Icon(Icons.fast_rewind, size: 48),
                       color: Colors.orange,
+                      tooltip: "Zpomalit posuv",
                       onPressed: () {
                         setSheetState(() => localScrollMultiplier = (localScrollMultiplier - 0.1).clamp(0.1, 5.0));
                         syncToPage();
@@ -357,6 +368,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                     IconButton(
                       icon: const Icon(Icons.fast_forward, size: 48),
                       color: Colors.orange,
+                      tooltip: "Zrychlit posuv",
                       onPressed: () {
                         setSheetState(() => localScrollMultiplier = (localScrollMultiplier + 0.1).clamp(0.1, 5.0));
                         syncToPage();
@@ -426,6 +438,12 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     final maxExtent = _scrollController.position.maxScrollExtent;
     final currentOffset = _scrollController.offset;
     final remainingScroll = maxExtent - currentOffset;
+    
+    if (MediaQuery.of(context).disableAnimations) {
+      _scrollController.jumpTo(maxExtent);
+      _stopScrolling();
+      return;
+    }
     
     // Výpočet trvání: (px / px_za_beat) * (60 / bpm)
     final pixelsPerBeat = (_fontSize * 1.5) / 4.0;
@@ -513,35 +531,47 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
         ? const Center(child: AppProgressIndicator(label: "Načítám text..."))
         : Stack(
             children: [
-              GestureDetector(
-                onTap: _toggleScrolling,
-                behavior: HitTestBehavior.opaque,
-                child: SingleChildScrollView(
+              Semantics(
+                label: "Klepnutím spustíte nebo zastavíte automatický posuv textu",
+                button: true,
+                child: GestureDetector(
+                  onTap: _toggleScrolling,
+                  behavior: HitTestBehavior.opaque,
+                  child: SingleChildScrollView(
                   controller: _scrollController,
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 400),
                   child: ChordDisplayWidget(
                     content: ChordTransposer.transposeText(_loadedContent ?? "", _transpose),
-                    textStyle: TextStyle(fontSize: _fontSize),
-                    chordStyle: TextStyle(fontSize: _fontSize * 0.9, color: Colors.blue, fontWeight: FontWeight.bold),
+                    textStyle: TextStyle(fontSize: _fontSize * MediaQuery.textScaleFactorOf(context)),
+                    chordStyle: TextStyle(fontSize: _fontSize * 0.9 * MediaQuery.textScaleFactorOf(context), color: Colors.blue, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
+              ),
               if (_countdown > 0)
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(40),
-                    decoration: BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                    child: Text(
-                      "$_countdown",
-                      style: const TextStyle(fontSize: 80, color: Colors.white, fontWeight: FontWeight.bold),
+                Semantics(
+                  liveRegion: true,
+                  label: "Odpočet: $_countdown",
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.all(40),
+                      decoration: BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                      child: Text(
+                        "$_countdown",
+                        style: const TextStyle(fontSize: 80, color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
                 ),
             ],
           ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _toggleScrolling,
-        child: Icon(_isScrolling || _countdown > 0 ? Icons.pause : Icons.play_arrow),
+      floatingActionButton: Semantics(
+        label: _isScrolling || _countdown > 0 ? "Zastavit posuv" : "Spustit posuv",
+        button: true,
+        child: FloatingActionButton(
+          onPressed: _toggleScrolling,
+          child: Icon(_isScrolling || _countdown > 0 ? Icons.pause : Icons.play_arrow),
+        ),
       ),
     );
   }

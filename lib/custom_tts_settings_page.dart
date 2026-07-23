@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:drift/drift.dart' show Value;
+import 'package:flutter_tts/flutter_tts.dart';
 import 'database.dart';
 import 'app_strings.dart';
 
@@ -13,12 +14,14 @@ class CustomTtsSettingsPage extends StatefulWidget {
 }
 
 class _CustomTtsSettingsPageState extends State<CustomTtsSettingsPage> {
+  final FlutterTts _tts = FlutterTts();
   Map<String, String> _customStrings = {};
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    _tts.setLanguage("cs-CZ");
     _loadStrings();
   }
 
@@ -40,6 +43,12 @@ class _CustomTtsSettingsPageState extends State<CustomTtsSettingsPage> {
     AppStrings.setCustomStrings(_customStrings);
   }
 
+  Future<void> _finishEditing(String key) async {
+    final value = _customStrings[key] ?? "";
+    await _updateString(key, value);
+    _tts.speak("Hlasová zpráva uložena");
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -58,7 +67,9 @@ class _CustomTtsSettingsPageState extends State<CustomTtsSettingsPage> {
             subtitle: TextFormField(
               initialValue: _customStrings[key] ?? "",
               decoration: const InputDecoration(labelText: "Vlastní text"),
+              textInputAction: TextInputAction.done,
               onChanged: (val) => _updateString(key, val),
+              onEditingComplete: () => _finishEditing(key),
             ),
           );
         },

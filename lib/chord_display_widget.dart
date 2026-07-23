@@ -38,7 +38,10 @@ class ChordDisplayWidget extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (section.title != null)
-            Text(section.title!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Semantics(
+              header: true,
+              child: Text(section.title!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
           ...section.lines.map((line) => _buildLine(line)),
         ],
       ),
@@ -53,12 +56,18 @@ class ChordDisplayWidget extends StatelessWidget {
           if (element.type == ElementType.chord) {
             return Padding(
               padding: const EdgeInsets.only(right: 4.0),
-              child: Text(element.content, style: chordStyle),
+              child: Semantics(
+                label: "Akord: ${element.content}",
+                child: Text(element.content, style: chordStyle),
+              ),
             );
           } else if (element.type == ElementType.comment) {
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 4.0),
-              child: Text(element.content, style: commentStyle),
+              child: Semantics(
+                label: "Komentář: ${element.content}",
+                child: Text(element.content, style: commentStyle),
+              ),
             );
           } else if (element.type == ElementType.stopMark) {
             final bars = element.stopMarkBars ?? 0;

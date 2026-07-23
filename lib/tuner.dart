@@ -38,10 +38,10 @@ class _TunerPageState extends State<TunerPage> {
   final int _requiredStability = 3;
 
   final Map<Instrument, String> _instrumentNames = {
-    Instrument.guitar: "Kytara (E1, A1, D2, G2, B2, E3)",
-    Instrument.ukulele: "Ukulele (G3, C3, E3, A3)",
-    Instrument.violin: "Housle (G2, D3, A3, E4)",
-    Instrument.bass: "Basa (E0, A0, D1, G1)",
+    Instrument.guitar: "Kytara (struny: E, A, D, G, H, E)",
+    Instrument.ukulele: "Ukulele (struny: G, C, E, A)",
+    Instrument.violin: "Housle (struny: G, D, A, E)",
+    Instrument.bass: "Basa (struny: E, A, D, G)",
   };
 
   final Map<Instrument, List<double>> _instrumentTunings = {
@@ -201,10 +201,12 @@ class _TunerPageState extends State<TunerPage> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<Instrument>(
-              value: _selectedInstrument,
-              decoration: const InputDecoration(border: OutlineInputBorder()),
-              items: Instrument.values.map((i) {
+            Semantics(
+              label: "Vyberte nástroj",
+              child: DropdownButtonFormField<Instrument>(
+                value: _selectedInstrument,
+                decoration: const InputDecoration(border: OutlineInputBorder()),
+                items: Instrument.values.map((i) {
                 return DropdownMenuItem(
                   value: i,
                   child: Text(_instrumentNames[i]!),
@@ -213,6 +215,7 @@ class _TunerPageState extends State<TunerPage> {
               onChanged: (val) {
                 if (val != null) setState(() => _selectedInstrument = val);
               },
+            ),
             ),
             const SizedBox(height: 40),
             Center(

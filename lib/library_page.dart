@@ -115,20 +115,26 @@ class _LibraryPageState extends State<LibraryPage> {
               Row(
                 children: [
                   Expanded(
-                    child: TextFormField(
-                      controller: minController,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(labelText: "Minut", border: OutlineInputBorder()),
+                    child: Semantics(
+                      label: "Délka skladby v minutách",
+                      child: TextFormField(
+                        controller: minController,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(labelText: "Minut", border: OutlineInputBorder()),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: TextFormField(
-                      controller: secController,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      decoration: const InputDecoration(labelText: "Sekund", border: OutlineInputBorder()),
+                    child: Semantics(
+                      label: "Délka skladby v sekundách",
+                      child: TextFormField(
+                        controller: secController,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(labelText: "Sekund", border: OutlineInputBorder()),
+                      ),
                     ),
                   ),
                 ],
@@ -402,8 +408,20 @@ class _LibraryPageState extends State<LibraryPage> {
               _tts.speak(val ? "Řadím podle interpretů" : "Řadím podle názvů písní");
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(value: true, child: Text("Podle interpreta")),
-              const PopupMenuItem(value: false, child: Text("Podle názvu")),
+              PopupMenuItem(
+                value: true,
+                child: Semantics(
+                  label: "Seřadit písně podle interpreta",
+                  child: const Text("Podle interpreta"),
+                ),
+              ),
+              PopupMenuItem(
+                value: false,
+                child: Semantics(
+                  label: "Seřadit písně podle názvu",
+                  child: const Text("Podle názvu"),
+                ),
+              ),
             ],
           ),
         ],
@@ -471,6 +489,18 @@ class _LibraryPageState extends State<LibraryPage> {
               title: const Text("Vynulovat odehrané"),
               onTap: () async {
                 Navigator.pop(context);
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text("Vynulovat odehrané"),
+                    content: const Text("Opravdu chcete vynulovat všechny odehrané písně?"),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
+                      TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Vynulovat", style: TextStyle(color: Colors.red))),
+                    ],
+                  ),
+                );
+                if (confirm != true) return;
                 await widget.db.resetAllPlayed();
                 _tts.speak(AppStrings.resetPlayed);
                 setState(() {});
@@ -490,7 +520,11 @@ class _LibraryPageState extends State<LibraryPage> {
           final songs = snapshot.data!;
           
           if (songs.isEmpty) {
-            return const Center(child: Text("Knihovna je prázdná."));
+            return Semantics(
+              liveRegion: true,
+              label: "Knihovna je prázdná. Importujte texty tlačítkem vpravo dole.",
+              child: const Center(child: Text("Knihovna je prázdná.")),
+            );
           }
 
           return ListView.builder(
@@ -609,7 +643,7 @@ class _LibraryPageState extends State<LibraryPage> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _performTextImport,
-        tooltip: "Vybrat složku",
+        tooltip: "Importovat textové soubory",
         child: const Icon(Icons.folder_open),
       ),
     );
