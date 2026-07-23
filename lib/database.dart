@@ -154,24 +154,26 @@ class AppDatabase extends _$AppDatabase {
         
         final parts = line.split(',').map((p) => p.trim().replaceAll('"', '').trim()).toList();
         if (parts.length < 3) continue;
+
+        final idStr = parts[0].replaceAll(RegExp(r'[^0-9]'), '').trim();
+        final id = int.tryParse(idStr);
+        if (id == null) continue;
+
+        final song = await (select(songs)..where((t) => t.id.equals(id))).getSingleOrNull();
+        if (song == null) continue;
         
         final artist = parts[1].trim();
         final title = parts[2].trim();
         final duration = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
 
-        final songsList = await (select(songs)
-              ..where((t) => t.artist.equals(artist) & t.title.equals(title)))
-            .get();
-
-        if (songsList.isNotEmpty) {
-          final song = songsList.first;
-          final result = await (update(songs)..where((t) => t.id.equals(song.id))).write(
-            SongsCompanion(
-              duration: Value(duration > 0 ? duration : null),
-            ),
-          );
-          if (result > 0) updatedCount++;
-        }
+        final result = await (update(songs)..where((t) => t.id.equals(id))).write(
+          SongsCompanion(
+            artist: Value(artist),
+            title: Value(title),
+            duration: Value(duration > 0 ? duration : null),
+          ),
+        );
+        if (result > 0) updatedCount++;
       }
     });
     return updatedCount;
