@@ -128,6 +128,8 @@ class AppDatabase extends _$AppDatabase {
 
   Future<int> deleteStopMark(int id) => (delete(stopMarks)..where((t) => t.id.equals(id))).go();
 
+  Future<int> deleteSong(int id) => (delete(songs)..where((t) => t.id.equals(id))).go();
+
   Future<String> exportSongsToCsv() async {
     final songs = await select(this.songs).get();
     final buffer = StringBuffer();
@@ -135,14 +137,16 @@ class AppDatabase extends _$AppDatabase {
     buffer.write('\uFEFF');
     buffer.writeln("id,artist,title,duration");
     for (final song in songs) {
-      buffer.writeln("${song.id},\"${song.artist}\",\"${song.title}\",${song.duration ?? 0}");
+      // Bezpečné escapování uvozovek pro CSV
+      String escape(String? s) => (s ?? '').replaceAll('"', '""');
+      buffer.writeln("${song.id},\"${escape(song.artist)}\",\"${escape(song.title)}\",${song.duration ?? 0}");
     }
     return buffer.toString();
   }
 
   Future<int> importSongsFromCsv(String csvContent) async {
     final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
-    final lines = content.split('\n');
+    final lines = content.split(RegExp(r'\r?\n'));
     if (lines.length < 2) return 0;
 
     int updatedCount = 0;
@@ -150,8 +154,12 @@ class AppDatabase extends _$AppDatabase {
       for (var i = 1; i < lines.length; i++) {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
+
+        // Robustnější parsování CSV řádku
+        // Hledá pole oddělená čárkou, přičemž ignoruje čárky uvnitř uvozovek
+        final pattern = RegExp(r',(?=(?:(?:[^"]*"){2})*[^"]*$)');
+        final parts = line.split(pattern).map((p) => p.trim().replaceAll(RegExp(r'^"|"$'), '').replaceAll('""', '"').trim()).toList();
         
-        final parts = line.split(',').map((p) => p.trim().replaceAll('"', '').trim()).toList();
         if (parts.length < 3) continue;
 
         final idStr = parts[0].replaceAll(RegExp(r'[^0-9]'), '').trim();

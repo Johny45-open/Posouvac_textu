@@ -306,49 +306,31 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
-  Future<void> _addToPlaylist(SongEntry song) async {
-    final playlists = await widget.db.getAllPlaylists();
-    if (playlists.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Nejdříve si vytvořte playlist v sekci Playlisty.")),
-        );
-      }
-      return;
-    }
-
-    await showDialog(
+  Future<void> _deleteSong(SongEntry song) async {
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Přidat do playlistu"),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: playlists.length,
-            itemBuilder: (context, i) => ListTile(
-              leading: const Icon(Icons.playlist_add),
-              title: Text(playlists[i].name),
-              onTap: () async {
-                final result = await widget.db.addSongToPlaylist(playlists[i].id, song.id);
-                if (mounted) {
-                  Navigator.pop(context);
-                  if (result == -1) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Tato píseň již v playlistu je.")),
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("Píseň přidána do playlistu ${playlists[i].name}")),
-                    );
-                  }
-                }
-              },
-            ),
+        title: const Text("Smazat píseň"),
+        content: Text("Opravdu chcete smazat píseň \"${song.title}\" od interpreta \"${song.artist}\"?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Smazat", style: TextStyle(color: Colors.red)),
           ),
-        ),
+        ],
       ),
     );
+
+    if (confirm != true) return;
+
+    await widget.db.deleteSong(song.id);
+    _tts.speak("Píseň ${song.title} od ${song.artist} byla smazána.");
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Smazáno: ${song.title}")),
+      );
+    }
   }
 
   @override
@@ -631,6 +613,17 @@ class _LibraryPageState extends State<LibraryPage> {
                       child: IconButton(
                         icon: const Icon(Icons.playlist_add),
                         onPressed: () => _addToPlaylist(song),
+                      ),
+                    ),
+                    // 4. ŠVIH: Smazat
+                    Semantics(
+                      container: true,
+                      excludeSemantics: true,
+                      label: "Smazat skladbu $cleanTitle od ${song.artist}",
+                      button: true,
+                      child: IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () => _deleteSong(song),
                       ),
                     ),
                   ],
