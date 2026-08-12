@@ -14,11 +14,15 @@ import 'library_page.dart';
 import 'chord_display_widget.dart';
 import 'manual_page.dart';
 import 'app_strings.dart';
+import 'sharing_handler.dart';
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final db = AppDatabase();
   final prefs = await SharedPreferences.getInstance();
+  SharingHandler.init(db: db, navigatorKey: navigatorKey);
   runApp(LyricScrollerApp(db: db, prefs: prefs));
 }
 
@@ -203,6 +207,7 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Posouvač textu',
+      navigatorKey: navigatorKey,
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,

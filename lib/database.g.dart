@@ -879,6 +879,9 @@ class $PlaylistSongsTable extends PlaylistSongs
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES playlists (id) ON DELETE CASCADE',
+    ),
   );
   static const VerificationMeta _songIdMeta = const VerificationMeta('songId');
   @override
@@ -888,6 +891,9 @@ class $PlaylistSongsTable extends PlaylistSongs
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES songs (id) ON DELETE CASCADE',
+    ),
   );
   static const VerificationMeta _orderIndexMeta = const VerificationMeta(
     'orderIndex',
@@ -1156,6 +1162,9 @@ class $StopMarksTable extends StopMarks
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES songs (id) ON DELETE CASCADE',
+    ),
   );
   static const VerificationMeta _positionRatioMeta = const VerificationMeta(
     'positionRatio',
@@ -1179,12 +1188,36 @@ class $StopMarksTable extends StopMarks
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _lineIndexMeta = const VerificationMeta(
+    'lineIndex',
+  );
+  @override
+  late final GeneratedColumn<int> lineIndex = GeneratedColumn<int>(
+    'line_index',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lineTextMeta = const VerificationMeta(
+    'lineText',
+  );
+  @override
+  late final GeneratedColumn<String> lineText = GeneratedColumn<String>(
+    'line_text',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
     songId,
     positionRatio,
     durationBars,
+    lineIndex,
+    lineText,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1231,6 +1264,18 @@ class $StopMarksTable extends StopMarks
     } else if (isInserting) {
       context.missing(_durationBarsMeta);
     }
+    if (data.containsKey('line_index')) {
+      context.handle(
+        _lineIndexMeta,
+        lineIndex.isAcceptableOrUnknown(data['line_index']!, _lineIndexMeta),
+      );
+    }
+    if (data.containsKey('line_text')) {
+      context.handle(
+        _lineTextMeta,
+        lineText.isAcceptableOrUnknown(data['line_text']!, _lineTextMeta),
+      );
+    }
     return context;
   }
 
@@ -1256,6 +1301,14 @@ class $StopMarksTable extends StopMarks
         DriftSqlType.int,
         data['${effectivePrefix}duration_bars'],
       )!,
+      lineIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}line_index'],
+      ),
+      lineText: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}line_text'],
+      ),
     );
   }
 
@@ -1270,11 +1323,15 @@ class StopMark extends DataClass implements Insertable<StopMark> {
   final int songId;
   final double positionRatio;
   final int durationBars;
+  final int? lineIndex;
+  final String? lineText;
   const StopMark({
     required this.id,
     required this.songId,
     required this.positionRatio,
     required this.durationBars,
+    this.lineIndex,
+    this.lineText,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1283,6 +1340,12 @@ class StopMark extends DataClass implements Insertable<StopMark> {
     map['song_id'] = Variable<int>(songId);
     map['position_ratio'] = Variable<double>(positionRatio);
     map['duration_bars'] = Variable<int>(durationBars);
+    if (!nullToAbsent || lineIndex != null) {
+      map['line_index'] = Variable<int>(lineIndex);
+    }
+    if (!nullToAbsent || lineText != null) {
+      map['line_text'] = Variable<String>(lineText);
+    }
     return map;
   }
 
@@ -1292,6 +1355,12 @@ class StopMark extends DataClass implements Insertable<StopMark> {
       songId: Value(songId),
       positionRatio: Value(positionRatio),
       durationBars: Value(durationBars),
+      lineIndex: lineIndex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lineIndex),
+      lineText: lineText == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lineText),
     );
   }
 
@@ -1305,6 +1374,8 @@ class StopMark extends DataClass implements Insertable<StopMark> {
       songId: serializer.fromJson<int>(json['songId']),
       positionRatio: serializer.fromJson<double>(json['positionRatio']),
       durationBars: serializer.fromJson<int>(json['durationBars']),
+      lineIndex: serializer.fromJson<int?>(json['lineIndex']),
+      lineText: serializer.fromJson<String?>(json['lineText']),
     );
   }
   @override
@@ -1315,6 +1386,8 @@ class StopMark extends DataClass implements Insertable<StopMark> {
       'songId': serializer.toJson<int>(songId),
       'positionRatio': serializer.toJson<double>(positionRatio),
       'durationBars': serializer.toJson<int>(durationBars),
+      'lineIndex': serializer.toJson<int?>(lineIndex),
+      'lineText': serializer.toJson<String?>(lineText),
     };
   }
 
@@ -1323,11 +1396,15 @@ class StopMark extends DataClass implements Insertable<StopMark> {
     int? songId,
     double? positionRatio,
     int? durationBars,
+    Value<int?> lineIndex = const Value.absent(),
+    Value<String?> lineText = const Value.absent(),
   }) => StopMark(
     id: id ?? this.id,
     songId: songId ?? this.songId,
     positionRatio: positionRatio ?? this.positionRatio,
     durationBars: durationBars ?? this.durationBars,
+    lineIndex: lineIndex.present ? lineIndex.value : this.lineIndex,
+    lineText: lineText.present ? lineText.value : this.lineText,
   );
   StopMark copyWithCompanion(StopMarksCompanion data) {
     return StopMark(
@@ -1339,6 +1416,8 @@ class StopMark extends DataClass implements Insertable<StopMark> {
       durationBars: data.durationBars.present
           ? data.durationBars.value
           : this.durationBars,
+      lineIndex: data.lineIndex.present ? data.lineIndex.value : this.lineIndex,
+      lineText: data.lineText.present ? data.lineText.value : this.lineText,
     );
   }
 
@@ -1348,13 +1427,16 @@ class StopMark extends DataClass implements Insertable<StopMark> {
           ..write('id: $id, ')
           ..write('songId: $songId, ')
           ..write('positionRatio: $positionRatio, ')
-          ..write('durationBars: $durationBars')
+          ..write('durationBars: $durationBars, ')
+          ..write('lineIndex: $lineIndex, ')
+          ..write('lineText: $lineText')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, songId, positionRatio, durationBars);
+  int get hashCode =>
+      Object.hash(id, songId, positionRatio, durationBars, lineIndex, lineText);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1362,7 +1444,9 @@ class StopMark extends DataClass implements Insertable<StopMark> {
           other.id == this.id &&
           other.songId == this.songId &&
           other.positionRatio == this.positionRatio &&
-          other.durationBars == this.durationBars);
+          other.durationBars == this.durationBars &&
+          other.lineIndex == this.lineIndex &&
+          other.lineText == this.lineText);
 }
 
 class StopMarksCompanion extends UpdateCompanion<StopMark> {
@@ -1370,17 +1454,23 @@ class StopMarksCompanion extends UpdateCompanion<StopMark> {
   final Value<int> songId;
   final Value<double> positionRatio;
   final Value<int> durationBars;
+  final Value<int?> lineIndex;
+  final Value<String?> lineText;
   const StopMarksCompanion({
     this.id = const Value.absent(),
     this.songId = const Value.absent(),
     this.positionRatio = const Value.absent(),
     this.durationBars = const Value.absent(),
+    this.lineIndex = const Value.absent(),
+    this.lineText = const Value.absent(),
   });
   StopMarksCompanion.insert({
     this.id = const Value.absent(),
     required int songId,
     required double positionRatio,
     required int durationBars,
+    this.lineIndex = const Value.absent(),
+    this.lineText = const Value.absent(),
   }) : songId = Value(songId),
        positionRatio = Value(positionRatio),
        durationBars = Value(durationBars);
@@ -1389,12 +1479,16 @@ class StopMarksCompanion extends UpdateCompanion<StopMark> {
     Expression<int>? songId,
     Expression<double>? positionRatio,
     Expression<int>? durationBars,
+    Expression<int>? lineIndex,
+    Expression<String>? lineText,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (songId != null) 'song_id': songId,
       if (positionRatio != null) 'position_ratio': positionRatio,
       if (durationBars != null) 'duration_bars': durationBars,
+      if (lineIndex != null) 'line_index': lineIndex,
+      if (lineText != null) 'line_text': lineText,
     });
   }
 
@@ -1403,12 +1497,16 @@ class StopMarksCompanion extends UpdateCompanion<StopMark> {
     Value<int>? songId,
     Value<double>? positionRatio,
     Value<int>? durationBars,
+    Value<int?>? lineIndex,
+    Value<String?>? lineText,
   }) {
     return StopMarksCompanion(
       id: id ?? this.id,
       songId: songId ?? this.songId,
       positionRatio: positionRatio ?? this.positionRatio,
       durationBars: durationBars ?? this.durationBars,
+      lineIndex: lineIndex ?? this.lineIndex,
+      lineText: lineText ?? this.lineText,
     );
   }
 
@@ -1427,6 +1525,12 @@ class StopMarksCompanion extends UpdateCompanion<StopMark> {
     if (durationBars.present) {
       map['duration_bars'] = Variable<int>(durationBars.value);
     }
+    if (lineIndex.present) {
+      map['line_index'] = Variable<int>(lineIndex.value);
+    }
+    if (lineText.present) {
+      map['line_text'] = Variable<String>(lineText.value);
+    }
     return map;
   }
 
@@ -1436,7 +1540,9 @@ class StopMarksCompanion extends UpdateCompanion<StopMark> {
           ..write('id: $id, ')
           ..write('songId: $songId, ')
           ..write('positionRatio: $positionRatio, ')
-          ..write('durationBars: $durationBars')
+          ..write('durationBars: $durationBars, ')
+          ..write('lineIndex: $lineIndex, ')
+          ..write('lineText: $lineText')
           ..write(')'))
         .toString();
   }
@@ -1669,6 +1775,30 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     stopMarks,
     customStrings,
   ];
+  @override
+  StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'playlists',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('playlist_songs', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'songs',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('playlist_songs', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'songs',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('stop_marks', kind: UpdateKind.delete)],
+    ),
+  ]);
 }
 
 typedef $$SongsTableCreateCompanionBuilder =
@@ -1699,6 +1829,47 @@ typedef $$SongsTableUpdateCompanionBuilder =
       Value<double?> customScrollSpeed,
       Value<int?> duration,
     });
+
+final class $$SongsTableReferences
+    extends BaseReferences<_$AppDatabase, $SongsTable, SongEntry> {
+  $$SongsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$PlaylistSongsTable, List<PlaylistSong>>
+  _playlistSongsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.playlistSongs,
+    aliasName: 'songs__id__playlist_songs__song_id',
+  );
+
+  $$PlaylistSongsTableProcessedTableManager get playlistSongsRefs {
+    final manager = $$PlaylistSongsTableTableManager(
+      $_db,
+      $_db.playlistSongs,
+    ).filter((f) => f.songId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_playlistSongsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<$StopMarksTable, List<StopMark>>
+  _stopMarksRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.stopMarks,
+    aliasName: 'songs__id__stop_marks__song_id',
+  );
+
+  $$StopMarksTableProcessedTableManager get stopMarksRefs {
+    final manager = $$StopMarksTableTableManager(
+      $_db,
+      $_db.stopMarks,
+    ).filter((f) => f.songId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_stopMarksRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
 
 class $$SongsTableFilterComposer extends Composer<_$AppDatabase, $SongsTable> {
   $$SongsTableFilterComposer({
@@ -1762,6 +1933,56 @@ class $$SongsTableFilterComposer extends Composer<_$AppDatabase, $SongsTable> {
     column: $table.duration,
     builder: (column) => ColumnFilters(column),
   );
+
+  Expression<bool> playlistSongsRefs(
+    Expression<bool> Function($$PlaylistSongsTableFilterComposer f) f,
+  ) {
+    final $$PlaylistSongsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.playlistSongs,
+      getReferencedColumn: (t) => t.songId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PlaylistSongsTableFilterComposer(
+            $db: $db,
+            $table: $db.playlistSongs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<bool> stopMarksRefs(
+    Expression<bool> Function($$StopMarksTableFilterComposer f) f,
+  ) {
+    final $$StopMarksTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.stopMarks,
+      getReferencedColumn: (t) => t.songId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StopMarksTableFilterComposer(
+            $db: $db,
+            $table: $db.stopMarks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$SongsTableOrderingComposer
@@ -1878,6 +2099,56 @@ class $$SongsTableAnnotationComposer
 
   GeneratedColumn<int> get duration =>
       $composableBuilder(column: $table.duration, builder: (column) => column);
+
+  Expression<T> playlistSongsRefs<T extends Object>(
+    Expression<T> Function($$PlaylistSongsTableAnnotationComposer a) f,
+  ) {
+    final $$PlaylistSongsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.playlistSongs,
+      getReferencedColumn: (t) => t.songId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PlaylistSongsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.playlistSongs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+
+  Expression<T> stopMarksRefs<T extends Object>(
+    Expression<T> Function($$StopMarksTableAnnotationComposer a) f,
+  ) {
+    final $$StopMarksTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.stopMarks,
+      getReferencedColumn: (t) => t.songId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$StopMarksTableAnnotationComposer(
+            $db: $db,
+            $table: $db.stopMarks,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$SongsTableTableManager
@@ -1891,9 +2162,9 @@ class $$SongsTableTableManager
           $$SongsTableAnnotationComposer,
           $$SongsTableCreateCompanionBuilder,
           $$SongsTableUpdateCompanionBuilder,
-          (SongEntry, BaseReferences<_$AppDatabase, $SongsTable, SongEntry>),
+          (SongEntry, $$SongsTableReferences),
           SongEntry,
-          PrefetchHooks Function()
+          PrefetchHooks Function({bool playlistSongsRefs, bool stopMarksRefs})
         > {
   $$SongsTableTableManager(_$AppDatabase db, $SongsTable table)
     : super(
@@ -1959,9 +2230,68 @@ class $$SongsTableTableManager
                 duration: duration,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) =>
+                    (e.readTable(table), $$SongsTableReferences(db, table, e)),
+              )
               .toList(),
-          prefetchHooksCallback: null,
+          prefetchHooksCallback:
+              ({playlistSongsRefs = false, stopMarksRefs = false}) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (playlistSongsRefs) db.playlistSongs,
+                    if (stopMarksRefs) db.stopMarks,
+                  ],
+                  addJoins: null,
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (playlistSongsRefs)
+                        await $_getPrefetchedData<
+                          SongEntry,
+                          $SongsTable,
+                          PlaylistSong
+                        >(
+                          currentTable: table,
+                          referencedTable: $$SongsTableReferences
+                              ._playlistSongsRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$SongsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).playlistSongsRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.songId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (stopMarksRefs)
+                        await $_getPrefetchedData<
+                          SongEntry,
+                          $SongsTable,
+                          StopMark
+                        >(
+                          currentTable: table,
+                          referencedTable: $$SongsTableReferences
+                              ._stopMarksRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$SongsTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).stopMarksRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.songId == item.id,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
+              },
         ),
       );
 }
@@ -1976,14 +2306,37 @@ typedef $$SongsTableProcessedTableManager =
       $$SongsTableAnnotationComposer,
       $$SongsTableCreateCompanionBuilder,
       $$SongsTableUpdateCompanionBuilder,
-      (SongEntry, BaseReferences<_$AppDatabase, $SongsTable, SongEntry>),
+      (SongEntry, $$SongsTableReferences),
       SongEntry,
-      PrefetchHooks Function()
+      PrefetchHooks Function({bool playlistSongsRefs, bool stopMarksRefs})
     >;
 typedef $$PlaylistsTableCreateCompanionBuilder =
     PlaylistsCompanion Function({Value<int> id, required String name});
 typedef $$PlaylistsTableUpdateCompanionBuilder =
     PlaylistsCompanion Function({Value<int> id, Value<String> name});
+
+final class $$PlaylistsTableReferences
+    extends BaseReferences<_$AppDatabase, $PlaylistsTable, Playlist> {
+  $$PlaylistsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$PlaylistSongsTable, List<PlaylistSong>>
+  _playlistSongsRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.playlistSongs,
+    aliasName: 'playlists__id__playlist_songs__playlist_id',
+  );
+
+  $$PlaylistSongsTableProcessedTableManager get playlistSongsRefs {
+    final manager = $$PlaylistSongsTableTableManager(
+      $_db,
+      $_db.playlistSongs,
+    ).filter((f) => f.playlistId.id.sqlEquals($_itemColumn<int>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_playlistSongsRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
 
 class $$PlaylistsTableFilterComposer
     extends Composer<_$AppDatabase, $PlaylistsTable> {
@@ -2003,6 +2356,31 @@ class $$PlaylistsTableFilterComposer
     column: $table.name,
     builder: (column) => ColumnFilters(column),
   );
+
+  Expression<bool> playlistSongsRefs(
+    Expression<bool> Function($$PlaylistSongsTableFilterComposer f) f,
+  ) {
+    final $$PlaylistSongsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.playlistSongs,
+      getReferencedColumn: (t) => t.playlistId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PlaylistSongsTableFilterComposer(
+            $db: $db,
+            $table: $db.playlistSongs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$PlaylistsTableOrderingComposer
@@ -2039,6 +2417,31 @@ class $$PlaylistsTableAnnotationComposer
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  Expression<T> playlistSongsRefs<T extends Object>(
+    Expression<T> Function($$PlaylistSongsTableAnnotationComposer a) f,
+  ) {
+    final $$PlaylistSongsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.playlistSongs,
+      getReferencedColumn: (t) => t.playlistId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PlaylistSongsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.playlistSongs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
 }
 
 class $$PlaylistsTableTableManager
@@ -2052,9 +2455,9 @@ class $$PlaylistsTableTableManager
           $$PlaylistsTableAnnotationComposer,
           $$PlaylistsTableCreateCompanionBuilder,
           $$PlaylistsTableUpdateCompanionBuilder,
-          (Playlist, BaseReferences<_$AppDatabase, $PlaylistsTable, Playlist>),
+          (Playlist, $$PlaylistsTableReferences),
           Playlist,
-          PrefetchHooks Function()
+          PrefetchHooks Function({bool playlistSongsRefs})
         > {
   $$PlaylistsTableTableManager(_$AppDatabase db, $PlaylistsTable table)
     : super(
@@ -2076,9 +2479,45 @@ class $$PlaylistsTableTableManager
               ({Value<int> id = const Value.absent(), required String name}) =>
                   PlaylistsCompanion.insert(id: id, name: name),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$PlaylistsTableReferences(db, table, e),
+                ),
+              )
               .toList(),
-          prefetchHooksCallback: null,
+          prefetchHooksCallback: ({playlistSongsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (playlistSongsRefs) db.playlistSongs,
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (playlistSongsRefs)
+                    await $_getPrefetchedData<
+                      Playlist,
+                      $PlaylistsTable,
+                      PlaylistSong
+                    >(
+                      currentTable: table,
+                      referencedTable: $$PlaylistsTableReferences
+                          ._playlistSongsRefsTable(db),
+                      managerFromTypedResult: (p0) =>
+                          $$PlaylistsTableReferences(
+                            db,
+                            table,
+                            p0,
+                          ).playlistSongsRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.playlistId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
         ),
       );
 }
@@ -2093,9 +2532,9 @@ typedef $$PlaylistsTableProcessedTableManager =
       $$PlaylistsTableAnnotationComposer,
       $$PlaylistsTableCreateCompanionBuilder,
       $$PlaylistsTableUpdateCompanionBuilder,
-      (Playlist, BaseReferences<_$AppDatabase, $PlaylistsTable, Playlist>),
+      (Playlist, $$PlaylistsTableReferences),
       Playlist,
-      PrefetchHooks Function()
+      PrefetchHooks Function({bool playlistSongsRefs})
     >;
 typedef $$PlaylistSongsTableCreateCompanionBuilder =
     PlaylistSongsCompanion Function({
@@ -2112,6 +2551,49 @@ typedef $$PlaylistSongsTableUpdateCompanionBuilder =
       Value<int> rowid,
     });
 
+final class $$PlaylistSongsTableReferences
+    extends BaseReferences<_$AppDatabase, $PlaylistSongsTable, PlaylistSong> {
+  $$PlaylistSongsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $PlaylistsTable _playlistIdTable(_$AppDatabase db) =>
+      db.playlists.createAlias('playlist_songs__playlist_id__playlists__id');
+
+  $$PlaylistsTableProcessedTableManager get playlistId {
+    final $_column = $_itemColumn<int>('playlist_id')!;
+
+    final manager = $$PlaylistsTableTableManager(
+      $_db,
+      $_db.playlists,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_playlistIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $SongsTable _songIdTable(_$AppDatabase db) =>
+      db.songs.createAlias('playlist_songs__song_id__songs__id');
+
+  $$SongsTableProcessedTableManager get songId {
+    final $_column = $_itemColumn<int>('song_id')!;
+
+    final manager = $$SongsTableTableManager(
+      $_db,
+      $_db.songs,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_songIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
 class $$PlaylistSongsTableFilterComposer
     extends Composer<_$AppDatabase, $PlaylistSongsTable> {
   $$PlaylistSongsTableFilterComposer({
@@ -2121,20 +2603,56 @@ class $$PlaylistSongsTableFilterComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  ColumnFilters<int> get playlistId => $composableBuilder(
-    column: $table.playlistId,
-    builder: (column) => ColumnFilters(column),
-  );
-
-  ColumnFilters<int> get songId => $composableBuilder(
-    column: $table.songId,
-    builder: (column) => ColumnFilters(column),
-  );
-
   ColumnFilters<int> get orderIndex => $composableBuilder(
     column: $table.orderIndex,
     builder: (column) => ColumnFilters(column),
   );
+
+  $$PlaylistsTableFilterComposer get playlistId {
+    final $$PlaylistsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.playlistId,
+      referencedTable: $db.playlists,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PlaylistsTableFilterComposer(
+            $db: $db,
+            $table: $db.playlists,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$SongsTableFilterComposer get songId {
+    final $$SongsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.songId,
+      referencedTable: $db.songs,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SongsTableFilterComposer(
+            $db: $db,
+            $table: $db.songs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$PlaylistSongsTableOrderingComposer
@@ -2146,20 +2664,56 @@ class $$PlaylistSongsTableOrderingComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  ColumnOrderings<int> get playlistId => $composableBuilder(
-    column: $table.playlistId,
-    builder: (column) => ColumnOrderings(column),
-  );
-
-  ColumnOrderings<int> get songId => $composableBuilder(
-    column: $table.songId,
-    builder: (column) => ColumnOrderings(column),
-  );
-
   ColumnOrderings<int> get orderIndex => $composableBuilder(
     column: $table.orderIndex,
     builder: (column) => ColumnOrderings(column),
   );
+
+  $$PlaylistsTableOrderingComposer get playlistId {
+    final $$PlaylistsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.playlistId,
+      referencedTable: $db.playlists,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PlaylistsTableOrderingComposer(
+            $db: $db,
+            $table: $db.playlists,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$SongsTableOrderingComposer get songId {
+    final $$SongsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.songId,
+      referencedTable: $db.songs,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SongsTableOrderingComposer(
+            $db: $db,
+            $table: $db.songs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$PlaylistSongsTableAnnotationComposer
@@ -2171,18 +2725,56 @@ class $$PlaylistSongsTableAnnotationComposer
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
-  GeneratedColumn<int> get playlistId => $composableBuilder(
-    column: $table.playlistId,
-    builder: (column) => column,
-  );
-
-  GeneratedColumn<int> get songId =>
-      $composableBuilder(column: $table.songId, builder: (column) => column);
-
   GeneratedColumn<int> get orderIndex => $composableBuilder(
     column: $table.orderIndex,
     builder: (column) => column,
   );
+
+  $$PlaylistsTableAnnotationComposer get playlistId {
+    final $$PlaylistsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.playlistId,
+      referencedTable: $db.playlists,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PlaylistsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.playlists,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$SongsTableAnnotationComposer get songId {
+    final $$SongsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.songId,
+      referencedTable: $db.songs,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SongsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.songs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$PlaylistSongsTableTableManager
@@ -2196,12 +2788,9 @@ class $$PlaylistSongsTableTableManager
           $$PlaylistSongsTableAnnotationComposer,
           $$PlaylistSongsTableCreateCompanionBuilder,
           $$PlaylistSongsTableUpdateCompanionBuilder,
-          (
-            PlaylistSong,
-            BaseReferences<_$AppDatabase, $PlaylistSongsTable, PlaylistSong>,
-          ),
+          (PlaylistSong, $$PlaylistSongsTableReferences),
           PlaylistSong,
-          PrefetchHooks Function()
+          PrefetchHooks Function({bool playlistId, bool songId})
         > {
   $$PlaylistSongsTableTableManager(_$AppDatabase db, $PlaylistSongsTable table)
     : super(
@@ -2239,9 +2828,67 @@ class $$PlaylistSongsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$PlaylistSongsTableReferences(db, table, e),
+                ),
+              )
               .toList(),
-          prefetchHooksCallback: null,
+          prefetchHooksCallback: ({playlistId = false, songId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (playlistId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.playlistId,
+                                referencedTable: $$PlaylistSongsTableReferences
+                                    ._playlistIdTable(db),
+                                referencedColumn: $$PlaylistSongsTableReferences
+                                    ._playlistIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+                    if (songId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.songId,
+                                referencedTable: $$PlaylistSongsTableReferences
+                                    ._songIdTable(db),
+                                referencedColumn: $$PlaylistSongsTableReferences
+                                    ._songIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
         ),
       );
 }
@@ -2256,12 +2903,9 @@ typedef $$PlaylistSongsTableProcessedTableManager =
       $$PlaylistSongsTableAnnotationComposer,
       $$PlaylistSongsTableCreateCompanionBuilder,
       $$PlaylistSongsTableUpdateCompanionBuilder,
-      (
-        PlaylistSong,
-        BaseReferences<_$AppDatabase, $PlaylistSongsTable, PlaylistSong>,
-      ),
+      (PlaylistSong, $$PlaylistSongsTableReferences),
       PlaylistSong,
-      PrefetchHooks Function()
+      PrefetchHooks Function({bool playlistId, bool songId})
     >;
 typedef $$StopMarksTableCreateCompanionBuilder =
     StopMarksCompanion Function({
@@ -2269,6 +2913,8 @@ typedef $$StopMarksTableCreateCompanionBuilder =
       required int songId,
       required double positionRatio,
       required int durationBars,
+      Value<int?> lineIndex,
+      Value<String?> lineText,
     });
 typedef $$StopMarksTableUpdateCompanionBuilder =
     StopMarksCompanion Function({
@@ -2276,7 +2922,31 @@ typedef $$StopMarksTableUpdateCompanionBuilder =
       Value<int> songId,
       Value<double> positionRatio,
       Value<int> durationBars,
+      Value<int?> lineIndex,
+      Value<String?> lineText,
     });
+
+final class $$StopMarksTableReferences
+    extends BaseReferences<_$AppDatabase, $StopMarksTable, StopMark> {
+  $$StopMarksTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $SongsTable _songIdTable(_$AppDatabase db) =>
+      db.songs.createAlias('stop_marks__song_id__songs__id');
+
+  $$SongsTableProcessedTableManager get songId {
+    final $_column = $_itemColumn<int>('song_id')!;
+
+    final manager = $$SongsTableTableManager(
+      $_db,
+      $_db.songs,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_songIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
 
 class $$StopMarksTableFilterComposer
     extends Composer<_$AppDatabase, $StopMarksTable> {
@@ -2292,11 +2962,6 @@ class $$StopMarksTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<int> get songId => $composableBuilder(
-    column: $table.songId,
-    builder: (column) => ColumnFilters(column),
-  );
-
   ColumnFilters<double> get positionRatio => $composableBuilder(
     column: $table.positionRatio,
     builder: (column) => ColumnFilters(column),
@@ -2306,6 +2971,39 @@ class $$StopMarksTableFilterComposer
     column: $table.durationBars,
     builder: (column) => ColumnFilters(column),
   );
+
+  ColumnFilters<int> get lineIndex => $composableBuilder(
+    column: $table.lineIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lineText => $composableBuilder(
+    column: $table.lineText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$SongsTableFilterComposer get songId {
+    final $$SongsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.songId,
+      referencedTable: $db.songs,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SongsTableFilterComposer(
+            $db: $db,
+            $table: $db.songs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$StopMarksTableOrderingComposer
@@ -2322,11 +3020,6 @@ class $$StopMarksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<int> get songId => $composableBuilder(
-    column: $table.songId,
-    builder: (column) => ColumnOrderings(column),
-  );
-
   ColumnOrderings<double> get positionRatio => $composableBuilder(
     column: $table.positionRatio,
     builder: (column) => ColumnOrderings(column),
@@ -2336,6 +3029,39 @@ class $$StopMarksTableOrderingComposer
     column: $table.durationBars,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get lineIndex => $composableBuilder(
+    column: $table.lineIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lineText => $composableBuilder(
+    column: $table.lineText,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$SongsTableOrderingComposer get songId {
+    final $$SongsTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.songId,
+      referencedTable: $db.songs,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SongsTableOrderingComposer(
+            $db: $db,
+            $table: $db.songs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$StopMarksTableAnnotationComposer
@@ -2350,9 +3076,6 @@ class $$StopMarksTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
-  GeneratedColumn<int> get songId =>
-      $composableBuilder(column: $table.songId, builder: (column) => column);
-
   GeneratedColumn<double> get positionRatio => $composableBuilder(
     column: $table.positionRatio,
     builder: (column) => column,
@@ -2362,6 +3085,35 @@ class $$StopMarksTableAnnotationComposer
     column: $table.durationBars,
     builder: (column) => column,
   );
+
+  GeneratedColumn<int> get lineIndex =>
+      $composableBuilder(column: $table.lineIndex, builder: (column) => column);
+
+  GeneratedColumn<String> get lineText =>
+      $composableBuilder(column: $table.lineText, builder: (column) => column);
+
+  $$SongsTableAnnotationComposer get songId {
+    final $$SongsTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.songId,
+      referencedTable: $db.songs,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$SongsTableAnnotationComposer(
+            $db: $db,
+            $table: $db.songs,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$StopMarksTableTableManager
@@ -2375,9 +3127,9 @@ class $$StopMarksTableTableManager
           $$StopMarksTableAnnotationComposer,
           $$StopMarksTableCreateCompanionBuilder,
           $$StopMarksTableUpdateCompanionBuilder,
-          (StopMark, BaseReferences<_$AppDatabase, $StopMarksTable, StopMark>),
+          (StopMark, $$StopMarksTableReferences),
           StopMark,
-          PrefetchHooks Function()
+          PrefetchHooks Function({bool songId})
         > {
   $$StopMarksTableTableManager(_$AppDatabase db, $StopMarksTable table)
     : super(
@@ -2396,11 +3148,15 @@ class $$StopMarksTableTableManager
                 Value<int> songId = const Value.absent(),
                 Value<double> positionRatio = const Value.absent(),
                 Value<int> durationBars = const Value.absent(),
+                Value<int?> lineIndex = const Value.absent(),
+                Value<String?> lineText = const Value.absent(),
               }) => StopMarksCompanion(
                 id: id,
                 songId: songId,
                 positionRatio: positionRatio,
                 durationBars: durationBars,
+                lineIndex: lineIndex,
+                lineText: lineText,
               ),
           createCompanionCallback:
               ({
@@ -2408,16 +3164,65 @@ class $$StopMarksTableTableManager
                 required int songId,
                 required double positionRatio,
                 required int durationBars,
+                Value<int?> lineIndex = const Value.absent(),
+                Value<String?> lineText = const Value.absent(),
               }) => StopMarksCompanion.insert(
                 id: id,
                 songId: songId,
                 positionRatio: positionRatio,
                 durationBars: durationBars,
+                lineIndex: lineIndex,
+                lineText: lineText,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$StopMarksTableReferences(db, table, e),
+                ),
+              )
               .toList(),
-          prefetchHooksCallback: null,
+          prefetchHooksCallback: ({songId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (songId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.songId,
+                                referencedTable: $$StopMarksTableReferences
+                                    ._songIdTable(db),
+                                referencedColumn: $$StopMarksTableReferences
+                                    ._songIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
         ),
       );
 }
@@ -2432,9 +3237,9 @@ typedef $$StopMarksTableProcessedTableManager =
       $$StopMarksTableAnnotationComposer,
       $$StopMarksTableCreateCompanionBuilder,
       $$StopMarksTableUpdateCompanionBuilder,
-      (StopMark, BaseReferences<_$AppDatabase, $StopMarksTable, StopMark>),
+      (StopMark, $$StopMarksTableReferences),
       StopMark,
-      PrefetchHooks Function()
+      PrefetchHooks Function({bool songId})
     >;
 typedef $$CustomStringsTableCreateCompanionBuilder =
     CustomStringsCompanion Function({

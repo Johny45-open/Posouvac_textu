@@ -2,16 +2,27 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:drift/drift.dart' show Value;
 import 'database.dart';
-import 'song_entry.dart';
 import 'chord_display_widget.dart';
+import 'chord_pro_parser.dart';
 import 'chord_transposer.dart';
 import 'app_progress_indicator.dart';
 import 'app_strings.dart';
+
+/// Konstanta pro horní odsazení textu v SingleChildScrollView (16px).
+const double _kTopPadding = 16.0;
+
+/// Cíl zarážky – kotva na řádek textu (primárně) nebo procento (záložně).
+class _StopMarkTarget {
+  final StopMark? dbMark;
+  final int bars;
+  int? lineIndex;
+  double? ratio;
+
+  _StopMarkTarget({this.dbMark, required this.bars, this.lineIndex, this.ratio});
+}
 
 class PlayerPage extends StatefulWidget {
   final int songId;
@@ -30,7 +41,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   late AnimationController _scrollAnimationController;
   bool _isScrolling = false;
   
-  late SongEntry _song;
+  SongEntry? _song;
   bool _isLoading = true;
   String? _loadedContent;
   
@@ -41,6 +52,10 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   int _countdown = 0;
   int _transpose = 0;
   List<StopMark> _stopMarks = [];
+  List<_StopMarkTarget> _resolvedStopMarks = [];
+  final Set<_StopMarkTarget> _triggeredMarks = {};
+  Map<int, double> _lineOffsets = {};
+  Set<int> _anchorLines = {};
 
   Future<void> _saveSettings() async {
     await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, _fontSize, _scrollMultiplier);
@@ -153,52 +168,81 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     if (_scrollController.hasClients) {
       final maxExtent = _scrollController.position.maxScrollExtent;
       _scrollController.jumpTo(_scrollAnimationController.value * maxExtent);
-      
-      // Kontrola zarážek
-      final currentRatio = _scrollAnimationController.value;
-      for (final mark in _stopMarks) {
-        if (currentRatio >= mark.positionRatio && currentRatio < mark.positionRatio + 0.01) {
-          _handleStopMark(mark);
-          break;
-        }
+      _checkStopMarks();
+    }
+  }
+
+  void _checkStopMarks() {
+    if (!_scrollController.hasClients) return;
+    final maxExtent = _scrollController.position.maxScrollExtent;
+    final currentOffset = _scrollController.offset;
+
+    for (final mark in _resolvedStopMarks) {
+      if (_triggeredMarks.contains(mark)) continue;
+      final target = _stopMarkTargetOffset(mark, maxExtent);
+      if (target == null) continue;
+      // Zarážka se spustí ve chvíli, kdy její řádek dorazí k horní hraně obrazovky.
+      if (currentOffset >= target) {
+        _triggeredMarks.add(mark);
+        _handleStopMarkTarget(mark);
+        break;
       }
     }
   }
 
-  Future<void> _handleStopMark(StopMark mark) async {
+  double? _stopMarkTargetOffset(_StopMarkTarget mark, double maxExtent) {
+    final lineIndex = mark.lineIndex;
+    final lineOffset = lineIndex != null ? _lineOffsets[lineIndex] : null;
+    if (lineOffset != null) {
+      // Horní odsazení textu (16px) + pozice řádku v obsahu.
+      return (_kTopPadding + lineOffset).clamp(0.0, maxExtent).toDouble();
+    }
+    if (mark.ratio != null) {
+      return (mark.ratio! * maxExtent).clamp(0.0, maxExtent).toDouble();
+    }
+    return null;
+  }
+
+  Future<void> _handleStopMarkTarget(_StopMarkTarget mark) async {
+    final bars = mark.bars > 0 ? mark.bars : 2;
     _scrollAnimationController.stop();
-    _tts.speak(AppStrings.stopMarkMessage(mark.durationBars));
+    _tts.speak(AppStrings.stopMarkMessage(bars));
     HapticFeedback.mediumImpact(); // Vibrace na začátku pauzy
-    
-    final totalMs = ((60000 / (_bpm ?? 120)) * mark.durationBars * 4).round();
-    
+
+    final totalMs = ((60000 / (_bpm ?? 120)) * bars * 4).round();
+
     // Pokud je pauza delší než 2 sekundy, zavibrujeme sekundu před koncem jako varování
     if (totalMs > 2000) {
       await Future.delayed(Duration(milliseconds: totalMs - 1000));
       if (mounted && _isScrolling) HapticFeedback.lightImpact(); // Varování před rozjezdem
-      await Future.delayed(const Duration(milliseconds: 1000));
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted && _isScrolling) HapticFeedback.lightImpact(); // Dvojitý pulz
+      await Future.delayed(const Duration(milliseconds: 500));
     } else {
       await Future.delayed(Duration(milliseconds: totalMs));
     }
-    
+
     if (mounted && _isScrolling) {
+      _tts.speak(AppStrings.stopMarkResumeMessage);
+      HapticFeedback.vibrate();
       _scrollAnimationController.forward();
     }
   }
 
   Future<void> _loadSongData() async {
     try {
-      _song = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).getSingle();
+      final song = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(widget.songId))).getSingle();
+      _song = song;
       _stopMarks = await widget.db.getStopMarksForSong(widget.songId);
 
       setState(() {
-        _fontSize = _song.customFontSize ?? 20.0;
-        _scrollMultiplier = _song.customScrollSpeed ?? 1.0;
-        _bpm = _song.tempo;
-        _introDuration = _song.introDuration;
+        _fontSize = song.customFontSize ?? 20.0;
+        _scrollMultiplier = song.customScrollSpeed ?? 1.0;
+        _bpm = song.tempo;
+        _introDuration = song.introDuration;
       });
 
-      final file = File(_song.filePath);
+      final file = File(song.filePath);
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
         String content;
@@ -212,6 +256,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
             _loadedContent = content;
             _isLoading = false;
           });
+          await _buildResolvedStopMarks();
         }
       } else {
         if (mounted) {
@@ -225,6 +270,61 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
         _tts.speak("Chyba při načítání souboru");
       }
     }
+  }
+
+  /// Sestaví cíle zarážek: z direktiv {stop}/{pause} v textu i z databáze.
+  Future<void> _buildResolvedStopMarks() async {
+    final content = _loadedContent ?? '';
+    final lines = ChordProParser.orderedLines(content);
+    final targets = <_StopMarkTarget>[];
+
+    // Zarážky z direktiv v textu
+    for (final mark in ChordProParser.stopMarksInLines(content)) {
+      targets.add(_StopMarkTarget(bars: mark.bars, lineIndex: mark.index));
+    }
+
+    // Zarážky z databáze (s kotvou na řádek, případně záložně procentem)
+    for (final dbMark in _stopMarks) {
+      final lineIndex = _resolveDbLineIndex(dbMark, lines);
+      targets.add(_StopMarkTarget(
+        dbMark: dbMark,
+        bars: dbMark.durationBars,
+        lineIndex: lineIndex,
+        ratio: lineIndex == null ? dbMark.positionRatio : null,
+      ));
+    }
+
+    setState(() {
+      _resolvedStopMarks = targets;
+      _anchorLines = {
+        for (final t in targets)
+          if (t.dbMark != null && t.lineIndex != null) t.lineIndex!,
+      };
+    });
+  }
+
+  /// Najde kotevní řádek databázové zarážky podle uloženého textu/indexu.
+  int? _resolveDbLineIndex(StopMark mark, List<List<ChordProElement>> lines) {
+    final markText = (mark.lineText ?? '').trim();
+    if (mark.lineIndex != null && mark.lineIndex! >= 0 && mark.lineIndex! < lines.length) {
+      final idx = mark.lineIndex!;
+      final matchesText = markText.isEmpty ||
+          ChordProParser.lineText(lines[idx]) == markText;
+      if (matchesText) return idx;
+    }
+    if (markText.isNotEmpty) {
+      for (var i = 0; i < lines.length; i++) {
+        if (ChordProParser.lineText(lines[i]) == markText) return i;
+      }
+    }
+    return mark.lineIndex != null && mark.lineIndex! >= 0 && mark.lineIndex! < lines.length
+        ? mark.lineIndex
+        : null;
+  }
+
+  Future<void> _reloadStopMarks() async {
+    _stopMarks = await widget.db.getStopMarksForSong(widget.songId);
+    await _buildResolvedStopMarks();
   }
 
   Future<void> _manageStopMarks() async {
@@ -242,19 +342,21 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                   itemCount: _stopMarks.length,
                   itemBuilder: (context, i) {
                     final mark = _stopMarks[i];
+                    final location = mark.lineText != null && mark.lineText!.isNotEmpty
+                        ? "Řádek: ${mark.lineText}"
+                        : "Pozice: ${(mark.positionRatio * 100).round()}% textu";
                     return Semantics(
-                      label: "Pauza na ${mark.durationBars} takty, umístěna v ${(mark.positionRatio * 100).round()} procentech textu.",
+                      label: "Pauza na ${mark.durationBars} takty. $location",
                       child: ListTile(
                         leading: const Icon(Icons.pause_circle_filled),
                         title: Text("Pauza na ${mark.durationBars} takty"),
-                        subtitle: Text("Pozice: ${(mark.positionRatio * 100).round()}% textu"),
+                        subtitle: Text(location),
                         trailing: IconButton(
                           icon: const Icon(Icons.delete, color: Colors.red),
                           tooltip: "Smazat tuto pauzu na ${mark.durationBars} takty",
                           onPressed: () async {
                             await widget.db.deleteStopMark(mark.id);
-                            final newMarks = await widget.db.getStopMarksForSong(widget.songId);
-                            setState(() => _stopMarks = newMarks);
+                            await _reloadStopMarks();
                             setDialogState(() {});
                             _tts.speak("Pauza smazána");
                           },
@@ -396,7 +498,6 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
 
   Future<void> _addStopMark() async {
     final barsController = TextEditingController(text: "2");
-    final ratio = _scrollController.offset / _scrollController.position.maxScrollExtent;
     
     await showDialog(
       context: context,
@@ -412,8 +513,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           TextButton(
             onPressed: () async {
               final bars = int.tryParse(barsController.text) ?? 2;
-              await widget.db.addStopMark(_song.id, ratio, bars);
-              _stopMarks = await widget.db.getStopMarksForSong(_song.id);
+              await _saveStopMarkAtTopLine(bars);
               Navigator.pop(context);
               _tts.speak("Pauza přidána");
             },
@@ -425,11 +525,42 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   }
 
   Future<void> _quickAddStopMark() async {
-    final ratio = _scrollController.offset / _scrollController.position.maxScrollExtent;
-    await widget.db.addStopMark(_song.id, ratio, 2); // Výchozí 2 takty
-    _stopMarks = await widget.db.getStopMarksForSong(_song.id);
+    await _saveStopMarkAtTopLine(2); // Výchozí 2 takty
     _tts.speak(AppStrings.stopMarkQuickAdded);
     HapticFeedback.lightImpact(); // Potvrzení uložení jemnou vibrací
+  }
+
+  /// Uloží zarážku na právě viditelný (horní) řádek, případně záložně procentem.
+  Future<void> _saveStopMarkAtTopLine(int bars) async {
+    final topLine = _topVisibleLineIndex();
+    if (topLine != null) {
+      final lines = ChordProParser.orderedLines(_loadedContent ?? '');
+      final lineText = topLine < lines.length ? ChordProParser.lineText(lines[topLine]) : '';
+      await widget.db.addStopMarkAtLine(widget.songId, topLine, lineText, bars);
+    } else {
+      final ratio = _scrollController.hasClients
+          ? (_scrollController.position.maxScrollExtent > 0
+              ? _scrollController.offset / _scrollController.position.maxScrollExtent
+              : 0.0)
+          : 0.0;
+      await widget.db.addStopMark(widget.songId, ratio, bars);
+    }
+    await _reloadStopMarks();
+  }
+
+  /// Index řádku, jehož horní hrana je těsně u horního okraje obrazovky.
+  int? _topVisibleLineIndex() {
+    if (_lineOffsets.isEmpty) return null;
+    final offset = _scrollController.hasClients ? _scrollController.offset : 0.0;
+    int? best;
+    double bestY = -double.infinity;
+    for (final entry in _lineOffsets.entries) {
+      if (entry.value <= offset + _kTopPadding && entry.value > bestY) {
+        best = entry.key;
+        bestY = entry.value;
+      }
+    }
+    return best;
   }
 
   void _startScrolling() {
@@ -518,7 +649,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_song.title),
+        title: Text(_song?.title ?? ""),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -544,6 +675,14 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                     content: ChordTransposer.transposeText(_loadedContent ?? "", _transpose),
                     textStyle: TextStyle(fontSize: _fontSize * MediaQuery.textScaleFactorOf(context)),
                     chordStyle: TextStyle(fontSize: _fontSize * 0.9 * MediaQuery.textScaleFactorOf(context), color: Colors.blue, fontWeight: FontWeight.bold),
+                    anchorLines: _anchorLines,
+                    onLineOffsetsChanged: (offsets) {
+                      if (!mounted) return;
+                      final same = offsets.length == _lineOffsets.length &&
+                          offsets.entries.every((e) => _lineOffsets[e.key] == e.value);
+                      if (same) return;
+                      setState(() => _lineOffsets = offsets);
+                    },
                   ),
                 ),
               ),
@@ -565,13 +704,34 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                 ),
             ],
           ),
-      floatingActionButton: Semantics(
-        label: _isScrolling || _countdown > 0 ? "Zastavit posuv" : "Spustit posuv",
-        button: true,
-        child: FloatingActionButton(
-          onPressed: _toggleScrolling,
-          child: Icon(_isScrolling || _countdown > 0 ? Icons.pause : Icons.play_arrow),
-        ),
+      floatingActionButton: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          // Velké tlačítko pro rychlé přidání zarážky na viditelný řádek.
+          Semantics(
+            label: AppStrings.addStopMarkButtonLabel,
+            button: true,
+            child: GestureDetector(
+              onLongPress: _addStopMark,
+              child: FloatingActionButton(
+                heroTag: 'addStopMarkFAB',
+                onPressed: _quickAddStopMark,
+                focusColor: Colors.red,
+                child: const Icon(Icons.pause_circle_outline, size: 32),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Semantics(
+            label: _isScrolling || _countdown > 0 ? "Zastavit posuv" : "Spustit posuv",
+            button: true,
+            child: FloatingActionButton(
+              heroTag: 'playFAB',
+              onPressed: _toggleScrolling,
+              child: Icon(_isScrolling || _countdown > 0 ? Icons.pause : Icons.play_arrow),
+            ),
+          ),
+        ],
       ),
     );
   }

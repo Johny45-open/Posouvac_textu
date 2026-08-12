@@ -8,6 +8,18 @@ import 'package:sqlite3/sqlite3.dart';
 
 part 'database.g.dart';
 
+class PlaylistSyncResult {
+  final String playlistName;
+  final int matchedCount;
+  final List<String> notFound;
+
+  PlaylistSyncResult({
+    required this.playlistName,
+    required this.matchedCount,
+    required this.notFound,
+  });
+}
+
 class Playlists extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
@@ -27,6 +39,8 @@ class StopMarks extends Table {
   IntColumn get songId => integer().references(Songs, #id, onDelete: KeyAction.cascade)();
   RealColumn get positionRatio => real()(); // Procentuální pozice (0.0 - 1.0)
   IntColumn get durationBars => integer()(); // Délka pauzy v taktech
+  IntColumn get lineIndex => integer().nullable()(); // Index kotevního řádku textu
+  TextColumn get lineText => text().nullable()(); // Text kotevního řádku (pro stabilitu)
 }
 
 class CustomStrings extends Table {
@@ -45,8 +59,13 @@ class AppDatabase extends _$AppDatabase {
 
   factory AppDatabase() => instance;
 
+  /// Testovací databáze v paměti (bez platformních kanálů).
+  factory AppDatabase.forTesting() => AppDatabase._testing();
+
+  AppDatabase._testing() : super(NativeDatabase.memory());
+
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration {
@@ -74,6 +93,10 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 8) {
           await m.createTable(customStrings);
+        }
+        if (from < 9) {
+          await m.addColumn(stopMarks, stopMarks.lineIndex);
+          await m.addColumn(stopMarks, stopMarks.lineText);
         }
       },
     );
@@ -121,6 +144,16 @@ class AppDatabase extends _$AppDatabase {
   // Metody pro zarážky
   Future<int> addStopMark(int songId, double ratio, int bars) {
     return into(stopMarks).insert(StopMarksCompanion.insert(songId: songId, positionRatio: ratio, durationBars: bars));
+  }
+
+  Future<int> addStopMarkAtLine(int songId, int lineIndex, String lineText, int bars) {
+    return into(stopMarks).insert(StopMarksCompanion.insert(
+      songId: songId,
+      positionRatio: 0,
+      durationBars: bars,
+      lineIndex: Value(lineIndex),
+      lineText: Value(lineText),
+    ));
   }
   
   Future<List<StopMark>> getStopMarksForSong(int songId) =>
@@ -227,9 +260,28 @@ class AppDatabase extends _$AppDatabase {
     return preview;
   }
 
-  Future<void> syncPlaylistFromJson(Map<String, dynamic> data) async {
-    final playlistName = data['name'] as String;
-    final songTitles = (data['songs'] as List<dynamic>).cast<String>();
+  Future<PlaylistSyncResult> syncPlaylistFromJson(Map<String, dynamic> data) async {
+    final playlistName = (data['name'] as String?)?.trim() ?? '';
+    if (playlistName.isEmpty) {
+      throw const FormatException('Chybějící název playlistu.');
+    }
+    final songTitles = (data['songs'] as List<dynamic>? ?? const [])
+        .map((s) => s.toString().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    // Sestavíme slovník podle normalizovaného názvu (bez ohledu na velikost písmen a mezer).
+    final allSongs = await select(songs).get();
+    final byNormTitle = <String, SongEntry>{};
+    for (final song in allSongs) {
+      final key = song.title.trim().toLowerCase();
+      if (key.isNotEmpty && !byNormTitle.containsKey(key)) {
+        byNormTitle[key] = song;
+      }
+    }
+
+    final notFound = <String>[];
+    var matchedCount = 0;
 
     await transaction(() async {
       // 1. Najít nebo vytvořit playlist
@@ -246,8 +298,9 @@ class AppDatabase extends _$AppDatabase {
       // 2. Přiřadit písně
       int order = 0;
       for (final title in songTitles) {
-        final song = await (select(songs)..where((t) => t.title.equals(title))).getSingleOrNull();
+        final song = byNormTitle[title.toLowerCase()];
         if (song != null) {
+          matchedCount++;
           await into(playlistSongs).insert(
             PlaylistSongsCompanion.insert(
               playlistId: playlistId,
@@ -256,9 +309,17 @@ class AppDatabase extends _$AppDatabase {
             ),
             mode: InsertMode.insertOrIgnore,
           );
+        } else {
+          notFound.add(title);
         }
       }
     });
+
+    return PlaylistSyncResult(
+      playlistName: playlistName,
+      matchedCount: matchedCount,
+      notFound: notFound,
+    );
   }
 
   Future<int> createPlaylist(String name) => into(playlists).insert(PlaylistsCompanion.insert(name: name));

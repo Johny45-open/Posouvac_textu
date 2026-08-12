@@ -96,6 +96,12 @@ class AppStrings {
   static String get stopMarkQuickAdded => 
       isInformal ? "Zarážka je tam!" : "Zarážka byla přidána.";
 
+  static String get stopMarkResumeMessage => 
+      isInformal ? "A jedem!" : "Pokračujeme.";
+
+  static String get addStopMarkButtonLabel => 
+      isInformal ? "Zarážka na viditelný řádek" : "Přidat zarážku na viditelný řádek";
+
   static String nextSongMessage(String title, String artist) => 
       isInformal ? "Teď dáme $title od $artist, jdeme na to!" : "Následuje píseň $title od interpreta $artist.";
 
@@ -121,6 +127,19 @@ class AppStrings {
   static String get bulkAddTitle => isInformal ? "Co tam přihodíme?" : "Vybrat písně do playlistu";
   static String bulkAddFinished(int count) => 
       isInformal ? "Přidáno $count kousků. To bude jízda!" : "Do playlistu bylo úspěšně přidáno $count skladeb.";
+
+  // --- SDRÍLENÝ IMPORT PLAYLISTU ---
+  static String playlistImportSuccess(String name, int matched) =>
+      isInformal ? "Playlist $name nahrán, přiřazeno $matched písní."
+                 : "Playlist $name byl importován, bylo přiřazeno $matched písní.";
+
+  static String playlistImportMissing(int missing) =>
+      isInformal ? "Celkem $missing se v knihovně nenašlo, ty vynechávám."
+                 : "$missing písní nebylo v knihovně nalezeno a byly vynechány.";
+
+  static String get playlistImportError =>
+      isInformal ? "Tohle se jako playlist načíst nedá, zkontroluj přijatá data."
+                 : "Nepodařilo se načíst platný playlist z přijatých dat.";
 
   // --- NASTAVENÍ A ZÁLOHA ---
   static String get settingsTitle => isInformal ? "Vychytávky" : "Nastavení";

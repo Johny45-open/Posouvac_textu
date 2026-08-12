@@ -70,4 +70,27 @@ class ChordProParser {
     }
     return elements;
   }
+
+  // Všechny logické řádky v pořadí, v jakém se vykreslují (přes sekce).
+  static List<List<ChordProElement>> orderedLines(String content) =>
+      parse(content).expand((section) => section.lines).toList();
+
+  // Spojený text řádku (bez direktiv), vhodný jako stabilní kotva.
+  static String lineText(List<ChordProElement> line) =>
+      line.map((e) => e.content).join('').trim();
+
+  // Indexy řádků obsahujících direktivu zarážky ({stop:N} / {pause:N})
+  // spolu s délkou pauzy v taktech.
+  static List<({int index, int bars})> stopMarksInLines(String content) {
+    final marks = <({int index, int bars})>[];
+    final lines = orderedLines(content);
+    for (var i = 0; i < lines.length; i++) {
+      for (final e in lines[i]) {
+        if (e.type == ElementType.stopMark) {
+          marks.add((index: i, bars: e.stopMarkBars ?? 0));
+        }
+      }
+    }
+    return marks;
+  }
 }

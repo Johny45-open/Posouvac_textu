@@ -333,6 +333,35 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  Future<void> _addToPlaylist(SongEntry song) async {
+    final playlists = await widget.db.getAllPlaylists();
+    if (playlists.isEmpty) {
+      _tts.speak("Nemáte žádný playlist. Vytvořte ho v sekci Playlisty a pak zkuste skladbu přidat znovu.");
+      return;
+    }
+
+    final selected = await showDialog<Playlist>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text("Přidat do playlistu"),
+        children: [
+          for (final p in playlists)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, p),
+              child: Semantics(
+                label: "Přidat skladbu ${song.title} do playlistu ${p.name}",
+                child: Text(p.name),
+              ),
+            ),
+        ],
+      ),
+    );
+
+    if (selected == null) return;
+    await widget.db.addSongToPlaylist(selected.id, song.id);
+    _tts.speak("Píseň ${song.title} přidána do playlistu ${selected.name}");
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(

@@ -27,23 +27,36 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
   }
 
   Future<void> _importPlaylist() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-    );
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
 
+      if (result == null || result.files.single.path == null) {
+        return;
+      }
 
-    if (result != null && result.files.single.path != null) {
       final file = File(result.files.single.path!);
       final jsonString = await file.readAsString();
       final data = jsonDecode(jsonString) as Map<String, dynamic>;
-      
-      await widget.db.syncPlaylistFromJson(data);
-      _tts.speak("Playlist importován");
-      
+
+      final syncResult = await widget.db.syncPlaylistFromJson(data);
+      final message = syncResult.notFound.isEmpty
+          ? AppStrings.playlistImportSuccess(syncResult.playlistName, syncResult.matchedCount)
+          : '${AppStrings.playlistImportSuccess(syncResult.playlistName, syncResult.matchedCount)} '
+              '${AppStrings.playlistImportMissing(syncResult.notFound.length)}';
+      _tts.speak(message);
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Playlist importován")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
         setState(() {});
+      }
+    } catch (e) {
+      _tts.speak(AppStrings.playlistImportError);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(AppStrings.playlistImportError)));
       }
     }
   }
