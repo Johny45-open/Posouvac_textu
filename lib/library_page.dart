@@ -16,6 +16,7 @@ import 'song_utils.dart';
 import 'app_progress_indicator.dart';
 import 'tuner.dart';
 import 'app_strings.dart';
+import 'song_export.dart';
 
 class LibraryPage extends StatefulWidget {
   final ThemeMode themeMode;
@@ -333,6 +334,31 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  Future<void> _shareSong(SongEntry song) async {
+    try {
+      final file = File(song.filePath);
+      if (!await file.exists()) {
+        _tts.speak(AppStrings.shareFileMissing);
+        return;
+      }
+      final bytes = await file.readAsBytes();
+      String content;
+      try {
+        content = utf8.decode(bytes);
+      } catch (_) {
+        content = latin1.decode(bytes);
+      }
+      await showSongShareDialog(
+        context,
+        title: song.title,
+        artist: song.artist,
+        content: content,
+      );
+    } catch (_) {
+      _tts.speak(AppStrings.shareFileMissing);
+    }
+  }
+
   Future<void> _addToPlaylist(SongEntry song) async {
     final playlists = await widget.db.getAllPlaylists();
     if (playlists.isEmpty) {
@@ -644,7 +670,18 @@ class _LibraryPageState extends State<LibraryPage> {
                         onPressed: () => _addToPlaylist(song),
                       ),
                     ),
-                    // 4. ŠVIH: Smazat
+                    // 4. ŠVIH: Sdílet text
+                    Semantics(
+                      container: true,
+                      excludeSemantics: true,
+                      label: "Sdílet text skladby $cleanTitle od ${song.artist}",
+                      button: true,
+                      child: IconButton(
+                        icon: const Icon(Icons.ios_share),
+                        onPressed: () => _shareSong(song),
+                      ),
+                    ),
+                    // 5. ŠVIH: Smazat
                     Semantics(
                       container: true,
                       excludeSemantics: true,

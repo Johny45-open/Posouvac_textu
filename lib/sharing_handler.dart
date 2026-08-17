@@ -88,7 +88,6 @@ class SharingHandler {
         ScaffoldMessenger.of(nav.context)
             .showSnackBar(SnackBar(content: Text(message)));
       }
-      _openPlaylists(navKey);
     }
 
     try {
@@ -96,14 +95,35 @@ class SharingHandler {
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException();
       }
+
+      // Balíček písně {type: 'song', title, artist, content}
+      if (decoded['type'] == 'song') {
+        final title = (decoded['title'] as String?)?.trim() ?? '';
+        final artist = (decoded['artist'] as String?)?.trim() ?? '';
+        final content = (decoded['content'] as String?)?.trim() ?? '';
+        if (title.isEmpty || content.isEmpty) {
+          throw const FormatException();
+        }
+        final added = await db.importSongPackage(
+          title: title,
+          artist: artist.isNotEmpty ? artist : 'Neznámý interpret',
+          content: content,
+        );
+        announce(added
+            ? AppStrings.songImportSuccess(title)
+            : AppStrings.songImportExists(title));
+        return;
+      }
+
       final result = await db.syncPlaylistFromJson(decoded);
       final message = result.notFound.isEmpty
           ? AppStrings.playlistImportSuccess(result.playlistName, result.matchedCount)
           : '${AppStrings.playlistImportSuccess(result.playlistName, result.matchedCount)} '
               '${AppStrings.playlistImportMissing(result.notFound.length)}';
       announce(message);
+      _openPlaylists(navKey);
     } catch (_) {
-      announce(AppStrings.playlistImportError);
+      announce(AppStrings.songImportError);
     }
   }
 

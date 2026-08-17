@@ -141,6 +141,64 @@ class AppStrings {
       isInformal ? "Tohle se jako playlist načíst nedá, zkontroluj přijatá data."
                  : "Nepodařilo se načíst platný playlist z přijatých dat.";
 
+  // --- SDÍLENÍ PÍSNĚ ---
+  static String get shareTitle => isInformal ? "Komu text pošleš?" : "Sdílet text písně";
+  static String get shareButtonLabel =>
+      isInformal ? "Sdílet text písně" : "Sdílet text písně";
+
+  static String get shareHtmlLabel => isInformal ? "HTML soubor" : "HTML soubor";
+  static String get shareHtmlDescription => isInformal
+      ? "Pro zpěváka bez aplikace. Otevře se v prohlížeči i bez internetu."
+      : "Pro zpěváka bez aplikace. Otevře se v libovolném prohlížeči a funguje offline.";
+  static String shareHtmlText(String title) => isInformal
+      ? "Text písně $title pro prohlížeč"
+      : "Text písně $title (HTML, funguje offline)";
+  static String get shareHtmlDone => isInformal
+      ? "Soubor je připraven, vyber, kam ho pošleš."
+      : "Soubor je připraven. Vyberte, kam jej chcete odeslat.";
+
+  static String get shareQrLabel => isInformal ? "QR kód" : "QR kód";
+  static String get shareQrDescription => isInformal
+      ? "Pro kratší texty. Naskenuje se kamerou bez internetu."
+      : "Pro kratší texty. Naskenuje se kamerou a funguje offline.";
+  static String get shareQrTooLong => isInformal
+      ? "Text je moc dlouhý na QR kód, použij HTML soubor nebo balíček písně."
+      : "Text je příliš dlouhý pro QR kód. Použijte prosím HTML soubor nebo balíček písně.";
+  static String get shareQrDialogTitle =>
+      isInformal ? "Naskenuj QR nebo si přečti text" : "QR kód s textem písně";
+  static String shareQrSemantics(String title, String artist) => isInformal
+      ? "QR kód s textem písně $title od $artist. Celý text je zobrazen níže."
+      : "QR kód s textem písně $title od interpreta $artist. Celý text je zobrazen níže.";
+  static String get shareQrTextLabel =>
+      isInformal ? "Text písně:" : "Text písně:";
+
+  static String get sharePackageLabel => isInformal ? "Balíček písně" : "Balíček písně";
+  static String get sharePackageDescription => isInformal
+      ? "Pro zpěváka, co má aplikaci. Text mu spadne rovnou do knihovny."
+      : "Pro zpěváka s aplikací. Text se naimportuje přímo do jeho knihovny.";
+  static String sharePackageText(String title) => isInformal
+      ? "Píseň $title pro Posouvač textu"
+      : "Píseň $title - balíček pro Posouvač textu";
+  static String get sharePackageDone => isInformal
+      ? "Balíček je připraven, vyber, kam ho pošleš."
+      : "Balíček písně je připraven. Vyberte, kam jej chcete odeslat.";
+
+  static String get shareFileMissing => isInformal
+      ? "Text souboru se nepodařilo načíst."
+      : "Text písně se nepodařilo načíst.";
+  static String get shareError =>
+      isInformal ? "Tohle sdílení se nepovedlo." : "Sdílení se nezdařilo.";
+
+  static String songImportSuccess(String title) => isInformal
+      ? "Píseň $title je v knihovně!"
+      : "Píseň $title byla přidána do knihovny.";
+  static String songImportExists(String title) => isInformal
+      ? "Píseň $title už v knihovně máš."
+      : "Píseň $title je již ve vaší knihovně.";
+  static String get songImportError => isInformal
+      ? "Tohle se jako píseň načíst nedá, zkontroluj přijatá data."
+      : "Nepodařilo se načíst píseň z přijatých dat.";
+
   // --- NASTAVENÍ A ZÁLOHA ---
   static String get settingsTitle => isInformal ? "Vychytávky" : "Nastavení";
   static String get backupTitle => isInformal ? "Záloha dat" : "Zálohování a obnova";

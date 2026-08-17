@@ -10,6 +10,7 @@ import 'chord_pro_parser.dart';
 import 'chord_transposer.dart';
 import 'app_progress_indicator.dart';
 import 'app_strings.dart';
+import 'song_export.dart';
 
 /// Konstanta pro horní odsazení textu v SingleChildScrollView (16px).
 const double _kTopPadding = 16.0;
@@ -651,6 +652,21 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       appBar: AppBar(
         title: Text(_song?.title ?? ""),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: AppStrings.shareButtonLabel,
+            onPressed: () {
+              final song = _song;
+              final content = _loadedContent;
+              if (song == null || content == null) return;
+              showSongShareDialog(
+                context,
+                title: song.title,
+                artist: song.artist,
+                content: content,
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: "Ovládání přehrávače",

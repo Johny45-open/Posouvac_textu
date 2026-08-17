@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'dart:convert';
 import 'dart:io';
 import 'song_entry.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -162,6 +163,49 @@ class AppDatabase extends _$AppDatabase {
   Future<int> deleteStopMark(int id) => (delete(stopMarks)..where((t) => t.id.equals(id))).go();
 
   Future<int> deleteSong(int id) => (delete(songs)..where((t) => t.id.equals(id))).go();
+
+  /// Naimportuje přijatý balíček písně (text + metadata) do knihovny.
+  /// Obsah zapíše do nového souboru v aplikačním adresáři a vloží záznam.
+  /// Vrací true, pokud byla píseň nově přidána, false pokud už existuje.
+  Future<bool> importSongPackage({
+    required String title,
+    required String artist,
+    required String content,
+  }) async {
+    final existing = await (select(songs)
+          ..where((t) => t.title.equals(title) & t.artist.equals(artist)))
+        .getSingleOrNull();
+    if (existing != null) return false;
+
+    final appDir = await getApplicationDocumentsDirectory();
+    final songsDir = Directory(p.join(appDir.path, 'imported_songs'));
+    if (!await songsDir.exists()) {
+      await songsDir.create(recursive: true);
+    }
+
+    final safeArtist = artist.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    final safeTitle = title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    var fileName = '${safeArtist.isNotEmpty ? '$safeArtist - ' : ''}$safeTitle.txt';
+    var filePath = p.join(songsDir.path, fileName);
+    var counter = 1;
+    while (await File(filePath).exists()) {
+      final base = fileName.replaceAll('.txt', '');
+      filePath = p.join(songsDir.path, '${base}_$counter.txt');
+      counter++;
+    }
+
+    final file = File(filePath);
+    await file.writeAsString(content, encoding: utf8);
+
+    await into(songs).insert(
+      SongsCompanion.insert(
+        filePath: filePath,
+        artist: artist,
+        title: title,
+      ),
+    );
+    return true;
+  }
 
   Future<String> exportSongsToCsv() async {
     final songs = await select(this.songs).get();
