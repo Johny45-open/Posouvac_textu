@@ -218,7 +218,9 @@ Future<void> _showQrDialog(
   required String artist,
   required String content,
 }) async {
-  if (content.length > maxQrContentLength) {
+  final packageJson =
+      buildSongPackageJson(title: title, artist: artist, content: content);
+  if (packageJson.length > maxQrContentLength) {
     tts.speak(AppStrings.shareQrTooLong);
     if (context.mounted) {
       ScaffoldMessenger.of(context)
@@ -241,7 +243,7 @@ Future<void> _showQrDialog(
                 label: AppStrings.shareQrSemantics(title, artist),
                 image: true,
                 child: QrImageView(
-                  data: content,
+                  data: packageJson,
                   version: QrVersions.auto,
                   size: 220,
                 ),

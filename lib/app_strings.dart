@@ -199,6 +199,27 @@ class AppStrings {
       ? "Tohle se jako píseň načíst nedá, zkontroluj přijatá data."
       : "Nepodařilo se načíst píseň z přijatých dat.";
 
+  // --- SKENER QR KÓDŮ ---
+  static String get scanQrTooltip => isInformal ? "Naskenovat QR kód" : "Naskenovat QR kód";
+  static String get scanQrPageTitle => isInformal ? "Skener QR kódu" : "Skener QR kódů";
+  static String get scanQrInstruction => isInformal
+      ? "Namiř foťák na QR kód a píseň ti spadne rovnou do knihovny."
+      : "Namiřte fotoaparát na QR kód. Naskenovaná píseň se přidá do knihovny.";
+  static String get scanQrPermissionError => isInformal
+      ? "Bez povoleného foťáku to nejde. Povol kameře přístup v nastavení."
+      : "Skenování vyžaduje přístup k fotoaparátu. Povolte jej prosím v nastavení aplikace.";
+  static String get scanPlainDialogTitle =>
+      isInformal ? "Co je to za píseň?" : "Název naskenovaného textu";
+  static String get scanPlainDialogText => isInformal
+      ? "Ten QR kód neobsahuje název ani interpreta, jen text. Doplň je, ať se ti píseň líp najde."
+      : "Naskenovaný QR kód obsahuje pouze text bez názvu. Doplňte prosím název a interpreta.";
+  static String get scanPlainTitleLabel => "Název písně";
+  static String get scanPlainArtistLabel => "Jméno interpreta";
+  static String get scanPlainPreviewLabel => isInformal ? "Text písně:" : "Text písně:";
+  static String get scanPlainDefaultTitle => "Naskenovaná píseň";
+  static String get scanPlainDefaultArtist => "Neznámý interpret";
+
+
   // --- NASTAVENÍ A ZÁLOHA ---
   static String get settingsTitle => isInformal ? "Vychytávky" : "Nastavení";
   static String get backupTitle => isInformal ? "Záloha dat" : "Zálohování a obnova";

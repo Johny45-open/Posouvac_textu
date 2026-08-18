@@ -17,6 +17,7 @@ import 'app_progress_indicator.dart';
 import 'tuner.dart';
 import 'app_strings.dart';
 import 'song_export.dart';
+import 'qr_scan_page.dart';
 
 class LibraryPage extends StatefulWidget {
   final ThemeMode themeMode;
@@ -700,10 +701,31 @@ class _LibraryPageState extends State<LibraryPage> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _performTextImport,
-        tooltip: "Importovat textové soubory",
-        child: const Icon(Icons.folder_open),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (Platform.isAndroid || Platform.isIOS)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: FloatingActionButton.small(
+                heroTag: 'qrScanFab',
+                tooltip: AppStrings.scanQrTooltip,
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => QrScanPage(db: widget.db),
+                  ),
+                ),
+                child: const Icon(Icons.qr_code_scanner),
+              ),
+            ),
+          FloatingActionButton(
+            onPressed: _performTextImport,
+            tooltip: "Importovat textové soubory",
+            child: const Icon(Icons.folder_open),
+          ),
+        ],
       ),
     );
   }
