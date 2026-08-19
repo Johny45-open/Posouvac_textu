@@ -2,6 +2,33 @@ class AppStrings {
   static bool isInformal = false;
   static Map<String, String> _customStrings = {};
 
+  static const List<String> customStringKeys = [
+    "welcomeTitle",
+    "welcomeContent",
+    "libraryTitle",
+    "libraryContent",
+    "playerTitle",
+    "playerContent",
+  ];
+
+  static const Map<String, String> customStringKeyLabels = {
+    "welcomeTitle": "Uvítání – nadpis",
+    "welcomeContent": "Uvítání – text",
+    "libraryTitle": "Knihovna – nadpis",
+    "libraryContent": "Knihovna – text",
+    "playerTitle": "Přehrávač – nadpis",
+    "playerContent": "Přehrávač – text",
+  };
+
+  static const Map<String, String> customStringFormalDefaults = {
+    "welcomeTitle": "Vítejte v Posouvači textů",
+    "welcomeContent": "Tato aplikace vám pomůže s texty a akordy při hraní. Je navržena tak, aby byla plně přístupná pro čtečky obrazovky.",
+    "libraryTitle": "Knihovna a import",
+    "libraryContent": "V Knihovně najdete své písně. Nové texty ve formátu .txt importujete tlačítkem vpravo dole. Pokud chcete upravit jméno interpreta nebo název, podržte na písni prst déle.",
+    "playerTitle": "Přehrávač a ovládání",
+    "playerContent": "Klepnutím na text v přehrávači spustíte hlasový odpočet a automatický posuv. Všechny ovládací prvky (tempo, transpozice, velikost písma, rychlost posuvu) jsou nyní pohodlně umístěny v dolní části obrazovky pro snadný přístup. Pauzu přidáte krátkým klepnutím na tlačítko PAUZA, dlouhým podržením tohoto tlačítka otevřete jejich správu.",
+  };
+
   static void setCustomStrings(Map<String, String> strings) {
     _customStrings = strings;
   }

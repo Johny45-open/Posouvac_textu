@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:drift/drift.dart' show InsertMode, Value;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'database.dart';
 import 'song_entry.dart';
 import 'playlists_page.dart';
@@ -47,6 +48,9 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _onlyUnplayed = false;
   bool _sortByArtist = true;
   String _version = "";
+  bool _devModeUnlocked = false;
+  int _versionTapCount = 0;
+  static const int _versionTapTarget = 7;
 
   @override
   void initState() {
@@ -55,6 +59,30 @@ class _LibraryPageState extends State<LibraryPage> {
     _tts.setSpeechRate(0.5);
     AppStrings.isInformal = widget.isInformalMode;
     _initVersion();
+    _loadDevMode();
+  }
+
+  Future<void> _loadDevMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _devModeUnlocked = prefs.getBool('devModeUnlocked') ?? false;
+      });
+    }
+  }
+
+  Future<void> _handleVersionTap() async {
+    if (_devModeUnlocked) return;
+    _versionTapCount += 1;
+    if (_versionTapCount >= _versionTapTarget) {
+      _versionTapCount = 0;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('devModeUnlocked', true);
+      if (mounted) {
+        setState(() => _devModeUnlocked = true);
+        _tts.speak("Vývojářský režim zapnut");
+      }
+    }
   }
 
   Future<void> _initVersion() async {
@@ -475,9 +503,12 @@ class _LibraryPageState extends State<LibraryPage> {
                 children: [
                   const Icon(Icons.auto_stories, size: 50, color: Colors.white),
                   const SizedBox(height: 10),
-                  Text(
-                    "Posouvač textu v$_version",
-                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  GestureDetector(
+                    onTap: _handleVersionTap,
+                    child: Text(
+                      "Posouvač textu v$_version",
+                      style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
                   ),
 
                 ],
@@ -497,6 +528,8 @@ class _LibraryPageState extends State<LibraryPage> {
                       onThemeModeChanged: widget.onThemeModeChanged,
                       isInformalMode: widget.isInformalMode,
                       onInformalModeChanged: widget.onInformalModeChanged,
+                      devModeUnlocked: _devModeUnlocked,
+                      onDevModeChanged: (v) => setState(() => _devModeUnlocked = v),
                     ),
                   ),
                 );

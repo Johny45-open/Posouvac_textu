@@ -437,6 +437,10 @@ class AppDatabase extends _$AppDatabase {
   Future<void> removeSongFromPlaylist(int playlistId, int songId) =>
       (delete(playlistSongs)..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId))).go();
 
+  Future<void> clearCustomStrings() async {
+    await delete(customStrings).go();
+  }
+
   Future<void> movePlaylistSong(int playlistId, int songId, int newOrderIndex) async {
     await (update(playlistSongs)
           ..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId)))
