@@ -41,11 +41,12 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final FlutterTts _tts = FlutterTts();
 
-  static const String _devVoiceMessagesPin = "1950";
+  static const String _defaultDevPin = "1950";
   static const int _maxPinAttempts = 5;
-  static const Duration _pinLockoutDuration = Duration(minutes: 5);
+  static const int _softResetAttempts = 10;
 
   static const String _prefsKeyDevMode = 'devModeUnlocked';
+  static const String _prefsKeyPin = 'devPin';
   static const String _prefsKeyPinAttempts = 'devPinFailedAttempts';
   static const String _prefsKeyPinLockoutUntil = 'devPinLockoutUntil';
 
@@ -71,7 +72,6 @@ class _SettingsPageState extends State<SettingsPage> {
         _pinLockoutUntil = until;
       } else {
         await prefs.remove(_prefsKeyPinLockoutUntil);
-        await prefs.setInt(_prefsKeyPinAttempts, 0);
       }
     }
     if (mounted) setState(() {});
@@ -89,27 +89,64 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) setState(() {});
   }
 
+  Future<String> _currentPin() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_prefsKeyPin) ?? _defaultDevPin;
+  }
+
   Future<void> _registerFailedAttempt() async {
     final prefs = await SharedPreferences.getInstance();
     _pinFailedAttempts += 1;
     await prefs.setInt(_prefsKeyPinAttempts, _pinFailedAttempts);
-    if (_pinFailedAttempts >= _maxPinAttempts) {
-      _pinLockoutUntil = DateTime.now().add(_pinLockoutDuration);
+
+    if (_pinFailedAttempts >= _softResetAttempts) {
+      await _softResetDevData();
+    } else if (_pinFailedAttempts % _maxPinAttempts == 0) {
+      _pinLockoutUntil = DateTime.now().add(const Duration(minutes: 5));
       await prefs.setInt(_prefsKeyPinLockoutUntil, _pinLockoutUntil!.millisecondsSinceEpoch);
-      _pinFailedAttempts = 0;
-      await prefs.setInt(_prefsKeyPinAttempts, 0);
+      if (mounted) setState(() {});
     }
+  }
+
+  int _remainingAttempts() {
+    final nextLockout = ((_pinFailedAttempts ~/ _maxPinAttempts) + 1) * _maxPinAttempts;
+    return nextLockout - _pinFailedAttempts;
+  }
+
+  Future<void> _softResetDevData() async {
+    await widget.db.clearCustomStrings();
+    AppStrings.setCustomStrings({});
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsKeyPin);
+    _pinFailedAttempts = 0;
+    _pinLockoutUntil = null;
+    await prefs.remove(_prefsKeyPinAttempts);
+    await prefs.remove(_prefsKeyPinLockoutUntil);
+
+    _tts.speak("Příliš mnoho pokusů, vývojářská data resetována");
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Vývojářská data resetována"),
+        content: const Text("Po mnoha špatných pokusech byly hlasové zprávy vráceny na výchozí hodnoty a vývojářský PIN na výchozí. Vaše písně a playlisty zůstaly nedotčené."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Rozumím")),
+        ],
+      ),
+    );
     if (mounted) setState(() {});
   }
 
   Future<void> _openVoiceMessages() async {
-    await _loadPinState();
-    if (!mounted) return;
-    if (_isLockedOut()) {
-      await _showLockoutDialog();
-      return;
-    }
-    await _showPinEntryDialog();
+    final ok = await _verifyCurrentPin();
+    if (!ok || !mounted) return;
+    _tts.speak("Vývojářská sekce odemčena");
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => CustomTtsSettingsPage(db: widget.db)),
+    );
   }
 
   Future<void> _showLockoutDialog() async {
@@ -119,12 +156,12 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Future<void> _showPinEntryDialog() async {
+  Future<String?> _promptForPin({required String title, String? confirmLabel}) async {
     final controller = TextEditingController();
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Vývojářský PIN"),
+        title: Text(title),
         content: TextField(
           controller: controller,
           obscureText: true,
@@ -135,33 +172,84 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Potvrdit")),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(confirmLabel ?? "Potvrdit")),
         ],
       ),
     );
+    return result == true ? controller.text.trim() : null;
+  }
 
-    if (result != true) return;
+  Future<bool> _verifyCurrentPin() async {
+    await _loadPinState();
+    if (!mounted) return false;
+    if (_isLockedOut()) {
+      await _showLockoutDialog();
+      return false;
+    }
 
-    final entered = controller.text.trim();
-    if (entered == _devVoiceMessagesPin) {
+    final entered = await _promptForPin(title: "Vývojářský PIN");
+    if (entered == null) return false;
+
+    final current = await _currentPin();
+    if (entered == current) {
       await _resetPinState();
-      _tts.speak("Vývojářská sekce odemčena");
-      if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => CustomTtsSettingsPage(db: widget.db)),
-        );
-      }
+      return true;
+    }
+
+    await _registerFailedAttempt();
+    if (!mounted) return false;
+    if (_isLockedOut()) {
+      await _showLockoutDialog();
     } else {
-      await _registerFailedAttempt();
-      if (!mounted) return;
-      if (_isLockedOut()) {
-        await _showLockoutDialog();
-      } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Nesprávný PIN, zbývá ${_remainingAttempts()} pokusů")),
+      );
+    }
+    return false;
+  }
+
+  Future<void> _changeDevPin() async {
+    final ok = await _verifyCurrentPin();
+    if (!ok || !mounted) return;
+
+    final newPin = await _promptForPin(title: "Nový vývojářský PIN");
+    if (newPin == null) return;
+    if (newPin.isEmpty) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Nesprávný PIN, zbývá ${_maxPinAttempts - _pinFailedAttempts} pokusů")),
+          const SnackBar(content: Text("PIN nesmí být prázdný")),
         );
       }
+      return;
+    }
+    if (newPin.length < 4) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("PIN musí mít alespoň 4 číslice")),
+        );
+      }
+      return;
+    }
+
+    final confirmPin = await _promptForPin(title: "Potvrďte nový vývojářský PIN");
+    if (confirmPin == null) return;
+    if (newPin != confirmPin) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Zadané PINy se neshodují")),
+        );
+      }
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsKeyPin, newPin);
+    await _resetPinState();
+    _tts.speak("Vývojářský PIN změněn");
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Vývojářský PIN byl změněn")),
+      );
     }
   }
 
@@ -544,6 +632,11 @@ class _SettingsPageState extends State<SettingsPage> {
               title: const Text("Vlastní hlasové zprávy"),
               subtitle: const Text("Upravit hlasové hlášky aplikace (PIN)"),
               onTap: _openVoiceMessages,
+            ),
+            ListTile(
+              leading: const Icon(Icons.password),
+              title: const Text("Změnit vývojářský PIN"),
+              onTap: _changeDevPin,
             ),
             ListTile(
               leading: const Icon(Icons.info_outline),
