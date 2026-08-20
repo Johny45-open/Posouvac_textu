@@ -13,6 +13,7 @@ import 'database.dart';
 import 'app_strings.dart';
 import 'custom_tts_settings_page.dart';
 import 'dev_log.dart';
+import 'update_dialogs.dart';
 
 class SettingsPage extends StatefulWidget {
   final AppDatabase db;
@@ -387,6 +388,14 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _checkForUpdates() async {
+    await runUpdateCheck(context);
+  }
+
+  Future<void> _showReleaseHistory() async {
+    await openReleaseHistory(context);
+  }
+
   Future<void> _showCsvHelp() async {
     const helpText = 
           "1. Exportujte CSV soubor.\n"
@@ -614,6 +623,19 @@ class _SettingsPageState extends State<SettingsPage> {
               }
               _tts.speak(message);
             },
+          ),
+          const Divider(height: 40),
+          ListTile(
+            leading: const Icon(Icons.system_update_alt),
+            title: Text(AppStrings.updateCheckTile),
+            subtitle: Text(AppStrings.updateCheckTileSubtitle),
+            onTap: _checkForUpdates,
+          ),
+          ListTile(
+            leading: const Icon(Icons.new_releases),
+            title: Text(AppStrings.updateNewsTile),
+            subtitle: Text(AppStrings.updateNewsTileSubtitle),
+            onTap: _showReleaseHistory,
           ),
           if (_devModeUnlocked) ...[
             const Divider(height: 40),

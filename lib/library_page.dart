@@ -19,6 +19,8 @@ import 'tuner.dart';
 import 'app_strings.dart';
 import 'song_export.dart';
 import 'qr_scan_page.dart';
+import 'update_checker.dart';
+import 'update_dialogs.dart';
 
 class LibraryPage extends StatefulWidget {
   final ThemeMode themeMode;
@@ -60,6 +62,27 @@ class _LibraryPageState extends State<LibraryPage> {
     AppStrings.isInformal = widget.isInformalMode;
     _initVersion();
     _loadDevMode();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForUpdatesSilently();
+    });
+  }
+
+  Future<void> _checkForUpdatesSilently() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+      if (prefs.getString('lastAutoUpdateCheckDay') == today) return;
+      await prefs.setString('lastAutoUpdateCheckDay', today);
+
+      final result = await UpdateChecker.checkForUpdate();
+      if (!result.hasUpdate || !mounted) return;
+      if (prefs.getString(dismissedUpdateVersionKey) == result.newest!.tag) {
+        return;
+      }
+      await showUpdateAvailableDialog(context, result);
+    } catch (_) {
+      // Tiché selhání při startu - bez internetu se kontrola vynechá.
+    }
   }
 
   Future<void> _loadDevMode() async {

@@ -263,4 +263,36 @@ class AppStrings {
   static String get themeLight => isInformal ? "Budiž světlo." : "Světlý motiv nastaven.";
   static String get themeDark => isInformal ? "Tma je tu." : "Tmavý motiv nastaven.";
   static String get themeSystem => isInformal ? "Systém rozhodne za nás." : "Systémový motiv nastaven.";
+
+  // --- AKTUALIZACE ---
+  static String get updateCheckTile => isInformal ? "Zkontrolovat aktualizace" : "Zkontrolovat aktualizace";
+  static String get updateCheckTileSubtitle => isInformal
+      ? "Jestli je venku novější verze"
+      : "Ověřit, zda je dostupná nová verze aplikace";
+  static String get updateNewsTile => isInformal ? "Co je nového" : "Co je nového";
+  static String get updateNewsTileSubtitle => isInformal
+      ? "Projít kompletní historii verzí"
+      : "Zobrazit kompletní historii verzí od první po poslední";
+  static String get updateChecking => isInformal ? "Koukám na GitHub..." : "Kontroluji dostupnost aktualizací...";
+  static String get updateHistoryTitle => isInformal ? "Historie verzí" : "Historie verzí";
+  static String get updateHistoryEmpty => isInformal
+      ? "Žádný poznámky k verzím nejsou."
+      : "Pro žádnou verzi nejsou k dispozici poznámky.";
+  static String get updateAvailableTitle => isInformal ? "Je tu nová verze!" : "Nová verze je k dispozici";
+  static String updateAvailableMessage(String version) => isInformal
+      ? "Vyšla verze $version. Chceš kouknout, co je novýho?"
+      : "Byla vydána verze $version. Přejete si zobrazit podrobnosti a stáhnout ji?";
+  static String get updateNewsTitle => isInformal ? "Co je novýho:" : "Novinky:";
+  static String get updateUpToDate => isInformal
+      ? "Všechno je aktuální, jede se dál!"
+      : "Máte aktuální verzi aplikace.";
+  static String get updateCheckError => isInformal
+      ? "Kontrola se nepovedla, skontroluj připojení k internetu."
+      : "Kontrolu aktualizací se nepodařilo dokončit. Zkontrolujte prosím připojení k internetu.";
+  static String get updateOpenButton => isInformal ? "Otevřít na GitHubu" : "Zobrazit na GitHubu";
+  static String get updateCloseButton => isInformal ? "Zavřít" : "Zavřít";
+  static String get updateRefreshTooltip => isInformal ? "Načíst znovu" : "Obnovit historii verzí";
+  static String get updateHistoryRefreshed => isInformal
+      ? "Historie je aktuální."
+      : "Historie verzí byla aktualizována.";
 }
