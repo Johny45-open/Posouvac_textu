@@ -49,6 +49,14 @@ class UpdateCheckResult {
   ReleaseInfo? get newest => newerReleases.isEmpty ? null : newerReleases.first;
 }
 
+/// Výsledek stažení jedné stránky verzí z GitHubu.
+class PagedReleases {
+  final List<ReleaseInfo> releases;
+  final bool hasMore;
+
+  const PagedReleases({required this.releases, required this.hasMore});
+}
+
 class UpdateChecker {
   static const String _releasesApiUrl =
       'https://api.github.com/repos/Johny45-open/Posouvac_textu/releases';
@@ -58,33 +66,50 @@ class UpdateChecker {
   static const String _cacheKeyReleases = 'cachedReleasesJson';
   static const String _cacheKeyReleasesAt = 'cachedReleasesAt';
   static const Duration _cacheTtl = Duration(hours: 24);
-  static const int _maxReleases = 1000;
   static const int _perPage = 100;
+  static const int _maxPages = 10;
 
-  static Future<List<ReleaseInfo>> fetchReleases({
-    bool includePrerelease = false,
-    bool forceRefresh = false,
-  }) async {
+  /// Timeout jednoho HTTP požadavku.
+  static const Duration _requestTimeout = Duration(seconds: 8);
+
+  /// Celkový limit kontroly aktualizací – po jeho vypršení se použijí
+  /// uložená data nebo vrátí chyba "vypršel čas".
+  static const Duration _checkDeadline = Duration(seconds: 10);
+
+  /// Rychlá kontrola aktualizací: nejprve mezipaměť (24 h), při jejím
+  /// chybění stahuje stránky jen do okamžiku, kdy narazí na verzi
+  /// starší nebo stejnou jako aktuální (typicky stačí 1 požadavek).
+  /// Celé kontrolě běží pod časovým limitem; po vypršení se použijí
+  /// i starší uložená data.
+  static Future<UpdateCheckResult> checkForUpdate() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    final currentVersion = packageInfo.version;
     final prefs = await SharedPreferences.getInstance();
-    if (!forceRefresh) {
-      final cached = _readCache(prefs, ignoreTtl: false);
-      if (cached != null) return _filterPrerelease(cached, includePrerelease);
+
+    final cached = _readCache(prefs, ignoreTtl: false);
+    if (cached != null) {
+      return _resultFromList(cached, currentVersion);
     }
+
     try {
-      final fresh = await _fetchAllFromGithub();
-      await _writeCache(prefs, fresh);
-      return _filterPrerelease(fresh, includePrerelease);
+      final fresh = await _fetchNewerFromGithub(currentVersion)
+          .timeout(_checkDeadline);
+      await _writeCache(prefs, fresh.fetched);
+      return _resultFromList(fresh.newer, currentVersion);
     } catch (_) {
-      final cached = _readCache(prefs, ignoreTtl: true);
-      if (cached != null) return _filterPrerelease(cached, includePrerelease);
+      // Sit bez odpovedi nebo pomale site – zkusime aspon starsi cache.
+      final stale = _readCache(prefs, ignoreTtl: true);
+      if (stale != null) {
+        return _resultFromList(stale, currentVersion);
+      }
       rethrow;
     }
   }
 
-  static Future<UpdateCheckResult> checkForUpdate() async {
-    final packageInfo = await PackageInfo.fromPlatform();
-    final currentVersion = packageInfo.version;
-    final releases = await fetchReleases();
+  static UpdateCheckResult _resultFromList(
+    List<ReleaseInfo> releases,
+    String currentVersion,
+  ) {
     final newer = releases
         .where((r) => isNewer(r.tag, currentVersion))
         .toList();
@@ -94,38 +119,68 @@ class UpdateChecker {
     );
   }
 
-  static Future<List<ReleaseInfo>> _fetchAllFromGithub() async {
-    final releases = <ReleaseInfo>[];
+  /// Stahuje stránky verzí (od nejnovějších) a končí, jakmile narazí na
+  /// stabilní verzi, která není novější než aktuální. Prerelease verze se
+  /// při rozhodování o zastavení přeskočí – v novinkách se nepočítají.
+  static Future<({List<ReleaseInfo> fetched, List<ReleaseInfo> newer})>
+      _fetchNewerFromGithub(String currentVersion) async {
+    final fetched = <ReleaseInfo>[];
+    final newer = <ReleaseInfo>[];
     var page = 1;
-    while (page * _perPage <= _maxReleases) {
-      final uri = Uri.parse(_releasesApiUrl).replace(
-        queryParameters: {'per_page': '$_perPage', 'page': '$page'},
-      );
-      final response = await http
-          .get(uri)
-          .timeout(const Duration(seconds: 15));
-      if (response.statusCode != 200) {
-        throw Exception('GitHub API odpovědělo chybou ${response.statusCode}');
-      }
-      final data = jsonDecode(response.body) as List<dynamic>;
-      if (data.isEmpty) break;
+    while (page <= _maxPages) {
+      final pageItems = await _fetchPage(page);
+      if (pageItems.isEmpty) break;
+      fetched.addAll(pageItems);
 
-      for (final item in data) {
-        if (item is! Map<String, dynamic>) continue;
-        final tag = item['tag_name'] as String?;
-        if (tag == null) continue;
-        if (item['draft'] == true) continue;
-        releases.add(ReleaseInfo(
-          tag: tag,
-          name: (item['name'] as String?)?.trim().isNotEmpty == true
-              ? (item['name'] as String).trim()
-              : tag,
-          body: (item['body'] as String?) ?? '',
-          url: (item['html_url'] as String?) ?? _fallbackUrl,
-          isPrerelease: item['prerelease'] == true,
-        ));
+      var reachedCurrent = false;
+      for (final release in pageItems) {
+        if (release.isPrerelease) continue;
+        if (isNewer(release.tag, currentVersion)) {
+          newer.add(release);
+        } else {
+          reachedCurrent = true;
+        }
       }
+      if (reachedCurrent) break;
       page++;
+    }
+    return (fetched: fetched, newer: newer);
+  }
+
+  /// Jedna stránka verzí pro Historii verzí. Neukládá se do mezipaměti –
+  /// stránka se stahuje rychle a historii chceme vždy aktuální.
+  static Future<PagedReleases> fetchReleasePage({required int page}) async {
+    final items = await _fetchPage(page);
+    return PagedReleases(
+      releases: items,
+      hasMore: items.length >= _perPage && page < _maxPages,
+    );
+  }
+
+  static Future<List<ReleaseInfo>> _fetchPage(int page) async {
+    final uri = Uri.parse(_releasesApiUrl).replace(
+      queryParameters: {'per_page': '$_perPage', 'page': '$page'},
+    );
+    final response = await http.get(uri).timeout(_requestTimeout);
+    if (response.statusCode != 200) {
+      throw Exception('GitHub API odpovědělo chybou ${response.statusCode}');
+    }
+    final data = jsonDecode(response.body) as List<dynamic>;
+    final releases = <ReleaseInfo>[];
+    for (final item in data) {
+      if (item is! Map<String, dynamic>) continue;
+      final tag = item['tag_name'] as String?;
+      if (tag == null) continue;
+      if (item['draft'] == true) continue;
+      releases.add(ReleaseInfo(
+        tag: tag,
+        name: (item['name'] as String?)?.trim().isNotEmpty == true
+            ? (item['name'] as String).trim()
+            : tag,
+        body: (item['body'] as String?) ?? '',
+        url: (item['html_url'] as String?) ?? _fallbackUrl,
+        isPrerelease: item['prerelease'] == true,
+      ));
     }
     return releases;
   }
@@ -160,14 +215,6 @@ class UpdateChecker {
     final json = jsonEncode(releases.map((r) => r.toJson()).toList());
     await prefs.setString(_cacheKeyReleases, json);
     await prefs.setInt(_cacheKeyReleasesAt, DateTime.now().millisecondsSinceEpoch);
-  }
-
-  static List<ReleaseInfo> _filterPrerelease(
-    List<ReleaseInfo> releases,
-    bool includePrerelease,
-  ) {
-    if (includePrerelease) return releases;
-    return releases.where((r) => !r.isPrerelease).toList();
   }
 
   static List<int> parseVersion(String version) {

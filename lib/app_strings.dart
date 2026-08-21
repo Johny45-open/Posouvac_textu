@@ -295,6 +295,13 @@ class AppStrings {
   static String get updateHistoryRefreshed => isInformal
       ? "Historie je aktuální."
       : "Historie verzí byla aktualizována.";
+  static String get progressCancelButton => isInformal ? "Zrušit" : "Zrušit";
+  static String get updateTimeoutTitle => isInformal ? "To trvá moc dlouho" : "Kontrola trvá příliš dlouho";
+  static String get updateCheckTimeout => isInformal
+      ? "Aktualizace se nemohly zkontrolovat, internet je moc pomalej. Zkus to znovu."
+      : "Kontrolu aktualizací se nepodařilo dokončit v časovém limitu. Zkontrolujte připojení k internetu a zkuste to znovu.";
+  static String get retryButton => isInformal ? "Zkusit znovu" : "Zkusit znovu";
+  static String get historyLoadOlderButton => isInformal ? "Načíst starší verze" : "Načíst starší verze";
   static String get newsReadTooltip => isInformal ? "Přečíst novinky k verzi" : "Přečíst novinky k této verzi";
   static String get newsReadAllTooltip => isInformal ? "Přečíst všechny novinky" : "Přečíst všechny novinky";
   static String get newsStopTooltip => isInformal ? "Přestat číst" : "Zastavit čtení";

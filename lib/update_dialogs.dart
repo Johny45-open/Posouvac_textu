@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,16 +15,6 @@ void _speak(String message) {
   tts.setLanguage("cs-CZ");
   tts.setSpeechRate(0.5);
   tts.speak(message);
-}
-
-Future<void> _showProgressDialog(BuildContext context, String label) {
-  return showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => AlertDialog(
-      content: AppProgressIndicator(label: label),
-    ),
-  );
 }
 
 Future<void> _openUrl(BuildContext context, String url) async {
@@ -42,37 +34,106 @@ Future<void> _rememberDismissedVersion(String tag) async {
 
 Future<void> runUpdateCheck(BuildContext context) async {
   _speak(AppStrings.updateChecking);
-  await _showProgressDialog(context, AppStrings.updateChecking);
-  try {
-    final result = await UpdateChecker.checkForUpdate();
-    if (!context.mounted) return;
-    Navigator.of(context).pop();
-    if (result.hasUpdate) {
-      await showUpdateAvailableDialog(context, result);
-    } else {
-      _speak(AppStrings.updateUpToDate);
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(AppStrings.updateNewsTitle),
-          content: Text(AppStrings.updateUpToDate),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(AppStrings.updateCloseButton),
-            ),
-          ],
-        ),
-      );
+
+  UpdateCheckResult? result;
+  Object? error;
+  final checkFuture = () async {
+    try {
+      result = await UpdateChecker.checkForUpdate();
+    } catch (e) {
+      error = e;
     }
-  } catch (_) {
-    if (!context.mounted) return;
-    Navigator.of(context).pop();
+  }();
+
+  // Zrušitelný průběh: uživatel může kontrolu kdykoli přerušit.
+  // Dialog se vždy zavře jedinou cestou – ať klikne uživatel na Zrušit,
+  // nebo doběhne kontrola – aby nemohlo dojít k dvojitému zavření.
+  final userCancelled = Completer<void>();
+  final closeDialog = Completer<void>();
+
+  unawaited(showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => AlertDialog(
+      content: AppProgressIndicator(label: AppStrings.updateChecking),
+      actions: [
+        TextButton(
+          onPressed: () {
+            if (!userCancelled.isCompleted) userCancelled.complete();
+            if (!closeDialog.isCompleted) closeDialog.complete();
+          },
+          child: Text(AppStrings.progressCancelButton),
+        ),
+      ],
+    ),
+  ));
+
+  unawaited(closeDialog.future.whenComplete(() {
+    if (context.mounted) Navigator.of(context).pop();
+  }));
+
+  await Future.any([checkFuture, userCancelled.future]);
+  if (!closeDialog.isCompleted) closeDialog.complete();
+  await checkFuture;
+
+  if (userCancelled.isCompleted || !context.mounted) return;
+
+  if (error != null) {
+    if (error is TimeoutException) {
+      final retry = await _showTimeoutDialog(context);
+      if (retry == true && context.mounted) {
+        return runUpdateCheck(context);
+      }
+      return;
+    }
     _speak(AppStrings.updateCheckError);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(AppStrings.updateCheckError)),
     );
+    return;
   }
+
+  if (result!.hasUpdate) {
+    await showUpdateAvailableDialog(context, result!);
+  } else {
+    _speak(AppStrings.updateUpToDate);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppStrings.updateNewsTitle),
+        content: Text(AppStrings.updateUpToDate),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(AppStrings.updateCloseButton),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dialog po vypršení časového limitu kontroly. Nabídne opakování.
+Future<bool> _showTimeoutDialog(BuildContext context) async {
+  _speak(AppStrings.updateCheckTimeout);
+  return await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(AppStrings.updateTimeoutTitle),
+          content: Text(AppStrings.updateCheckTimeout),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(AppStrings.updateCloseButton),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(AppStrings.retryButton),
+            ),
+          ],
+        ),
+      ) ??
+      false;
 }
 
 Future<void> showUpdateAvailableDialog(
@@ -122,47 +183,33 @@ Future<void> showUpdateAvailableDialog(
 
 Future<void> openReleaseHistory(BuildContext context) async {
   _speak(AppStrings.updateHistoryTitle);
-  await _showProgressDialog(context, AppStrings.updateChecking);
-  try {
-    final releases = await UpdateChecker.fetchReleases(includePrerelease: true);
-    if (!context.mounted) return;
-    Navigator.of(context).pop();
-    final ordered = releases.reversed.toList();
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ReleaseHistoryPage(releases: ordered),
-      ),
-    );
-  } catch (_) {
-    if (!context.mounted) return;
-    Navigator.of(context).pop();
-    _speak(AppStrings.updateCheckError);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppStrings.updateCheckError)),
-    );
-  }
+  await Navigator.of(context).push(
+    MaterialPageRoute(builder: (_) => const ReleaseHistoryPage()),
+  );
 }
 
 class ReleaseHistoryPage extends StatefulWidget {
-  final List<ReleaseInfo> releases;
-
-  const ReleaseHistoryPage({super.key, required this.releases});
+  const ReleaseHistoryPage({super.key});
 
   @override
   State<ReleaseHistoryPage> createState() => _ReleaseHistoryPageState();
 }
 
 class _ReleaseHistoryPageState extends State<ReleaseHistoryPage> {
-  late List<ReleaseInfo> _releases;
-  bool _refreshing = false;
   final FlutterTts _tts = FlutterTts();
+  List<ReleaseInfo> _releases = [];
+  bool _loading = true;
+  bool _loadingOlder = false;
+  bool _hasMore = false;
+  int _nextPage = 1;
+  bool _error = false;
   bool _speaking = false;
 
   @override
   void initState() {
     super.initState();
-    _releases = widget.releases;
     _initTts();
+    _loadFirstPage();
   }
 
   Future<void> _initTts() async {
@@ -221,23 +268,49 @@ class _ReleaseHistoryPageState extends State<ReleaseHistoryPage> {
     if (mounted) setState(() => _speaking = false);
   }
 
-  Future<void> _refresh() async {
-    setState(() => _refreshing = true);
+  /// Načte první stránku (nejnovější verze) – stránka je interaktivní hned.
+  Future<void> _loadFirstPage() async {
+    setState(() {
+      _loading = true;
+      _error = false;
+    });
     try {
-      final releases = await UpdateChecker.fetchReleases(
-        includePrerelease: true,
-        forceRefresh: true,
-      );
+      final page = await UpdateChecker.fetchReleasePage(page: 1);
       if (!mounted) return;
-      setState(() => _releases = releases.reversed.toList());
-      _speakNotes(AppStrings.updateHistoryRefreshed);
+      setState(() {
+        _releases = page.releases.reversed.toList();
+        _hasMore = page.hasMore;
+        _nextPage = 2;
+        _loading = false;
+      });
     } catch (_) {
       if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = true;
+      });
+    }
+  }
+
+  /// Dohraže starší verze na vyžádání.
+  Future<void> _loadOlder() async {
+    if (_loadingOlder || !_hasMore) return;
+    setState(() => _loadingOlder = true);
+    try {
+      final page = await UpdateChecker.fetchReleasePage(page: _nextPage);
+      if (!mounted) return;
+      setState(() {
+        _releases.insertAll(0, page.releases.reversed.toList());
+        _hasMore = page.hasMore;
+        _nextPage++;
+        _loadingOlder = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingOlder = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppStrings.updateCheckError)),
       );
-    } finally {
-      if (mounted) setState(() => _refreshing = false);
     }
   }
 
@@ -265,7 +338,7 @@ class _ReleaseHistoryPageState extends State<ReleaseHistoryPage> {
               onPressed: _stopReading,
             ),
           IconButton(
-            icon: _refreshing
+            icon: _loading
                 ? const SizedBox(
                     width: 20,
                     height: 20,
@@ -273,29 +346,66 @@ class _ReleaseHistoryPageState extends State<ReleaseHistoryPage> {
                   )
                 : const Icon(Icons.refresh),
             tooltip: AppStrings.updateRefreshTooltip,
-            onPressed: _refreshing ? null : _refresh,
+            onPressed: _loading ? null : _loadFirstPage,
           ),
         ],
       ),
-      body: _releases.isEmpty
-          ? Center(child: Text(AppStrings.updateHistoryEmpty))
-          : ListView.builder(
-              itemCount: _releases.length,
-              itemBuilder: (context, index) {
-                final release = _releases[index];
-                final notes = UpdateChecker.cleanMarkdown(release.body);
-                return ListTile(
-                  title: Text(release.name),
-                  subtitle: notes.isEmpty ? null : Text(notes),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.volume_up),
-                    tooltip: AppStrings.newsReadTooltip,
-                    onPressed: () => _readRelease(release),
-                  ),
-                  onTap: () => _openUrl(context, release.url),
-                );
-              },
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading && _releases.isEmpty) {
+      return Center(
+        child: AppProgressIndicator(label: AppStrings.updateChecking),
+      );
+    }
+    if (_releases.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_error ? AppStrings.updateCheckError : AppStrings.updateHistoryEmpty),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _loadFirstPage,
+              icon: const Icon(Icons.refresh),
+              label: Text(AppStrings.retryButton),
             ),
+          ],
+        ),
+      );
+    }
+    return ListView.builder(
+      itemCount: _releases.length + (_hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index >= _releases.length) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: _loadingOlder
+                  ? const CircularProgressIndicator()
+                  : OutlinedButton.icon(
+                      onPressed: _loadOlder,
+                      icon: const Icon(Icons.unfold_more),
+                      label: Text(AppStrings.historyLoadOlderButton),
+                    ),
+            ),
+          );
+        }
+        final release = _releases[index];
+        final notes = UpdateChecker.cleanMarkdown(release.body);
+        return ListTile(
+          title: Text(release.name),
+          subtitle: notes.isEmpty ? null : Text(notes),
+          trailing: IconButton(
+            icon: const Icon(Icons.volume_up),
+            tooltip: AppStrings.newsReadTooltip,
+            onPressed: () => _readRelease(release),
+          ),
+          onTap: () => _openUrl(context, release.url),
+        );
+      },
     );
   }
 }
