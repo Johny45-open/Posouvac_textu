@@ -279,9 +279,41 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
 
-    // Zjistíme počet písní před importem
+    // Zjistíme, které soubory už v knihovně jsou (podle cesty k souboru)
     final songsBefore = await widget.db.getAllSongs();
-    final countBefore = songsBefore.length;
+    final existingPaths = songsBefore.map((s) => s.filePath).toSet();
+    final existingCount = txtFiles.where((f) => existingPaths.contains(f.path)).length;
+
+    bool updateExisting = false;
+    if (existingCount > 0) {
+      _tts.speak(AppStrings.importExistingFound(existingCount));
+      if (!mounted) return;
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(AppStrings.importExistingFound(existingCount)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, null),
+              child: Text(AppStrings.importCancelQuestionButton),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, "skip"),
+              child: Text(AppStrings.importSkipExistingButton),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, "update"),
+              child: Text(AppStrings.importUpdateExistingButton),
+            ),
+          ],
+        ),
+      );
+      if (choice == null) return;
+      updateExisting = choice == "update";
+    }
+
+    int addedCount = 0;
+    int updatedCount = 0;
 
     StateSetter? updateDialog;
 
@@ -327,14 +359,26 @@ class _LibraryPageState extends State<LibraryPage> {
             : Song.parseImportedFileName(entity.path).title;
         final artist = Song.parseImportedFileName(entity.path).artist ?? "Neznámý interpret";
 
-        await widget.db.into(widget.db.songs).insert(
-          SongsCompanion.insert(
-            filePath: entity.path,
-            artist: artist,
-            title: title,
-          ),
-          mode: InsertMode.insertOrIgnore,
-        );
+        if (existingPaths.contains(entity.path)) {
+          // Soubor už v knihovně je – buď aktualizujeme metadata, nebo přeskočíme
+          if (updateExisting) {
+            final existing = songsBefore.firstWhere(
+              (s) => s.filePath == entity.path,
+            );
+            await widget.db.updateSong(existing.id, artist, title);
+            updatedCount++;
+          }
+        } else {
+          await widget.db.into(widget.db.songs).insert(
+            SongsCompanion.insert(
+              filePath: entity.path,
+              artist: artist,
+              title: title,
+            ),
+            mode: InsertMode.insertOrIgnore,
+          );
+          addedCount++;
+        }
         
         processed++;
         if (updateDialog != null) {
@@ -347,13 +391,12 @@ class _LibraryPageState extends State<LibraryPage> {
 
     if (context.mounted) Navigator.pop(context); 
 
-    // Zjistíme počet písní po importu
-    final songsAfter = await widget.db.getAllSongs();
-    final countAfter = songsAfter.length;
-    final newlyAdded = countAfter - countBefore;
-
-    if (newlyAdded > 0) {
-      await _tts.speak(AppStrings.importFinished(newlyAdded));
+    if (addedCount > 0 && updatedCount > 0) {
+      await _tts.speak(AppStrings.importFinishedMixed(addedCount, updatedCount));
+    } else if (addedCount > 0) {
+      await _tts.speak(AppStrings.importFinished(addedCount));
+    } else if (updatedCount > 0) {
+      await _tts.speak(AppStrings.importUpdatedOnly(updatedCount));
     } else {
       await _tts.speak(AppStrings.noNewSongs);
     }

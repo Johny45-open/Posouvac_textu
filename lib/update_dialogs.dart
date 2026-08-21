@@ -155,11 +155,70 @@ class ReleaseHistoryPage extends StatefulWidget {
 class _ReleaseHistoryPageState extends State<ReleaseHistoryPage> {
   late List<ReleaseInfo> _releases;
   bool _refreshing = false;
+  final FlutterTts _tts = FlutterTts();
+  bool _speaking = false;
 
   @override
   void initState() {
     super.initState();
     _releases = widget.releases;
+    _initTts();
+  }
+
+  Future<void> _initTts() async {
+    try {
+      await _tts.setLanguage("cs-CZ");
+      await _tts.setSpeechRate(0.5);
+      _tts.setStartHandler(() {
+        if (mounted) setState(() => _speaking = true);
+      });
+      _tts.setCompletionHandler(() {
+        if (mounted) setState(() => _speaking = false);
+      });
+      _tts.setCancelHandler(() {
+        if (mounted) setState(() => _speaking = false);
+      });
+      _tts.setErrorHandler((msg) {
+        if (mounted) setState(() => _speaking = false);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _speakNotes(String text) async {
+    final clean = text.trim();
+    if (clean.isEmpty) return;
+    try {
+      await _tts.stop();
+      await _tts.speak(clean);
+    } catch (_) {}
+  }
+
+  void _readRelease(ReleaseInfo release) {
+    final notes = UpdateChecker.cleanMarkdown(release.body).replaceAll('\n', '. ');
+    final parts = [
+      AppStrings.newsVersionSpoken(release.name),
+      if (notes.isNotEmpty) notes,
+    ];
+    _speakNotes(parts.join(' '));
+  }
+
+  void _readAll() {
+    if (_releases.isEmpty) return;
+    final buffer = StringBuffer();
+    for (final release in _releases) {
+      final notes =
+          UpdateChecker.cleanMarkdown(release.body).replaceAll('\n', '. ');
+      buffer.write('${AppStrings.newsVersionSpoken(release.name)} ');
+      if (notes.isNotEmpty) buffer.write('$notes ');
+    }
+    _speakNotes(buffer.toString());
+  }
+
+  Future<void> _stopReading() async {
+    try {
+      await _tts.stop();
+    } catch (_) {}
+    if (mounted) setState(() => _speaking = false);
   }
 
   Future<void> _refresh() async {
@@ -171,7 +230,7 @@ class _ReleaseHistoryPageState extends State<ReleaseHistoryPage> {
       );
       if (!mounted) return;
       setState(() => _releases = releases.reversed.toList());
-      _speak(AppStrings.updateHistoryRefreshed);
+      _speakNotes(AppStrings.updateHistoryRefreshed);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -183,11 +242,28 @@ class _ReleaseHistoryPageState extends State<ReleaseHistoryPage> {
   }
 
   @override
+  void dispose() {
+    _tts.stop();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(AppStrings.updateHistoryTitle),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.record_voice_over),
+            tooltip: AppStrings.newsReadAllTooltip,
+            onPressed: _releases.isEmpty ? null : _readAll,
+          ),
+          if (_speaking)
+            IconButton(
+              icon: const Icon(Icons.stop),
+              tooltip: AppStrings.newsStopTooltip,
+              onPressed: _stopReading,
+            ),
           IconButton(
             icon: _refreshing
                 ? const SizedBox(
@@ -211,6 +287,11 @@ class _ReleaseHistoryPageState extends State<ReleaseHistoryPage> {
                 return ListTile(
                   title: Text(release.name),
                   subtitle: notes.isEmpty ? null : Text(notes),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.volume_up),
+                    tooltip: AppStrings.newsReadTooltip,
+                    onPressed: () => _readRelease(release),
+                  ),
                   onTap: () => _openUrl(context, release.url),
                 );
               },

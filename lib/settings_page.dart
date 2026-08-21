@@ -10,9 +10,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'database.dart';
+import 'app_progress_indicator.dart';
 import 'app_strings.dart';
 import 'custom_tts_settings_page.dart';
 import 'dev_log.dart';
+import 'library_checker.dart';
 import 'update_dialogs.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -400,7 +402,7 @@ class _SettingsPageState extends State<SettingsPage> {
     const helpText = 
           "1. Exportujte CSV soubor.\n"
           "2. Otevřete ho v Excelu.\n"
-          "3. Sloupec 'id' je klíčový, NEUPRAVUJTE HO ANI NESMAŽTE, jinak se písně správně neaktualizují.\n"
+          "3. Sloupce 'id' a 'filePath' jsou klíčové, NEUPRAVUJTE JE ANI NESMAŽTE – podle nich se pozná, ke které písni řádek patří. Nesouhlasí-li soubor, řádek se bezpečně přeskočí.\n"
           "4. Upravujte pouze sloupce 'artist', 'title' a 'duration'.\n"
           "5. Po úpravě uložte jako CSV (UTF-8) a importujte zpět.";
     
@@ -480,9 +482,17 @@ class _SettingsPageState extends State<SettingsPage> {
               itemCount: previewData.length,
               itemBuilder: (context, i) {
                 final p = previewData[i];
+                final mismatch = p['pathMismatch'] == true;
                 return ListTile(
+                  leading: mismatch
+                      ? const Icon(Icons.warning_amber_rounded, color: Colors.orange)
+                      : const Icon(Icons.edit_note),
                   title: Text("${p['oldTitle']} -> ${p['newTitle']}"),
-                  subtitle: Text("Interpret: ${p['oldArtist']} -> ${p['newArtist']}"),
+                  subtitle: Text(
+                    mismatch
+                        ? "Interpret: ${p['oldArtist']} -> ${p['newArtist']} (přeskočí se – soubor neodpovídá)"
+                        : "Interpret: ${p['oldArtist']} -> ${p['newArtist']}",
+                  ),
                 );
               },
             ),
@@ -496,10 +506,13 @@ class _SettingsPageState extends State<SettingsPage> {
 
       if (confirm == true) {
         DevLog.log("Potvrzen import, spouštím zápis do databáze");
-        final updatedCount = await widget.db.importSongsFromCsv(csvString);
-        _tts.speak("Importováno $updatedCount písní");
+        final result = await widget.db.importSongsFromCsv(csvString);
+        _tts.speak("Importováno ${result.updated} písní");
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Aktualizováno $updatedCount písní")));
+          final message = result.skipped > 0
+              ? "Aktualizováno ${result.updated} písní, přeskočeno ${result.skipped} (nesedí soubor)."
+              : "Aktualizováno ${result.updated} písní";
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
           Navigator.pop(context, true);
         }
       }
@@ -508,6 +521,110 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při importu: $e")));
       }
+    }
+  }
+
+  Future<void> _checkLibrary() async {
+    _tts.speak(AppStrings.libraryCheckRunning);
+
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        content: AppProgressIndicator(label: AppStrings.libraryCheckRunning),
+      ),
+    ));
+
+    List<LibraryIssue> issues;
+    try {
+      issues = await LibraryChecker.findIssues(widget.db);
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _tts.speak(AppStrings.libraryCheckRepairFailed);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Kontrolu knihovny se nepodařilo dokončit.")),
+      );
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+
+    if (issues.isEmpty) {
+      _tts.speak(AppStrings.libraryCheckOk);
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(AppStrings.libraryCheckTile),
+          content: Text(AppStrings.libraryCheckOk),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(AppStrings.libraryCheckCloseButton),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    _tts.speak(AppStrings.libraryCheckFound(issues.length));
+
+    final bool? repair = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppStrings.libraryCheckTile),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: issues.length,
+            itemBuilder: (context, i) {
+              final issue = issues[i];
+              if (issue.fileMissing) {
+                return ListTile(
+                  leading: const Icon(Icons.file_present, color: Colors.red),
+                  title: Text("${issue.currentArtist} - ${issue.currentTitle}"),
+                  subtitle: Text(
+                      "${AppStrings.libraryCheckFileMissing}: ${issue.filePath}"),
+                  isThreeLine: true,
+                );
+              }
+              return ListTile(
+                leading: const Icon(Icons.edit_note),
+                title: Text("${issue.currentArtist} - ${issue.currentTitle}"),
+                subtitle: Text(
+                    "→ ${issue.suggestedArtist} - ${issue.suggestedTitle}"),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(AppStrings.libraryCheckCloseButton),
+          ),
+          if (issues.any((issue) => issue.metadataDiffers))
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(AppStrings.libraryCheckRepairButton),
+            ),
+        ],
+      ),
+    );
+
+    if (repair != true) return;
+
+    try {
+      final repaired = await LibraryChecker.repairAll(widget.db, issues);
+      _tts.speak(AppStrings.libraryCheckRepaired(repaired));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppStrings.libraryCheckRepaired(repaired))),
+        );
+      }
+    } catch (_) {
+      _tts.speak(AppStrings.libraryCheckRepairFailed);
     }
   }
 
@@ -572,6 +689,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ],
             ),
+          ),
+          const Divider(height: 40),
+          ListTile(
+            leading: const Icon(Icons.fact_check),
+            title: Text(AppStrings.libraryCheckTile),
+            subtitle: Text(AppStrings.libraryCheckSubtitle),
+            onTap: _checkLibrary,
           ),
           const Divider(height: 40),
           ListTile(

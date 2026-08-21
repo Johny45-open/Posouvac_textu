@@ -21,6 +21,14 @@ class PlaylistSyncResult {
   });
 }
 
+/// Výsledek hromadného importu metadat z CSV.
+class CsvImportResult {
+  final int updated;
+  final int skipped;
+
+  const CsvImportResult({required this.updated, required this.skipped});
+}
+
 class Playlists extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
@@ -212,31 +220,46 @@ class AppDatabase extends _$AppDatabase {
     final buffer = StringBuffer();
     // Přidání UTF-8 BOM pro správnou interpretaci v Excelu
     buffer.write('\uFEFF');
-    buffer.writeln("id,artist,title,duration");
+    buffer.writeln("id,artist,title,duration,filePath");
     for (final song in songs) {
       // Bezpečné escapování uvozovek pro CSV
       String escape(String? s) => (s ?? '').replaceAll('"', '""');
-      buffer.writeln("${song.id},\"${escape(song.artist)}\",\"${escape(song.title)}\",${song.duration ?? 0}");
+      buffer.writeln(
+          "${song.id},\"${escape(song.artist)}\",\"${escape(song.title)}\",${song.duration ?? 0},\"${escape(song.filePath)}\"");
     }
     return buffer.toString();
   }
 
-  Future<int> importSongsFromCsv(String csvContent) async {
+  /// Rozparsuje jeden řádek CSV – respektuje čárky uvnitř uvozovek.
+  static List<String> _parseCsvLine(String line) {
+    final pattern = RegExp(r',(?=(?:(?:[^"]*"){2})*[^"]*$)');
+    return line
+        .split(pattern)
+        .map((p) => p.trim().replaceAll(RegExp(r'^"|"$'), '').replaceAll('""', '"').trim())
+        .toList();
+  }
+
+  /// Normalizuje cestu pro porovnání (oddělovače a velikost písmen).
+  static String _normalizePath(String path) =>
+      path.replaceAll('\\', '/').trim().toLowerCase();
+
+  /// Výsledek hromadného importu metadat z CSV.
+  /// [skipped] obsahuje řádky, které se nepodařilo bezpečně spárovat
+  /// (id existuje, ale filePath nesedí) – ty se záměrně nepřepisují,
+  /// aby se metadata nezapsala špatné písni.
+  Future<CsvImportResult> importSongsFromCsv(String csvContent) async {
     final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
     final lines = content.split(RegExp(r'\r?\n'));
-    if (lines.length < 2) return 0;
+    if (lines.length < 2) return const CsvImportResult(updated: 0, skipped: 0);
 
     int updatedCount = 0;
+    int skippedCount = 0;
     await transaction(() async {
       for (var i = 1; i < lines.length; i++) {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
 
-        // Robustnější parsování CSV řádku
-        // Hledá pole oddělená čárkou, přičemž ignoruje čárky uvnitř uvozovek
-        final pattern = RegExp(r',(?=(?:(?:[^"]*"){2})*[^"]*$)');
-        final parts = line.split(pattern).map((p) => p.trim().replaceAll(RegExp(r'^"|"$'), '').replaceAll('""', '"').trim()).toList();
-        
+        final parts = _parseCsvLine(line);
         if (parts.length < 3) continue;
 
         final idStr = parts[0].replaceAll(RegExp(r'[^0-9]'), '').trim();
@@ -245,7 +268,17 @@ class AppDatabase extends _$AppDatabase {
 
         final song = await (select(songs)..where((t) => t.id.equals(id))).getSingleOrNull();
         if (song == null) continue;
-        
+
+        // Ověření identity řádku: pokud CSV obsahuje filePath a nesedí
+        // s uloženou cestou, jde nejspíš o zastaralé CSV z jiného stavu
+        // knihovny – takový řádek přeskočíme.
+        if (parts.length > 4 && parts[4].isNotEmpty) {
+          if (_normalizePath(parts[4]) != _normalizePath(song.filePath)) {
+            skippedCount++;
+            continue;
+          }
+        }
+
         final artist = parts[1].trim();
         final title = parts[2].trim();
         final duration = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
@@ -260,32 +293,31 @@ class AppDatabase extends _$AppDatabase {
         if (result > 0) updatedCount++;
       }
     });
-    return updatedCount;
+    return CsvImportResult(updated: updatedCount, skipped: skippedCount);
   }
 
   Future<List<Map<String, dynamic>>> previewSongsFromCsv(String csvContent) async {
     final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
-    final lines = content.split('\n');
+    final lines = content.split(RegExp(r'\r?\n'));
     if (lines.length < 2) return [];
 
     final preview = <Map<String, dynamic>>[];
     for (var i = 1; i < lines.length; i++) {
       final line = lines[i].trim();
       if (line.isEmpty) continue;
-      
-      final parts = line.split(',').map((p) => p.trim().replaceAll('"', '').trim()).toList();
-      
-      print("DEBUG: Řádek $i, díly: $parts"); 
-      
+
+      final parts = _parseCsvLine(line);
+
       if (parts.isEmpty || parts[0].isEmpty) continue;
 
       final idStr = parts[0].replaceAll(RegExp(r'[^0-9]'), '').trim();
       final id = int.tryParse(idStr);
-      print("DEBUG: Zkouším ID: $id");
-      
+
       if (id != null) {
         final song = await (select(songs)..where((t) => t.id.equals(id))).getSingleOrNull();
         if (song != null) {
+          final pathMismatch =
+              parts.length > 4 && parts[4].isNotEmpty && _normalizePath(parts[4]) != _normalizePath(song.filePath);
           preview.add({
             'id': id,
             'oldArtist': song.artist,
@@ -293,12 +325,9 @@ class AppDatabase extends _$AppDatabase {
             'oldTitle': song.title,
             'newTitle': parts.length > 2 ? parts[2].trim() : song.title,
             'newDuration': parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : song.duration ?? 0,
+            'pathMismatch': pathMismatch,
           });
-        } else {
-          print("DEBUG: Píseň s ID $id nenalezena v databázi");
         }
-      } else {
-         print("DEBUG: Nepodařilo se naparsovat ID: ${parts[0]}");
       }
     }
     return preview;

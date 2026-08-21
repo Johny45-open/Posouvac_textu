@@ -295,4 +295,44 @@ class AppStrings {
   static String get updateHistoryRefreshed => isInformal
       ? "Historie je aktuální."
       : "Historie verzí byla aktualizována.";
+  static String get newsReadTooltip => isInformal ? "Přečíst novinky k verzi" : "Přečíst novinky k této verzi";
+  static String get newsReadAllTooltip => isInformal ? "Přečíst všechny novinky" : "Přečíst všechny novinky";
+  static String get newsStopTooltip => isInformal ? "Přestat číst" : "Zastavit čtení";
+  static String newsVersionSpoken(String version) => isInformal ? "Verze $version." : "Verze $version.";
+
+  // --- KONTROLA KNIHOVNY ---
+  static String get libraryCheckTile => isInformal ? "Zkontrolovat knihovnu" : "Zkontrolovat knihovnu";
+  static String get libraryCheckSubtitle => isInformal
+      ? "Srovnej názvy písniček s txt soubory"
+      : "Porovnat názvy písní v databázi s txt soubory a opravit neshody";
+  static String get libraryCheckRunning => isInformal ? "Kontroluju knihovnu..." : "Kontroluji knihovnu...";
+  static String get libraryCheckOk => isInformal
+      ? "Všechno sedí, žádný rozdíly jsem nenašel."
+      : "Knihovna je v pořádku, žádné neshody nebyly nalezeny.";
+  static String libraryCheckFound(int count) => isInformal
+      ? "Našel jsem $count rozdíly mezi databází a souborama."
+      : "Nalezeno $count neshod mezi databází a txt soubory.";
+  static String get libraryCheckRepairButton => isInformal ? "Opravit vše" : "Opravit vše";
+  static String get libraryCheckCloseButton => isInformal ? "Zavřít" : "Zavřít";
+  static String libraryCheckRepaired(int count) => isInformal
+      ? "Hotovo, opravil jsem $count písniček."
+      : "Opraveno $count písní.";
+  static String get libraryCheckFileMissing => isInformal ? "Soubor nenalezen" : "Soubor nenalezen";
+  static String get libraryCheckRepairFailed => isInformal
+      ? "Oprava se nepovedla."
+      : "Opravu se nepodařilo dokončit.";
+
+  // --- IMPORT TXT SOUBORŮ ---
+  static String importExistingFound(int count) => isInformal
+      ? "$count souborů už v knihovně mám. Mám přepsat jejich názvy podle souborů?"
+      : "$count vybraných souborů již v knihovně existuje. Aktualizovat jejich názvy a interprety podle obsahu souborů?";
+  static String get importUpdateExistingButton => isInformal ? "Aktualizovat" : "Aktualizovat existující";
+  static String get importSkipExistingButton => isInformal ? "Jen nový" : "Pouze nové";
+  static String get importCancelQuestionButton => isInformal ? "Zrušit" : "Zrušit";
+  static String importFinishedMixed(int added, int updated) => isInformal
+      ? "Přidáno $added novejch, aktualizováno $updated písniček."
+      : "Přidáno $added nových písní, aktualizováno $updated písní.";
+  static String importUpdatedOnly(int count) => isInformal
+      ? "Aktualizoval jsem $count písniček."
+      : "Aktualizováno $count písní.";
 }
