@@ -11,6 +11,8 @@ import 'chord_transposer.dart';
 import 'app_progress_indicator.dart';
 import 'app_strings.dart';
 import 'song_export.dart';
+import 'concert_accessibility_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Konstanta pro horní odsazení textu v SingleChildScrollView (16px).
 const double _kTopPadding = 16.0;
@@ -40,7 +42,12 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   final ScrollController _scrollController = ScrollController();
   final FlutterTts _tts = FlutterTts();
   late AnimationController _scrollAnimationController;
+  late ConcertAccessibilityService _concertService;
+  final FocusNode _focusNode = FocusNode();
   bool _isScrolling = false;
+  bool _concertMode = false;
+  int _concertPreviewMode = 1; // 0 off, 1 onDemand, 2 auto
+  bool _concertTrainingMode = false;
   
   SongEntry? _song;
   bool _isLoading = true;
@@ -205,14 +212,103 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     _startScrolling();
   }
 
+  static const MethodChannel _concertChannel = MethodChannel('concert_volume_channel');
+
   @override
   void initState() {
     super.initState();
     _tts.setLanguage("cs-CZ");
     _tts.setSpeechRate(0.5);
+    _concertService = ConcertAccessibilityService(tts: _tts);
     _scrollAnimationController = AnimationController(vsync: this);
     _scrollAnimationController.addListener(_onAnimationUpdate);
+    _loadConcertPrefs();
     _loadSongData();
+    _concertChannel.setMethodCallHandler(_handleConcertMethod);
+  }
+
+  Future<dynamic> _handleConcertMethod(MethodCall call) async {
+    if (call.method == 'onVolumeBpm') {
+      final delta = (call.arguments as Map?)?['delta'] as int? ?? 5;
+      if (_concertMode) {
+        await _adjustBpm(delta);
+      }
+    }
+    return null;
+  }
+
+  Future<void> _syncConcertModeToNative() async {
+    try {
+      await _concertChannel.invokeMethod('setConcertMode', {'enabled': _concertMode});
+    } catch (_) {
+      // Nativní kanál nemusí být dostupný v testu / na iOS
+    }
+  }
+
+  Future<void> _loadConcertPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      final mode = prefs.getBool('concertMode') ?? false;
+      final preview = prefs.getInt('concertPreviewMode') ?? 1;
+      final training = prefs.getBool('concertTrainingMode') ?? false;
+      setState(() {
+        _concertMode = mode;
+        _concertPreviewMode = preview;
+        _concertTrainingMode = training;
+      });
+      await _syncConcertModeToNative();
+    } catch (_) {
+      // Test prostředí bez SharedPreferences mock - ponech default
+    }
+  }
+
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    final handled = _concertService.handleKeyEvent(
+      event,
+      concertMode: _concertMode,
+      onToggleScrolling: _toggleScrolling,
+      onAdjustBpm: (d) => _adjustBpm(d),
+      onAnnounceNext: () => _announceNextLine(isAutomatic: false),
+    );
+    return handled ? KeyEventResult.handled : KeyEventResult.ignored;
+  }
+
+  Future<void> _announceNextLine({required bool isAutomatic}) async {
+    if (!_concertMode || _concertPreviewMode == 0) return;
+    if (isAutomatic && _concertPreviewMode != 2) return;
+    if (!isAutomatic && _concertPreviewMode == 0) return;
+    // Nepřekrývat odpočet a pauzu
+    if (_countdown > 0) return;
+    await _concertService.announceNextLine(
+      loadedContent: _loadedContent,
+      topVisibleLineIndex: _topVisibleLineIndex(),
+      lineOffsets: _lineOffsets,
+      isAutomatic: isAutomatic,
+    );
+  }
+
+  void _checkAutoNextLine() {
+    if (!_concertMode || _concertPreviewMode != 2 || !_isScrolling) return;
+    if (_countdown > 0) return;
+    final topIdx = _topVisibleLineIndex();
+    if (topIdx == null) return;
+    final lines = ChordProParser.orderedLines(_loadedContent ?? '');
+    final nextIdx = topIdx + 1;
+    if (nextIdx >= lines.length) return;
+    final maxExtent = _scrollController.hasClients ? _scrollController.position.maxScrollExtent : 0.0;
+    if (maxExtent <= 0) return;
+    final nextOffset = _lineOffsets[nextIdx];
+    if (nextOffset == null) return;
+    final currentOffset = _scrollController.hasClients ? _scrollController.offset : 0.0;
+    if (_concertService.shouldAutoAnnounce(
+      nextLineOffset: _kTopPadding + nextOffset,
+      currentOffset: currentOffset,
+      effectiveBpm: _effectiveBpm(),
+      fontSize: _fontSize,
+    )) {
+      _announceNextLine(isAutomatic: true);
+    }
   }
 
   void _onAnimationUpdate() {
@@ -220,6 +316,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       final maxExtent = _scrollController.position.maxScrollExtent;
       _scrollController.jumpTo(_scrollAnimationController.value * maxExtent);
       _checkStopMarks();
+      _checkAutoNextLine();
     }
   }
 
@@ -708,19 +805,133 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Aktualizovat nativní stav při každém zobrazení (např. po návratu z nastavení)
+    _syncConcertModeToNative();
+  }
+
+  @override
   void dispose() {
+    _concertService.reset();
+    _concertChannel.setMethodCallHandler(null);
+    _focusNode.dispose();
     _scrollAnimationController.dispose();
     _scrollController.dispose();
     _tts.stop();
     super.dispose();
   }
 
+  int? _lastZone; // -1 left, 0 center, 1 right
+
+  // Koncertní 3-zónový overlay: levá zpomalit, střed play/pause, pravá zrychlit
+  Widget _buildConcertZones() {
+    if (!_concertMode || _isLoading) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: Listener(
+        onPointerMove: (details) {
+          final width = MediaQuery.of(context).size.width;
+          final x = details.localPosition.dx;
+          int zone = x < width / 3 ? -1 : (x < 2 * width / 3 ? 0 : 1);
+          if (zone != _lastZone) {
+            _lastZone = zone;
+            HapticFeedback.lightImpact();
+            // Zvuková značka - tóny lze vylepšit (např. přes assety)
+            SystemSound.play(SystemSoundType.click); 
+          }
+        },
+        onPointerUp: (_) => _lastZone = null,
+        child: Row(
+          children: [
+            // Levá třetina - zpomalit
+            Expanded(
+              child: Semantics(
+                label: AppStrings.concertZoneLeftSemantics,
+                button: true,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    if (_concertTrainingMode) {
+                      _tts.speak("Zpomalit");
+                    } else {
+                      _adjustBpm(-5);
+                    }
+                  },
+                  onLongPress: () => _adjustBpm(-10),
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+            ),
+            // Střední třetina - play/pause + double-tap 2 prsty = další řádek
+            Expanded(
+              child: Semantics(
+                label: AppStrings.concertZoneCenterSemantics,
+                hint: AppStrings.nextLineGestureHint,
+                button: true,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    if (_concertTrainingMode) {
+                      _tts.speak("Spustit posuv");
+                    } else {
+                      _toggleScrolling();
+                    }
+                  },
+                  onDoubleTap: () => _announceNextLine(isAutomatic: false),
+                  onLongPress: () => _announceNextLine(isAutomatic: false),
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+            ),
+            // Pravá třetina - zrychlit
+            Expanded(
+              child: Semantics(
+                label: AppStrings.concertZoneRightSemantics,
+                button: true,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {
+                    if (_concertTrainingMode) {
+                      _tts.speak("Zrychlit");
+                    } else {
+                      _adjustBpm(5);
+                    }
+                  },
+                  onLongPress: () => _adjustBpm(10),
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // V koncertním režimu zvětšit BPM overlay a hit targety
+    final double bpmButtonPadding = _concertMode ? 12 : 4;
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: Scaffold(
       appBar: AppBar(
         title: Text(_song?.title ?? ""),
         actions: [
+          if (_concertMode)
+            Semantics(
+              label: AppStrings.concertModeTitle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Chip(
+                  label: Text(AppStrings.concertModeTitle, style: const TextStyle(fontSize: 11)),
+                  backgroundColor: Colors.green.withOpacity(0.2),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.ios_share),
             tooltip: AppStrings.shareButtonLabel,
@@ -748,10 +959,13 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
         : Stack(
             children: [
               Semantics(
-                label: "Klepnutím spustíte nebo zastavíte automatický posuv textu",
+                label: _concertMode
+                    ? "Koncertní režim: levá zpomalit, střed spustit/zastavit, pravá zrychlit. Dvojitým poklepáním další řádek."
+                    : "Klepnutím spustíte nebo zastavíte automatický posuv textu",
                 button: true,
                 child: GestureDetector(
-                  onTap: _toggleScrolling,
+                  onTap: _concertMode ? null : _toggleScrolling,
+                  onDoubleTap: _concertMode ? () => _announceNextLine(isAutomatic: false) : null,
                   behavior: HitTestBehavior.opaque,
                   child: SingleChildScrollView(
                   controller: _scrollController,
@@ -803,7 +1017,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
                         ),
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        padding: EdgeInsets.symmetric(horizontal: bpmButtonPadding, vertical: bpmButtonPadding - 2),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -818,6 +1032,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                                   tooltip: AppStrings.bpmOverlayDecreaseLabel,
                                   onPressed: () => _adjustBpm(-5),
                                   visualDensity: VisualDensity.compact,
+                                  iconSize: _concertMode ? 28 : 24,
+                                  padding: EdgeInsets.all(_concertMode ? 12 : 8),
                                 ),
                               ),
                             ),
@@ -825,7 +1041,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                               liveRegion: true,
                               label: AppStrings.bpmOverlayValue((_bpm ?? 120).round()),
                               child: Container(
-                                constraints: const BoxConstraints(minWidth: 72),
+                                constraints: BoxConstraints(minWidth: _concertMode ? 80 : 72),
                                 alignment: Alignment.center,
                                 padding: const EdgeInsets.symmetric(horizontal: 4),
                                 child: Column(
@@ -835,7 +1051,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                                       AppStrings.bpmOverlayValue((_bpm ?? 120).round()),
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 14,
+                                        fontSize: _concertMode ? 16 : 14,
                                         color: Theme.of(context).colorScheme.onSurface,
                                       ),
                                     ),
@@ -862,6 +1078,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                                   tooltip: AppStrings.bpmOverlayIncreaseLabel,
                                   onPressed: () => _adjustBpm(5),
                                   visualDensity: VisualDensity.compact,
+                                  iconSize: _concertMode ? 28 : 24,
+                                  padding: EdgeInsets.all(_concertMode ? 12 : 8),
                                 ),
                               ),
                             ),
@@ -871,11 +1089,29 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                     ),
                   ),
                 ),
+              // Koncertní 3-zónový overlay (nad textem, pod BPM overlay díky pořadí)
+              _buildConcertZones(),
             ],
           ),
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          // Tlačítko náhled dalšího řádku v koncertním režimu
+          if (_concertMode && _concertPreviewMode != 0)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Semantics(
+                label: AppStrings.concertZoneNextLineSemantics,
+                hint: AppStrings.nextLineGestureHint,
+                button: true,
+                child: FloatingActionButton.small(
+                  heroTag: 'nextLineFAB',
+                  onPressed: () => _announceNextLine(isAutomatic: false),
+                  tooltip: AppStrings.concertZoneNextLineSemantics,
+                  child: const Icon(Icons.hearing),
+                ),
+              ),
+            ),
           // Velké tlačítko pro rychlé přidání zarážky na viditelný řádek.
           Semantics(
             label: AppStrings.addStopMarkButtonLabel,
@@ -901,6 +1137,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
             ),
           ),
         ],
+      ),
       ),
     );
   }

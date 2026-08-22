@@ -16,6 +16,7 @@ import 'custom_tts_settings_page.dart';
 import 'dev_log.dart';
 import 'library_checker.dart';
 import 'update_dialogs.dart';
+import 'package:flutter/services.dart';
 
 class SettingsPage extends StatefulWidget {
   final AppDatabase db;
@@ -23,6 +24,12 @@ class SettingsPage extends StatefulWidget {
   final Function(ThemeMode) onThemeModeChanged;
   final bool isInformalMode;
   final Function(bool) onInformalModeChanged;
+  final bool concertMode;
+  final ValueChanged<bool> onConcertModeChanged;
+  final int concertPreviewMode;
+  final ValueChanged<int> onConcertPreviewModeChanged;
+  final bool concertTrainingMode;
+  final ValueChanged<bool> onConcertTrainingModeChanged;
   final bool devModeUnlocked;
   final ValueChanged<bool> onDevModeChanged;
 
@@ -33,6 +40,12 @@ class SettingsPage extends StatefulWidget {
     required this.onThemeModeChanged,
     required this.isInformalMode,
     required this.onInformalModeChanged,
+    required this.concertMode,
+    required this.onConcertModeChanged,
+    required this.concertPreviewMode,
+    required this.onConcertPreviewModeChanged,
+    required this.concertTrainingMode,
+    required this.onConcertTrainingModeChanged,
     required this.devModeUnlocked,
     required this.onDevModeChanged,
   });
@@ -718,6 +731,58 @@ class _SettingsPageState extends State<SettingsPage> {
               _tts.speak(AppStrings.resetPlayed);
             },
           ),
+          SwitchListTile(
+            title: Text(AppStrings.concertModeTitle),
+            subtitle: Text(widget.concertMode ? AppStrings.concertModeSubtitleOn : AppStrings.concertModeSubtitleOff),
+            secondary: Icon(widget.concertMode ? Icons.hearing : Icons.hearing_disabled, color: widget.concertMode ? Colors.green : null),
+            value: widget.concertMode,
+            onChanged: (v) async {
+              widget.onConcertModeChanged(v);
+              _tts.speak(v ? AppStrings.concertModeAnnouncementOn : AppStrings.concertModeAnnouncementOff);
+              try {
+                await const MethodChannel('concert_volume_channel').invokeMethod('setConcertMode', {'enabled': v});
+              } catch (_) {}
+            },
+          ),
+          if (widget.concertMode) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(AppStrings.concertPreviewModeTitle, style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  SegmentedButton<int>(
+                    segments: [
+                      ButtonSegment(value: 0, label: Text(AppStrings.concertPreviewOff), icon: Icon(Icons.notifications_off)),
+                      ButtonSegment(value: 1, label: Text(AppStrings.concertPreviewOnDemand), icon: Icon(Icons.touch_app)),
+                      ButtonSegment(value: 2, label: Text(AppStrings.concertPreviewAuto), icon: Icon(Icons.auto_awesome)),
+                    ],
+                    selected: {widget.concertPreviewMode},
+                    onSelectionChanged: (s) {
+                      final mode = s.first;
+                      widget.onConcertPreviewModeChanged(mode);
+                      String msg = mode == 0 ? AppStrings.concertPreviewOff : mode == 1 ? AppStrings.concertPreviewOnDemand : AppStrings.concertPreviewAuto;
+                      _tts.speak(msg);
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.concertPreviewMode == 1 ? AppStrings.concertPreviewOnDemandHint : widget.concertPreviewMode == 2 ? AppStrings.concertPreviewAutoHint : AppStrings.concertPreviewOff,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 24),
+            SwitchListTile(
+              title: const Text("Tréninkový režim zón"),
+              subtitle: const Text("Při dotyku ohlásí funkci zóny"),
+              value: widget.concertTrainingMode,
+              onChanged: widget.onConcertTrainingModeChanged,
+            ),
+            const Divider(height: 24),
+          ],
           SwitchListTile(
             title: const Text("Neformální režim"),
             subtitle: Text(widget.isInformalMode ? "Zapnuto" : "Vypnuto"),

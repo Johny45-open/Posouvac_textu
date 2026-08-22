@@ -29,6 +29,12 @@ class LibraryPage extends StatefulWidget {
   final VoidCallback onOpenManual;
   final bool isInformalMode;
   final ValueChanged<bool> onInformalModeChanged;
+  final bool concertMode;
+  final ValueChanged<bool> onConcertModeChanged;
+  final int concertPreviewMode;
+  final ValueChanged<int> onConcertPreviewModeChanged;
+  final bool concertTrainingMode;
+  final ValueChanged<bool> onConcertTrainingModeChanged;
 
   const LibraryPage({
     super.key,
@@ -38,6 +44,12 @@ class LibraryPage extends StatefulWidget {
     required this.onOpenManual,
     required this.isInformalMode,
     required this.onInformalModeChanged,
+    required this.concertMode,
+    required this.onConcertModeChanged,
+    required this.concertPreviewMode,
+    required this.onConcertPreviewModeChanged,
+    required this.concertTrainingMode,
+    required this.onConcertTrainingModeChanged,
   });
 
   @override
@@ -604,6 +616,12 @@ class _LibraryPageState extends State<LibraryPage> {
                       onThemeModeChanged: widget.onThemeModeChanged,
                       isInformalMode: widget.isInformalMode,
                       onInformalModeChanged: widget.onInformalModeChanged,
+                      concertMode: widget.concertMode,
+                      onConcertModeChanged: widget.onConcertModeChanged,
+                      concertPreviewMode: widget.concertPreviewMode,
+                      onConcertPreviewModeChanged: widget.onConcertPreviewModeChanged,
+                      concertTrainingMode: widget.concertTrainingMode,
+                      onConcertTrainingModeChanged: widget.onConcertTrainingModeChanged,
                       devModeUnlocked: _devModeUnlocked,
                       onDevModeChanged: (v) => setState(() => _devModeUnlocked = v),
                     ),

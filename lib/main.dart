@@ -128,6 +128,9 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   late double _beepFrequency;
   late int _defaultStartDelay;
   late bool _isInformalMode;
+  late bool _concertMode;
+  late int _concertPreviewMode; // 0=off, 1=onDemand, 2=auto
+  late bool _concertTrainingMode;
   Locale? _locale;
   bool _showManual = false;
 
@@ -142,6 +145,9 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     _defaultStartDelay = widget.prefs.getInt('defaultStartDelay') ?? 3;
     _isInformalMode = widget.prefs.getBool('isInformalMode') ?? false;
     AppStrings.isInformal = _isInformalMode;
+    _concertMode = widget.prefs.getBool('concertMode') ?? false;
+    _concertPreviewMode = widget.prefs.getInt('concertPreviewMode') ?? 1;
+    _concertTrainingMode = widget.prefs.getBool('concertTrainingMode') ?? false;
     
     final langCode = widget.prefs.getString('languageCode');
     if (langCode != null) _locale = Locale(langCode);
@@ -203,6 +209,21 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     await widget.prefs.setInt('defaultStartDelay', d);
   }
 
+  Future<void> _updateConcertMode(bool v) async {
+    setState(() => _concertMode = v);
+    await widget.prefs.setBool('concertMode', v);
+  }
+
+  Future<void> _updateConcertPreviewMode(int mode) async {
+    setState(() => _concertPreviewMode = mode);
+    await widget.prefs.setInt('concertPreviewMode', mode);
+  }
+
+  Future<void> _updateConcertTrainingMode(bool v) async {
+    setState(() => _concertTrainingMode = v);
+    await widget.prefs.setBool('concertTrainingMode', v);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -235,6 +256,12 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
               onOpenManual: _openManual,
               isInformalMode: _isInformalMode,
               onInformalModeChanged: _updateInformalMode,
+              concertMode: _concertMode,
+              onConcertModeChanged: _updateConcertMode,
+              concertPreviewMode: _concertPreviewMode,
+              onConcertPreviewModeChanged: _updateConcertPreviewMode,
+              concertTrainingMode: _concertTrainingMode,
+              onConcertTrainingModeChanged: _updateConcertTrainingMode,
             ),
     );
   }

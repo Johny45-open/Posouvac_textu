@@ -355,4 +355,41 @@ class AppStrings {
   static String importUpdatedOnly(int count) => isInformal
       ? "Aktualizoval jsem $count písniček."
       : "Aktualizováno $count písní.";
+
+  // --- KONCERTNÍ REŽIM ---
+  static String get concertModeTitle => isInformal ? "Koncertní režim" : "Koncertní režim";
+  static String get concertModeSubtitleOn => isInformal
+      ? "Zapnuto - velké plochy, pedál, volume, náhled do sluchátka"
+      : "Zapnuto - velké dotykové plochy, pedál, volume tlačítka, náhled do sluchátka";
+  static String get concertModeSubtitleOff => isInformal
+      ? "Vypnuto - klasické ovládání"
+      : "Vypnuto - klasické ovládání";
+  static String get concertModeAnnouncementOn => isInformal ? "Koncertní režim zapnut" : "Koncertní režim zapnut";
+  static String get concertModeAnnouncementOff => isInformal ? "Koncertní režim vypnut" : "Koncertní režim vypnut";
+
+  static String get concertPreviewModeTitle => isInformal ? "Ohlašovat další řádek" : "Ohlašování dalšího řádku";
+  static String get concertPreviewOff => isInformal ? "Vypnuto" : "Vypnuto";
+  static String get concertPreviewOnDemand => isInformal ? "Na vyžádání" : "Na vyžádání";
+  static String get concertPreviewAuto => isInformal ? "Automaticky" : "Automaticky";
+  static String get concertPreviewOnDemandHint => isInformal
+      ? "Pedál podržet, 2 prsty poklepat nebo headset tlačítko - řekne další řádek"
+      : "Podržením pedálu, poklepáním dvěma prsty nebo tlačítkem headsetu";
+  static String get concertPreviewAutoHint => isInformal
+      ? "Sám ohlásí další řádek 2,5 sekundy předem - vhodné s jedním sluchátkem"
+      : "Automaticky ohlásí další řádek 2,5 sekundy předem - vhodné s jedním sluchátkem";
+
+  // --- NÁHLED DALŠÍHO ŘÁDKU ---
+  static String nextLineAnnouncement(String text) => isInformal ? "Další: $text" : "Další: $text";
+  static String nextLineWithChords(String chords, String text) => isInformal
+      ? "Další: $chords, $text"
+      : "Další: $chords, $text";
+  static String nextSectionAnnouncement(String section) => isInformal ? "$section" : "$section";
+  static String get nextLineEmpty => isInformal ? "Konec textu" : "Konec textu";
+  static String get nextLineGestureHint => isInformal
+      ? "Dvojitým poklepáním dvěma prsty zjistíš další řádek"
+      : "Dvojitým poklepáním dvěma prsty ohlašte další řádek";
+  static String get concertZoneLeftSemantics => isInformal ? "Zpomalit o 5 BPM, levá třetina" : "Zpomalit o 5 BPM";
+  static String get concertZoneCenterSemantics => isInformal ? "Spustit nebo zastavit posuv, střed" : "Spustit nebo zastavit posuv";
+  static String get concertZoneRightSemantics => isInformal ? "Zrychlit o 5 BPM, pravá třetina" : "Zrychlit o 5 BPM";
+  static String get concertZoneNextLineSemantics => isInformal ? "Ohlásit další řádek" : "Ohlásit další řádek";
 }

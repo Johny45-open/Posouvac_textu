@@ -38,6 +38,12 @@ class _ManualPageState extends State<ManualPage> {
       title: AppStrings.accessibilityTitle,
       content: AppStrings.accessibilityContent,
     ),
+    ManualStep(
+      title: AppStrings.concertModeTitle,
+      content: AppStrings.isInformal
+          ? "Koncertní režim ti dá velké dotykové plochy - levá zpomalí, pravá zrychlí, střed spustí. Pedál nebo volume tlačítka fungují stejně. Dvojitým poklepáním dvěma prsty nebo podržením pedálu zjistíš další řádek. V nastavení si vyber jestli chceš náhled na vyžádání nebo automaticky 2,5 sekundy předem do jednoho sluchátka. Bez sluchátka funguje aspoň vibrace a hlášky z repráku."
+          : "Koncertní režim v Nastavení zvětší dotykové plochy v přehrávači - levá třetina zpomalí o 5 BPM, střed spustí nebo zastaví posuv, pravá zrychlí. Stejně funguje Bluetooth pedál (mezerník) a volume tlačítka. Dvojitým poklepáním dvěma prsty, podržením středu nebo pedálu se ohlásí další řádek s akordy. V Nastavení zvolte Na vyžádání nebo Automaticky 2,5 sekundy předem (vhodné s jedním sluchátkem). Bez sluchátka slouží jako fallback vibrace a hlášky z reproduktoru.",
+    ),
   ];
 
   @override
