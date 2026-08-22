@@ -50,6 +50,8 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _onlyUnplayed = false;
   bool _sortByArtist = true;
   String _version = "";
+  String _currentAppVersion = "";
+  bool _updateDialogShown = false;
   bool _devModeUnlocked = false;
   int _versionTapCount = 0;
   static const int _versionTapTarget = 7;
@@ -62,27 +64,35 @@ class _LibraryPageState extends State<LibraryPage> {
     AppStrings.isInformal = widget.isInformalMode;
     _initVersion();
     _loadDevMode();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkForUpdatesSilently();
-    });
+    _initAppVersion();
   }
 
-  Future<void> _checkForUpdatesSilently() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final today = DateTime.now().toIso8601String().substring(0, 10);
-      if (prefs.getString('lastAutoUpdateCheckDay') == today) return;
-      await prefs.setString('lastAutoUpdateCheckDay', today);
-
-      final result = await UpdateChecker.checkForUpdate();
-      if (!result.hasUpdate || !mounted) return;
-      if (prefs.getString(dismissedUpdateVersionKey) == result.newest!.tag) {
-        return;
-      }
-      await showUpdateAvailableDialog(context, result);
-    } catch (_) {
-      // Tiché selhání při startu - bez internetu se kontrola vynechá.
+  Future<void> _initAppVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    _currentAppVersion = '${info.version}+${info.buildNumber}';
+    if (mounted) {
+      _checkForUpdates();
     }
+  }
+
+  Future<void> _checkForUpdates() async {
+    if (_updateDialogShown || !mounted) return;
+    final checker = GitHubReleaseChecker();
+    final release = await checker.checkForUpdates(
+      owner: 'Johny45-open',
+      repo: 'Posouvac_textu',
+      currentVersion: _currentAppVersion,
+    );
+    checker.close();
+    if (!mounted || release == null || _updateDialogShown) return;
+    await _showUpdateDialog(release);
+  }
+
+  Future<void> _showUpdateDialog(GitHubReleaseInfo release) async {
+    if (_updateDialogShown) return;
+    setState(() => _updateDialogShown = true);
+    if (!mounted) return;
+    await showUpdateAvailableDialog(context, release, _currentAppVersion.split('+').first);
   }
 
   Future<void> _loadDevMode() async {
