@@ -53,8 +53,21 @@ class AppStrings {
 
   static String get playerTitle => _getString("playerTitle", "Přehrávač a jízda", "Přehrávač a ovládání");
   static String get playerContent => _getString("playerContent", 
-    "Klepni na text a odstartuješ odpočet i jízdu. Všechno ovládání (tempo, transpozici, velikost písma i rychlost) najdeš pohodlně dole. Pauzu přidáš krátkým klepnutím, podržením je spravuješ.",
-    "Klepnutím na text v přehrávači spustíte hlasový odpočet a automatický posuv. Všechny ovládací prvky (tempo, transpozice, velikost písma, rychlost posuvu) jsou nyní pohodlně umístěny v dolní části obrazovky pro snadný přístup. Pauzu přidáte krátkým klepnutím na tlačítko PAUZA, dlouhým podržením tohoto tlačítka otevřete jejich správu.");
+    "Klepni na text a odstartuješ odpočet i jízdu. Všechno ovládání (tempo, transpozici, velikost písma i rychlost) najdeš pohodlně dole. Když nestíháš, zpomal tempo o 5 BPM tlačítky v pravém horním rohu – fungují i během posuvu. Pauzu přidáš krátkým klepnutím, podržením je spravuješ. Pro pomalou píseň 75 až 90, pro rychlou 110 až 130 BPM.",
+    "Klepnutím na text v přehrávači spustíte hlasový odpočet a automatický posuv. Všechny ovládací prvky (tempo, transpozice, velikost písma, rychlost posuvu) jsou nyní pohodlně umístěny v dolní části obrazovky pro snadný přístup. Pokud nestíháte zpívat, snižte tempo o 5 BPM tlačítky v pravém horním rohu – fungují i během posuvu. Pro pomalé písně doporučeno 75 až 90 BPM, pro rychlé 110 až 130 BPM. Pauzu přidáte krátkým klepnutím na tlačítko PAUZA, dlouhým podržením tohoto tlačítka otevřete jejich správu.");
+
+  // --- BPM OVERLAY (rychlé ladění tempa i během posuvu) ---
+  static String get bpmOverlayDecreaseLabel => isInformal ? "Zpomalit o 5 BPM" : "Zpomalit o 5 BPM";
+  static String get bpmOverlayIncreaseLabel => isInformal ? "Zrychlit o 5 BPM" : "Zrychlit o 5 BPM";
+  static String get bpmOverlayDecreaseLongLabel => isInformal ? "Zpomalit o 10 BPM (podrž)" : "Zpomalit o 10 BPM (podržení)";
+  static String get bpmOverlayIncreaseLongLabel => isInformal ? "Zrychlit o 10 BPM (podrž)" : "Zrychlit o 10 BPM (podržení)";
+  static String bpmOverlayValue(int bpm) => "$bpm BPM";
+  static String bpmEffectiveValue(int effective) => "Efektivně $effective BPM";
+  static String get bpmOverlaySemantics => isInformal ? "Ovládání tempa, aktuálně" : "Ovládání tempa, aktuální hodnota";
+  static String bpmChangedMessage(int bpm) => isInformal ? "Tempo $bpm BPM" : "Tempo $bpm BPM";
+  static String get bpmOverlayHelp => isInformal
+      ? "Když nestíháš, klepni na mínus, zpomalíš o 5 BPM i během posuvu. Podržením o 10. Pro pomalou 75 až 90, pro rychlou 110 až 130. Pauzu přidáš PAUZOU na začátek sloky."
+      : "Pokud nestíháte, klepněte na minus – tempo se sníží o 5 BPM i během posuvu (podržením o 10). Pro pomalé 75 až 90, pro rychlé 110 až 130 BPM. Pauzu přidáte PAUZOU na začátek sloky.";
 
   // ... (a tak dále pro všechny ostatní metody, ale pro stručnost zde jen hlavní princip)
   static String get extraTitle => isInformal ? "Ladička a setlisty" : "Ladička a Playlisty";

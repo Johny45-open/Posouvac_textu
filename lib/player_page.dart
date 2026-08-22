@@ -62,6 +62,55 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, _fontSize, _scrollMultiplier);
   }
 
+  double _effectiveBpm() => (_bpm ?? 120.0) * _scrollMultiplier;
+
+  double _calcDurationSeconds(double remainingScroll) {
+    final pixelsPerBeat = (_fontSize * 1.5) / 4.0;
+    if (pixelsPerBeat <= 0) return 0;
+    final totalBeats = remainingScroll / pixelsPerBeat;
+    final effectiveBpm = _effectiveBpm();
+    if (effectiveBpm <= 0) return 0;
+    return totalBeats * 60.0 / effectiveBpm;
+  }
+
+  void _updateScrollingSpeed() {
+    if (!_isScrolling || !_scrollController.hasClients) return;
+    final maxExtent = _scrollController.position.maxScrollExtent;
+    if (maxExtent <= 0) return;
+    final currentOffset = _scrollController.offset;
+    final remainingScroll = (maxExtent - currentOffset).clamp(0.0, maxExtent).toDouble();
+    if (remainingScroll <= 0) return;
+    final durationInSeconds = _calcDurationSeconds(remainingScroll);
+    final newDuration = Duration(milliseconds: (durationInSeconds * 1000).round());
+    // Zachovat plynulost – nastavit novou duration a pokračovat od aktuální pozice
+    _scrollAnimationController.stop();
+    _scrollAnimationController.duration = newDuration;
+    _scrollAnimationController.value = (currentOffset / maxExtent).clamp(0.0, 1.0).toDouble();
+    if (remainingScroll > 1) {
+      _scrollAnimationController.forward();
+    }
+  }
+
+  Future<void> _adjustBpm(int delta) async {
+    final newBpm = ((_bpm ?? 120.0) + delta).clamp(30.0, 300.0).toDouble();
+    setState(() => _bpm = newBpm);
+    await _saveSettings();
+    _updateScrollingSpeed();
+    HapticFeedback.selectionClick();
+    _tts.stop();
+    _tts.speak(AppStrings.bpmChangedMessage(newBpm.round()));
+    if (mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.bpmChangedMessage(newBpm.round())),
+          duration: const Duration(milliseconds: 1200),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   Future<void> _showBpmDialog() async {
     final controller = TextEditingController(text: _bpm?.round().toString() ?? "120");
     List<DateTime> tapTimes = [];
@@ -118,6 +167,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
               onPressed: () {
                 setState(() => _bpm = double.tryParse(controller.text));
                 _saveSettings();
+                _updateScrollingSpeed();
                 Navigator.pop(context);
               },
               child: const Text("OK"),
@@ -390,6 +440,15 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
             _fontSize = localFontSize;
             _scrollMultiplier = localScrollMultiplier;
           });
+          // Okamžitě přepočítat rychlost i během posuvu
+          _updateScrollingSpeed();
+        }
+
+        String effectiveBpmLabel() {
+          final base = _bpm ?? 120.0;
+          final eff = (base * localScrollMultiplier).round();
+          if ((localScrollMultiplier - 1.0).abs() < 0.01) return "$eff BPM";
+          return "${base.round()} BPM → $eff BPM";
         }
 
         return StatefulBuilder(
@@ -437,6 +496,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                         setSheetState(() => localFontSize = (localFontSize - 2).clamp(10, 100));
                         syncToPage();
                         _saveSettings();
+                        _updateScrollingSpeed();
                       },
                     ),
                     Text("P: ${localFontSize.round()}", style: const TextStyle(fontSize: 20)),
@@ -448,36 +508,48 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                         setSheetState(() => localFontSize = (localFontSize + 2).clamp(10, 100));
                         syncToPage();
                         _saveSettings();
+                        _updateScrollingSpeed();
                       },
                     ),
                   ],
                 ),
                 const Divider(),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                Column(
                   children: [
-                    IconButton(icon: const Icon(Icons.speed, size: 48), color: Colors.purple, tooltip: "Nastavit BPM", onPressed: _showBpmDialog),
-                    IconButton(
-                      icon: const Icon(Icons.fast_rewind, size: 48),
-                      color: Colors.orange,
-                      tooltip: "Zpomalit posuv",
-                      onPressed: () {
-                        setSheetState(() => localScrollMultiplier = (localScrollMultiplier - 0.1).clamp(0.1, 5.0));
-                        syncToPage();
-                        _saveSettings();
-                      },
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        IconButton(icon: const Icon(Icons.speed, size: 48), color: Colors.purple, tooltip: "Nastavit BPM", onPressed: () async { await _showBpmDialog(); setSheetState(() {}); }),
+                        IconButton(
+                          icon: const Icon(Icons.fast_rewind, size: 48),
+                          color: Colors.orange,
+                          tooltip: "Zpomalit posuv (jemně -5 %)",
+                          onPressed: () {
+                            setSheetState(() => localScrollMultiplier = (localScrollMultiplier - 0.05).clamp(0.1, 5.0));
+                            syncToPage();
+                            _saveSettings();
+                          },
+                        ),
+                        Column(
+                          children: [
+                            Text("${(localScrollMultiplier * 100).round()}%", style: const TextStyle(fontSize: 20)),
+                            Text(effectiveBpmLabel(), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.fast_forward, size: 48),
+                          color: Colors.orange,
+                          tooltip: "Zrychlit posuv (jemně +5 %)",
+                          onPressed: () {
+                            setSheetState(() => localScrollMultiplier = (localScrollMultiplier + 0.05).clamp(0.1, 5.0));
+                            syncToPage();
+                            _saveSettings();
+                          },
+                        ),
+                      ],
                     ),
-                    Text("${(localScrollMultiplier * 100).round()}%", style: const TextStyle(fontSize: 20)),
-                    IconButton(
-                      icon: const Icon(Icons.fast_forward, size: 48),
-                      color: Colors.orange,
-                      tooltip: "Zrychlit posuv",
-                      onPressed: () {
-                        setSheetState(() => localScrollMultiplier = (localScrollMultiplier + 0.1).clamp(0.1, 5.0));
-                        syncToPage();
-                        _saveSettings();
-                      },
-                    ),
+                    const SizedBox(height: 4),
+                    Text(AppStrings.bpmOverlayHelp, style: TextStyle(fontSize: 11, color: Colors.grey[600]), textAlign: TextAlign.center),
                   ],
                 ),
                 const Divider(),
@@ -577,13 +649,10 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       return;
     }
     
-    // Výpočet trvání: (px / px_za_beat) * (60 / bpm)
-    final pixelsPerBeat = (_fontSize * 1.5) / 4.0;
-    final totalBeats = remainingScroll / pixelsPerBeat;
-    final durationInSeconds = (totalBeats * 60.0 / (_bpm ?? 120.0)) / _scrollMultiplier;
+    final durationInSeconds = _calcDurationSeconds(remainingScroll);
     
     _scrollAnimationController.duration = Duration(milliseconds: (durationInSeconds * 1000).round());
-    _scrollAnimationController.value = currentOffset / maxExtent;
+    _scrollAnimationController.value = (currentOffset / maxExtent).clamp(0.0, 1.0).toDouble();
     _scrollAnimationController.forward();
   }
 
@@ -714,6 +783,90 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                       child: Text(
                         "$_countdown",
                         style: const TextStyle(fontSize: 80, color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ),
+              // Trvalý overlay pro rychlé ladění BPM i během posuvu (±5 tap, ±10 long-press)
+              if (!_isLoading)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Semantics(
+                    label: "${AppStrings.bpmOverlaySemantics} ${AppStrings.bpmOverlayValue((_bpm ?? 120).round())}",
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(24),
+                      color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Semantics(
+                              label: AppStrings.bpmOverlayDecreaseLabel,
+                              hint: AppStrings.bpmOverlayDecreaseLongLabel,
+                              button: true,
+                              child: GestureDetector(
+                                onLongPress: () => _adjustBpm(-10),
+                                child: IconButton(
+                                  icon: const Icon(Icons.remove),
+                                  tooltip: AppStrings.bpmOverlayDecreaseLabel,
+                                  onPressed: () => _adjustBpm(-5),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                            ),
+                            Semantics(
+                              liveRegion: true,
+                              label: AppStrings.bpmOverlayValue((_bpm ?? 120).round()),
+                              child: Container(
+                                constraints: const BoxConstraints(minWidth: 72),
+                                alignment: Alignment.center,
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      AppStrings.bpmOverlayValue((_bpm ?? 120).round()),
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                        color: Theme.of(context).colorScheme.onSurface,
+                                      ),
+                                    ),
+                                    if ((_scrollMultiplier - 1.0).abs() > 0.01)
+                                      Text(
+                                        AppStrings.bpmEffectiveValue(_effectiveBpm().round()),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Semantics(
+                              label: AppStrings.bpmOverlayIncreaseLabel,
+                              hint: AppStrings.bpmOverlayIncreaseLongLabel,
+                              button: true,
+                              child: GestureDetector(
+                                onLongPress: () => _adjustBpm(10),
+                                child: IconButton(
+                                  icon: const Icon(Icons.add),
+                                  tooltip: AppStrings.bpmOverlayIncreaseLabel,
+                                  onPressed: () => _adjustBpm(5),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
