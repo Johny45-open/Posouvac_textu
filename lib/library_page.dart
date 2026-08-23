@@ -12,6 +12,7 @@ import 'song_entry.dart';
 import 'playlists_page.dart';
 import 'player_page.dart';
 import 'settings_page.dart';
+import 'dev_pin_service.dart';
 import 'manual_page.dart';
 import 'song_utils.dart';
 import 'app_progress_indicator.dart';
@@ -35,6 +36,8 @@ class LibraryPage extends StatefulWidget {
   final ValueChanged<int> onConcertPreviewModeChanged;
   final bool concertTrainingMode;
   final ValueChanged<bool> onConcertTrainingModeChanged;
+  final int concertZonesMode;
+  final ValueChanged<int> onConcertZonesModeChanged;
 
   const LibraryPage({
     super.key,
@@ -50,6 +53,8 @@ class LibraryPage extends StatefulWidget {
     required this.onConcertPreviewModeChanged,
     required this.concertTrainingMode,
     required this.onConcertTrainingModeChanged,
+    required this.concertZonesMode,
+    required this.onConcertZonesModeChanged,
   });
 
   @override
@@ -58,6 +63,7 @@ class LibraryPage extends StatefulWidget {
 
 class _LibraryPageState extends State<LibraryPage> {
   final FlutterTts _tts = FlutterTts();
+  late final DevPinService _pinService;
   bool _onlyFavorites = false;
   bool _onlyUnplayed = false;
   bool _sortByArtist = true;
@@ -74,6 +80,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _tts.setLanguage("cs-CZ");
     _tts.setSpeechRate(0.5);
     AppStrings.isInformal = widget.isInformalMode;
+    _pinService = DevPinService(db: widget.db);
     _initVersion();
     _loadDevMode();
     _initAppVersion();
@@ -119,14 +126,18 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _handleVersionTap() async {
     if (_devModeUnlocked) return;
     _versionTapCount += 1;
-    if (_versionTapCount >= _versionTapTarget) {
-      _versionTapCount = 0;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('devModeUnlocked', true);
-      if (mounted) {
-        setState(() => _devModeUnlocked = true);
-        _tts.speak("Vývojářský režim zapnut");
-      }
+    if (_versionTapCount < _versionTapTarget) return;
+    _versionTapCount = 0;
+
+    // Vstup do vývojářského režimu chrání PIN - zadává se jen zde
+    final ok = await _pinService.verifyDevPin(context, _tts);
+    if (!ok || !mounted) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('devModeUnlocked', true);
+    if (mounted) {
+      setState(() => _devModeUnlocked = true);
+      _tts.speak(AppStrings.devModeOnAnnouncement);
     }
   }
 
@@ -622,6 +633,8 @@ class _LibraryPageState extends State<LibraryPage> {
                       onConcertPreviewModeChanged: widget.onConcertPreviewModeChanged,
                       concertTrainingMode: widget.concertTrainingMode,
                       onConcertTrainingModeChanged: widget.onConcertTrainingModeChanged,
+                      concertZonesMode: widget.concertZonesMode,
+                      onConcertZonesModeChanged: widget.onConcertZonesModeChanged,
                       devModeUnlocked: _devModeUnlocked,
                       onDevModeChanged: (v) => setState(() => _devModeUnlocked = v),
                     ),

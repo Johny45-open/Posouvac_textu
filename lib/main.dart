@@ -131,6 +131,7 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   late bool _concertMode;
   late int _concertPreviewMode; // 0=off, 1=onDemand, 2=auto
   late bool _concertTrainingMode;
+  late int _concertZonesMode; // 0=vždy aktivní, 1=na požádání
   Locale? _locale;
   bool _showManual = false;
 
@@ -148,6 +149,7 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     _concertMode = widget.prefs.getBool('concertMode') ?? false;
     _concertPreviewMode = widget.prefs.getInt('concertPreviewMode') ?? 1;
     _concertTrainingMode = widget.prefs.getBool('concertTrainingMode') ?? false;
+    _concertZonesMode = widget.prefs.getInt('concertZonesMode') ?? 0;
     
     final langCode = widget.prefs.getString('languageCode');
     if (langCode != null) _locale = Locale(langCode);
@@ -224,6 +226,11 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     await widget.prefs.setBool('concertTrainingMode', v);
   }
 
+  Future<void> _updateConcertZonesMode(int mode) async {
+    setState(() => _concertZonesMode = mode);
+    await widget.prefs.setInt('concertZonesMode', mode);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -262,6 +269,8 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
               onConcertPreviewModeChanged: _updateConcertPreviewMode,
               concertTrainingMode: _concertTrainingMode,
               onConcertTrainingModeChanged: _updateConcertTrainingMode,
+              concertZonesMode: _concertZonesMode,
+              onConcertZonesModeChanged: _updateConcertZonesMode,
             ),
     );
   }

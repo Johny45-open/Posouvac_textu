@@ -48,6 +48,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   bool _concertMode = false;
   int _concertPreviewMode = 1; // 0 off, 1 onDemand, 2 auto
   bool _concertTrainingMode = false;
+  int _concertZonesMode = 0; // 0 vždy aktivní, 1 na požádání
+  bool _zonesArmed = false;
   
   SongEntry? _song;
   bool _isLoading = true;
@@ -64,6 +66,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   final Set<_StopMarkTarget> _triggeredMarks = {};
   Map<int, double> _lineOffsets = {};
   Set<int> _anchorLines = {};
+
+  /// Kurzor ručního náhledu - index dalšího řádku k ohlášení při zastaveném posuvu.
+  int? _manualPreviewCursor;
 
   Future<void> _saveSettings() async {
     await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, _fontSize, _scrollMultiplier);
@@ -116,6 +121,18 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
         ),
       );
     }
+  }
+
+  /// Ohlásí jemnou změnu rychlosti posuvu v procentech, včetně efektivního BPM.
+  void _speakScrollSpeed(double multiplier, {required double baseBpm}) {
+    final int percent = (multiplier * 100).round();
+    String message = AppStrings.scrollSpeedChanged(percent);
+    if ((multiplier - 1.0).abs() >= 0.01) {
+      final int effective = (baseBpm * multiplier).round();
+      message += ", ${AppStrings.bpmEffectiveValue(effective)}";
+    }
+    _tts.stop();
+    _tts.speak(message);
   }
 
   Future<void> _showBpmDialog() async {
@@ -176,6 +193,10 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                 _saveSettings();
                 _updateScrollingSpeed();
                 Navigator.pop(context);
+                final int? savedBpm = _bpm?.round();
+                if (savedBpm != null) {
+                  _tts.speak(AppStrings.bpmSetMessage(savedBpm));
+                }
               },
               child: const Text("OK"),
             ),
@@ -252,10 +273,14 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       final mode = prefs.getBool('concertMode') ?? false;
       final preview = prefs.getInt('concertPreviewMode') ?? 1;
       final training = prefs.getBool('concertTrainingMode') ?? false;
+      final zonesMode = prefs.getInt('concertZonesMode') ?? 0;
       setState(() {
         _concertMode = mode;
         _concertPreviewMode = preview;
         _concertTrainingMode = training;
+        _concertZonesMode = zonesMode;
+        // Zóny "na požádání" začínají při každé písni vypnuté
+        _zonesArmed = false;
       });
       await _syncConcertModeToNative();
     } catch (_) {
@@ -280,12 +305,18 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     if (!isAutomatic && _concertPreviewMode == 0) return;
     // Nepřekrývat odpočet a pauzu
     if (_countdown > 0) return;
-    await _concertService.announceNextLine(
+
+    final int? startOverride = isAutomatic ? null : _manualPreviewCursor;
+    final int? announcedIndex = await _concertService.announceNextLine(
       loadedContent: _loadedContent,
       topVisibleLineIndex: _topVisibleLineIndex(),
       lineOffsets: _lineOffsets,
       isAutomatic: isAutomatic,
+      startIndexOverride: startOverride,
     );
+    if (!mounted || isAutomatic) return;
+    // Ruční režim: kurzor postoupí na další řádek; po konci textu se nuluje
+    setState(() => _manualPreviewCursor = announcedIndex == null ? null : announcedIndex + 1);
   }
 
   void _checkAutoNextLine() {
@@ -373,6 +404,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     if (mounted && _isScrolling) {
       _tts.speak(AppStrings.stopMarkResumeMessage);
       HapticFeedback.vibrate();
+      _manualPreviewCursor = null;
       _scrollAnimationController.forward();
     }
   }
@@ -403,6 +435,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           setState(() {
             _loadedContent = content;
             _isLoading = false;
+            _manualPreviewCursor = null;
           });
           await _buildResolvedStopMarks();
         }
@@ -594,6 +627,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                         syncToPage();
                         _saveSettings();
                         _updateScrollingSpeed();
+                        _tts.speak(AppStrings.fontSizeChanged(localFontSize.round()));
                       },
                     ),
                     Text("P: ${localFontSize.round()}", style: const TextStyle(fontSize: 20)),
@@ -606,6 +640,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                         syncToPage();
                         _saveSettings();
                         _updateScrollingSpeed();
+                        _tts.speak(AppStrings.fontSizeChanged(localFontSize.round()));
                       },
                     ),
                   ],
@@ -625,6 +660,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                             setSheetState(() => localScrollMultiplier = (localScrollMultiplier - 0.05).clamp(0.1, 5.0));
                             syncToPage();
                             _saveSettings();
+                            _speakScrollSpeed(localScrollMultiplier, baseBpm: _bpm ?? 120.0);
                           },
                         ),
                         Column(
@@ -641,6 +677,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                             setSheetState(() => localScrollMultiplier = (localScrollMultiplier + 0.05).clamp(0.1, 5.0));
                             syncToPage();
                             _saveSettings();
+                            _speakScrollSpeed(localScrollMultiplier, baseBpm: _bpm ?? 120.0);
                           },
                         ),
                       ],
@@ -735,7 +772,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
 
   void _startScrolling() {
     if (!_scrollController.hasClients) return;
-    
+    _manualPreviewCursor = null;
+
     final maxExtent = _scrollController.position.maxScrollExtent;
     final currentOffset = _scrollController.offset;
     final remainingScroll = maxExtent - currentOffset;
@@ -761,7 +799,16 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     });
 
     // Pokud jsme v režimu Setlist a došli jsme na konec, nabídneme další píseň
-    if (widget.setlistIds != null && _scrollController.offset >= _scrollController.position.maxScrollExtent - 10) {
+    final bool setlistEndReached = widget.setlistIds != null &&
+        _scrollController.hasClients &&
+        _scrollController.offset >= _scrollController.position.maxScrollExtent - 10;
+
+    // Konec setlistu ohlašuje samotný přechod na další píseň, neopakujeme
+    if (!setlistEndReached) {
+      _tts.speak(AppStrings.scrollStopped);
+    }
+
+    if (setlistEndReached) {
       _handleNextInSetlist();
     }
   }
@@ -804,6 +851,21 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     }
   }
 
+  /// Označí nebo odoznačí píseň jako odehranou (DOHRÁNO / PŘÍDAVEK).
+  Future<void> _togglePlayed() async {
+    final song = _song;
+    if (song == null) return;
+    final bool newStatus = !song.isPlayed;
+    await widget.db.togglePlayed(song.id, newStatus);
+    _tts.speak(newStatus
+        ? AppStrings.songMarkedPlayed(song.title)
+        : AppStrings.songMarkedNotPlayed(song.title));
+    if (!mounted) return;
+    setState(() {
+      _song = song.copyWith(isPlayed: newStatus);
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -827,6 +889,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   // Koncertní 3-zónový overlay: levá zpomalit, střed play/pause, pravá zrychlit
   Widget _buildConcertZones() {
     if (!_concertMode || _isLoading) return const SizedBox.shrink();
+    // Režim "na požádání": zóny nesmí zasahovat do dotyků, dokud je obsluha nezapne
+    if (_concertZonesMode == 1 && !_zonesArmed) return const SizedBox.shrink();
     return Positioned.fill(
       child: Listener(
         onPointerMove: (details) {
@@ -1096,6 +1160,28 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          // Přepínač zónového ovládání (jen v režimu "na požádání")
+          if (_concertMode && _concertZonesMode == 1)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Semantics(
+                label: _zonesArmed ? AppStrings.zoneToggleDisarmLabel : AppStrings.zoneToggleArmLabel,
+                hint: _zonesArmed ? AppStrings.zonesDisarmedAnnouncement : AppStrings.zonesArmedAnnouncement,
+                button: true,
+                child: FloatingActionButton.small(
+                  heroTag: 'zonesToggleFAB',
+                  tooltip: _zonesArmed ? AppStrings.zoneToggleDisarmLabel : AppStrings.zoneToggleArmLabel,
+                  onPressed: () {
+                    setState(() => _zonesArmed = !_zonesArmed);
+                    HapticFeedback.lightImpact();
+                    _tts.speak(_zonesArmed
+                        ? AppStrings.zonesArmedAnnouncement
+                        : AppStrings.zonesDisarmedAnnouncement);
+                  },
+                  child: Icon(_zonesArmed ? Icons.touch_app : Icons.pan_tool),
+                ),
+              ),
+            ),
           // Tlačítko náhled dalšího řádku v koncertním režimu
           if (_concertMode && _concertPreviewMode != 0)
             Padding(
@@ -1138,6 +1224,27 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           ),
         ],
       ),
+      bottomNavigationBar: (_isLoading || _song == null)
+          ? null
+          : BottomAppBar(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Semantics(
+                  label: _song!.isPlayed ? AppStrings.encoreButton : AppStrings.playedButton,
+                  button: true,
+                  child: ElevatedButton.icon(
+                    icon: Icon(_song!.isPlayed ? Icons.replay : Icons.check_circle),
+                    label: Text(
+                      _song!.isPlayed
+                          ? AppStrings.encoreButton
+                          : AppStrings.playedButton,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: _togglePlayed,
+                  ),
+                ),
+              ),
+            ),
       ),
     );
   }

@@ -14,6 +14,7 @@ import 'app_progress_indicator.dart';
 import 'app_strings.dart';
 import 'custom_tts_settings_page.dart';
 import 'dev_log.dart';
+import 'dev_pin_service.dart';
 import 'library_checker.dart';
 import 'update_dialogs.dart';
 import 'package:flutter/services.dart';
@@ -30,11 +31,13 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<int> onConcertPreviewModeChanged;
   final bool concertTrainingMode;
   final ValueChanged<bool> onConcertTrainingModeChanged;
+  final int concertZonesMode;
+  final ValueChanged<int> onConcertZonesModeChanged;
   final bool devModeUnlocked;
   final ValueChanged<bool> onDevModeChanged;
 
   const SettingsPage({
-    super.key, 
+    super.key,
     required this.db,
     required this.themeMode,
     required this.onThemeModeChanged,
@@ -46,6 +49,8 @@ class SettingsPage extends StatefulWidget {
     required this.onConcertPreviewModeChanged,
     required this.concertTrainingMode,
     required this.onConcertTrainingModeChanged,
+    required this.concertZonesMode,
+    required this.onConcertZonesModeChanged,
     required this.devModeUnlocked,
     required this.onDevModeChanged,
   });
@@ -56,211 +61,81 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   final FlutterTts _tts = FlutterTts();
-
-  static const String _defaultDevPin = "1950";
-  static const int _maxPinAttempts = 5;
-  static const int _softResetAttempts = 10;
-
-  static const String _prefsKeyDevMode = 'devModeUnlocked';
-  static const String _prefsKeyPin = 'devPin';
-  static const String _prefsKeyPinAttempts = 'devPinFailedAttempts';
-  static const String _prefsKeyPinLockoutUntil = 'devPinLockoutUntil';
+  late final DevPinService _pinService;
 
   late bool _devModeUnlocked;
-  int _pinFailedAttempts = 0;
-  DateTime? _pinLockoutUntil;
 
   @override
   void initState() {
     super.initState();
     _tts.setLanguage("cs-CZ");
     _devModeUnlocked = widget.devModeUnlocked;
-    _loadPinState();
+    _pinService = DevPinService(db: widget.db);
   }
 
-  Future<void> _loadPinState() async {
-    final prefs = await SharedPreferences.getInstance();
-    _pinFailedAttempts = prefs.getInt(_prefsKeyPinAttempts) ?? 0;
-    final lockoutMs = prefs.getInt(_prefsKeyPinLockoutUntil);
-    if (lockoutMs != null) {
-      final until = DateTime.fromMillisecondsSinceEpoch(lockoutMs);
-      if (until.isAfter(DateTime.now())) {
-        _pinLockoutUntil = until;
-      } else {
-        await prefs.remove(_prefsKeyPinLockoutUntil);
-      }
-    }
-    if (mounted) setState(() {});
-  }
-
-  bool _isLockedOut() =>
-      _pinLockoutUntil != null && _pinLockoutUntil!.isAfter(DateTime.now());
-
-  Future<void> _resetPinState() async {
-    final prefs = await SharedPreferences.getInstance();
-    _pinFailedAttempts = 0;
-    _pinLockoutUntil = null;
-    await prefs.remove(_prefsKeyPinAttempts);
-    await prefs.remove(_prefsKeyPinLockoutUntil);
-    if (mounted) setState(() {});
-  }
-
-  Future<String> _currentPin() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_prefsKeyPin) ?? _defaultDevPin;
-  }
-
-  Future<void> _registerFailedAttempt() async {
-    final prefs = await SharedPreferences.getInstance();
-    _pinFailedAttempts += 1;
-    await prefs.setInt(_prefsKeyPinAttempts, _pinFailedAttempts);
-
-    if (_pinFailedAttempts >= _softResetAttempts) {
-      await _softResetDevData();
-    } else if (_pinFailedAttempts % _maxPinAttempts == 0) {
-      _pinLockoutUntil = DateTime.now().add(const Duration(minutes: 5));
-      await prefs.setInt(_prefsKeyPinLockoutUntil, _pinLockoutUntil!.millisecondsSinceEpoch);
-      if (mounted) setState(() {});
-    }
-  }
-
-  int _remainingAttempts() {
-    final nextLockout = ((_pinFailedAttempts ~/ _maxPinAttempts) + 1) * _maxPinAttempts;
-    return nextLockout - _pinFailedAttempts;
-  }
-
-  Future<void> _softResetDevData() async {
-    await widget.db.clearCustomStrings();
-    AppStrings.setCustomStrings({});
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefsKeyPin);
-    _pinFailedAttempts = 0;
-    _pinLockoutUntil = null;
-    await prefs.remove(_prefsKeyPinAttempts);
-    await prefs.remove(_prefsKeyPinLockoutUntil);
-
-    _tts.speak("Příliš mnoho pokusů, vývojářská data resetována");
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Vývojářská data resetována"),
-        content: const Text("Po mnoha špatných pokusech byly hlasové zprávy vráceny na výchozí hodnoty a vývojářský PIN na výchozí. Vaše písně a playlisty zůstaly nedotčené."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Rozumím")),
-        ],
-      ),
-    );
-    if (mounted) setState(() {});
-  }
-
+  /// Hlasové zprávy - PIN už byl ověřen při vstupu do vývojářského režimu.
   Future<void> _openVoiceMessages() async {
-    final ok = await _verifyCurrentPin();
-    if (!ok || !mounted) return;
-    _tts.speak("Vývojářská sekce odemčena");
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => CustomTtsSettingsPage(db: widget.db)),
     );
   }
 
-  Future<void> _showLockoutDialog() async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _LockoutDialog(until: _pinLockoutUntil!),
-    );
+  String _previewModeAnnouncement(int mode) {
+    final String name = mode == 0
+        ? AppStrings.concertPreviewOff
+        : mode == 1
+            ? AppStrings.concertPreviewOnDemand
+            : AppStrings.concertPreviewAuto;
+    final String hint = mode == 0
+        ? AppStrings.concertPreviewOffHint
+        : mode == 1
+            ? AppStrings.concertPreviewOnDemandHint
+            : AppStrings.concertPreviewAutoHint;
+    return "$name. $hint";
   }
 
-  Future<String?> _promptForPin({required String title, String? confirmLabel}) async {
-    final controller = TextEditingController();
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          obscureText: true,
-          keyboardType: TextInputType.number,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: "PIN"),
-          onSubmitted: (_) => Navigator.pop(context, true),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(confirmLabel ?? "Potvrdit")),
-        ],
-      ),
-    );
-    return result == true ? controller.text.trim() : null;
-  }
-
-  Future<bool> _verifyCurrentPin() async {
-    await _loadPinState();
-    if (!mounted) return false;
-    if (_isLockedOut()) {
-      await _showLockoutDialog();
-      return false;
-    }
-
-    final entered = await _promptForPin(title: "Vývojářský PIN");
-    if (entered == null) return false;
-
-    final current = await _currentPin();
-    if (entered == current) {
-      await _resetPinState();
-      return true;
-    }
-
-    await _registerFailedAttempt();
-    if (!mounted) return false;
-    if (_isLockedOut()) {
-      await _showLockoutDialog();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Nesprávný PIN, zbývá ${_remainingAttempts()} pokusů")),
-      );
-    }
-    return false;
+  String _zonesModeAnnouncement(int mode) {
+    final String name = mode == 0 ? AppStrings.concertZonesAlways : AppStrings.concertZonesOnDemand;
+    final String hint = mode == 0 ? AppStrings.concertZonesAlwaysHint : AppStrings.concertZonesOnDemandHint;
+    return "$name. $hint";
   }
 
   Future<void> _changeDevPin() async {
-    final ok = await _verifyCurrentPin();
+    final ok = await _pinService.verifyDevPin(context, _tts);
     if (!ok || !mounted) return;
 
-    final newPin = await _promptForPin(title: "Nový vývojářský PIN");
+    final newPin = await _pinService.promptForPin(context, title: "Nový vývojářský PIN");
     if (newPin == null) return;
     if (newPin.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("PIN nesmí být prázdný")),
-        );
-      }
+      if (!mounted) return;
+      _tts.speak(AppStrings.pinEmpty);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.pinEmpty)),
+      );
       return;
     }
     if (newPin.length < 4) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("PIN musí mít alespoň 4 číslice")),
-        );
-      }
+      if (!mounted) return;
+      _tts.speak(AppStrings.pinTooShort);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.pinTooShort)),
+      );
       return;
     }
 
-    final confirmPin = await _promptForPin(title: "Potvrďte nový vývojářský PIN");
+    final confirmPin = await _pinService.promptForPin(context, title: "Potvrďte nový vývojářský PIN");
     if (confirmPin == null) return;
     if (newPin != confirmPin) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Zadané PINy se neshodují")),
-        );
-      }
+      if (!mounted) return;
+      _tts.speak(AppStrings.pinMismatch);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.pinMismatch)),
+      );
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKeyPin, newPin);
-    await _resetPinState();
+    await _pinService.saveNewPin(newPin);
     _tts.speak("Vývojářský PIN změněn");
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -271,8 +146,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _disableDevMode() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsKeyDevMode, false);
-    await _resetPinState();
+    await prefs.setBool('devModeUnlocked', false);
+    await _pinService.resetState();
     if (mounted) {
       setState(() => _devModeUnlocked = false);
       widget.onDevModeChanged(false);
@@ -762,14 +637,47 @@ class _SettingsPageState extends State<SettingsPage> {
                     onSelectionChanged: (s) {
                       final mode = s.first;
                       widget.onConcertPreviewModeChanged(mode);
-                      String msg = mode == 0 ? AppStrings.concertPreviewOff : mode == 1 ? AppStrings.concertPreviewOnDemand : AppStrings.concertPreviewAuto;
-                      _tts.speak(msg);
+                      _tts.speak(_previewModeAnnouncement(mode));
                     },
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    widget.concertPreviewMode == 1 ? AppStrings.concertPreviewOnDemandHint : widget.concertPreviewMode == 2 ? AppStrings.concertPreviewAutoHint : AppStrings.concertPreviewOff,
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _previewModeAnnouncement(widget.concertPreviewMode),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 24),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(AppStrings.concertZonesModeTitle, style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  SegmentedButton<int>(
+                    segments: [
+                      ButtonSegment(value: 0, label: Text(AppStrings.concertZonesAlways), icon: Icon(Icons.tap_and_play)),
+                      ButtonSegment(value: 1, label: Text(AppStrings.concertZonesOnDemand), icon: Icon(Icons.pan_tool)),
+                    ],
+                    selected: {widget.concertZonesMode},
+                    onSelectionChanged: (s) {
+                      final mode = s.first;
+                      widget.onConcertZonesModeChanged(mode);
+                      _tts.speak(_zonesModeAnnouncement(mode));
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _zonesModeAnnouncement(widget.concertZonesMode),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
                   ),
                 ],
               ),
@@ -841,7 +749,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ListTile(
               leading: const Icon(Icons.record_voice_over),
               title: const Text("Vlastní hlasové zprávy"),
-              subtitle: const Text("Upravit hlasové hlášky aplikace (PIN)"),
+              subtitle: const Text("Upravit hlasové hlášky aplikace"),
               onTap: _openVoiceMessages,
             ),
             ListTile(
@@ -880,45 +788,3 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
-class _LockoutDialog extends StatefulWidget {
-  final DateTime until;
-
-  const _LockoutDialog({required this.until});
-
-  @override
-  State<_LockoutDialog> createState() => _LockoutDialogState();
-}
-
-class _LockoutDialogState extends State<_LockoutDialog> {
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  String _format(Duration d) {
-    final minutes = d.inMinutes;
-    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return "$minutes:$seconds";
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final remaining = widget.until.difference(DateTime.now());
-    return AlertDialog(
-      title: const Text("Příliš mnoho pokusů"),
-      content: Text("Vyčkejte prosím ${_format(remaining)} než to zkusíte znovu."),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zavřít")),
-      ],
-    );
-  }
-}

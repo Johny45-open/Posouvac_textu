@@ -377,6 +377,26 @@ class AppStrings {
   static String get concertPreviewAutoHint => isInformal
       ? "Sám ohlásí další řádek 2,5 sekundy předem - vhodné s jedním sluchátkem"
       : "Automaticky ohlásí další řádek 2,5 sekundy předem - vhodné s jedním sluchátkem";
+  static String get concertPreviewOffHint => isInformal
+      ? "Řádky se samy neohlášují, můžeš si je říct ručně"
+      : "Vypnuto - další řádek se automaticky neohlášuje";
+
+  static String get concertZonesModeTitle => isInformal ? "Zónové ovládání" : "Zónové ovládání obrazovky";
+  static String get concertZonesAlways => isInformal ? "Pořád aktivní" : "Vždy aktivní";
+  static String get concertZonesOnDemand => isInformal ? "Na požádání" : "Na požádání";
+  static String get concertZonesAlwaysHint => isInformal
+      ? "Zóny reagujou na dotik hned, jak je znáš"
+      : "Zóny reagují na dotyky okamžitě - dosavadní chování";
+  static String get concertZonesOnDemandHint => isInformal
+      ? "Nejdřív nic nedělaj, zapneš je tlačítkem v přehrávači"
+      : "Zóny nejdřív nereagují. Zapnete je tlačítkem v přehrávači";
+
+  static String get zoneToggleArmLabel => isInformal ? "Zapnout zóny" : "Zapnout zónové ovládání";
+  static String get zoneToggleDisarmLabel => isInformal ? "Vypnout zóny" : "Vypnout zónové ovládání";
+  static String get zonesArmedAnnouncement => isInformal ? "Zóny jsou živý!" : "Zónové ovládání zapnuto";
+  static String get zonesDisarmedAnnouncement => isInformal
+      ? "Zóny vypnutý, text si můžeš klidně projet prstem."
+      : "Zónové ovládání vypnuto.";
 
   // --- NÁHLED DALŠÍHO ŘÁDKU ---
   static String nextLineAnnouncement(String text) => isInformal ? "Další: $text" : "Další: $text";
@@ -392,4 +412,26 @@ class AppStrings {
   static String get concertZoneCenterSemantics => isInformal ? "Spustit nebo zastavit posuv, střed" : "Spustit nebo zastavit posuv";
   static String get concertZoneRightSemantics => isInformal ? "Zrychlit o 5 BPM, pravá třetina" : "Zrychlit o 5 BPM";
   static String get concertZoneNextLineSemantics => isInformal ? "Ohlásit další řádek" : "Ohlásit další řádek";
+
+  // --- HLASOVÁ OHLÁŠENÍ PŘEHRÁVAČE ---
+  static String fontSizeChanged(int size) => isInformal ? "Písmo $size" : "Písmo $size";
+  static String scrollSpeedChanged(int percent) => isInformal
+      ? "Rychlost posuvu $percent procent"
+      : "Rychlost posuvu $percent procent";
+  static String bpmSetMessage(int bpm) => isInformal
+      ? "Nastaveno $bpm BPM"
+      : "Nastaveno $bpm BPM";
+  static String get scrollStopped => isInformal ? "Stavím to!" : "Posuv zastaven";
+
+  // --- VÝVOJÁŘSKÝ REŽIM ---
+  static String get devModeOnAnnouncement => isInformal ? "Vývojářskej režim je vzhůru!" : "Vývojářský režim zapnut";
+  static String pinIncorrect(int remaining) => remaining <= 1
+      ? (isInformal ? "PIN nesedí, tohle byl poslední pokus." : "Nesprávný PIN, zbývá poslední pokus.")
+      : (isInformal ? "PIN nesedí, máš ještě $remaining pokusy." : "Nesprávný PIN, zbývá $remaining pokusů.");
+  static String get pinEmpty => "PIN nesmí být prázdný";
+  static String get pinTooShort => isInformal ? "PIN musí mít aspoň 4 číslice" : "PIN musí mít alespoň 4 číslice";
+  static String get pinMismatch => isInformal ? "Zadaný PINy se neshodujou" : "Zadané PINy se neshodují";
+  static String pinLockout(int minutes) => isInformal
+      ? "To je moc pokusů. Zkus to za $minutes minuty."
+      : "Přístup do vývojářského režimu je na $minutes minut zamčen.";
 }

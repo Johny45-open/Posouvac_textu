@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'chord_pro_parser.dart';
+import 'app_strings.dart';
 
 /// Služba pro koncertní režim: HW klávesy, pedál, náhled dalšího řádku.
 /// Navržena pro nevidomého muzikanta - odolná vůči hluku, bez hlasového ovládání.
@@ -69,21 +70,23 @@ class ConcertAccessibilityService {
   }
 
   /// Sestaví text pro TTS náhled dalšího řádku.
-  /// Vrací null pokud není co hlásit.
-  String? buildNextLineAnnouncement({
+  /// Vrací text a skutečný index ohlášeného řádku, null pokud není co hlásit.
+  /// [startIndexOverride] umožňuje ručnímu režimu postupovat kurzorem po řádcích.
+  ({String text, int index})? buildNextLineAnnouncement({
     required String? loadedContent,
     required int? topVisibleLineIndex,
     required Map<int, double> lineOffsets,
+    int? startIndexOverride,
   }) {
     if (loadedContent == null || loadedContent.isEmpty) return null;
     final lines = ChordProParser.orderedLines(loadedContent);
     if (lines.isEmpty) return null;
 
     int nextIndex;
-    if (topVisibleLineIndex != null) {
+    if (startIndexOverride != null) {
+      nextIndex = startIndexOverride;
+    } else if (topVisibleLineIndex != null) {
       nextIndex = topVisibleLineIndex + 1;
-    } else if (lineOffsets.isNotEmpty) {
-      nextIndex = 0;
     } else {
       nextIndex = 0;
     }
@@ -136,40 +139,42 @@ class ConcertAccessibilityService {
       // Refrén je implicitní, nezahlcujeme
     }
 
-    return announcement.trim().isEmpty ? null : announcement;
+    final trimmed = announcement.trim();
+    if (trimmed.isEmpty) return null;
+    return (text: trimmed, index: nextIndex);
   }
 
   /// Zavolá TTS pro další řádek, s haptikou a ochranou proti duplicitám v auto režimu.
-  Future<void> announceNextLine({
+  /// Vrací index ohlášeného řádku, nebo null pokud nebylo co hlásit (konec textu).
+  Future<int?> announceNextLine({
     required String? loadedContent,
     required int? topVisibleLineIndex,
     required Map<int, double> lineOffsets,
     required bool isAutomatic,
+    int? startIndexOverride,
   }) async {
-    final text = buildNextLineAnnouncement(
+    final result = buildNextLineAnnouncement(
       loadedContent: loadedContent,
       topVisibleLineIndex: topVisibleLineIndex,
       lineOffsets: lineOffsets,
+      startIndexOverride: startIndexOverride,
     );
-    if (text == null) {
+    if (result == null) {
       await tts.stop();
-      await tts.speak('Konec textu');
+      await tts.speak(AppStrings.nextLineEmpty);
       HapticFeedback.mediumImpact();
-      return;
+      return null;
     }
 
     // V automatickém režimu neopakovat stejný řádek
-    if (isAutomatic) {
-      final int nextIdx = topVisibleLineIndex != null ? topVisibleLineIndex + 1 : 0;
-      if (nextIdx == _lastAnnouncedIndex) return;
-      _lastAnnouncedIndex = nextIdx;
-    }
+    if (isAutomatic && result.index == _lastAnnouncedIndex) return result.index;
+
+    if (isAutomatic) _lastAnnouncedIndex = result.index;
 
     await tts.stop();
     HapticFeedback.lightImpact();
-    // Použij AppStrings prefix pro lokalizaci
-    final spoken = text;
-    await tts.speak('Další: $spoken');
+    await tts.speak(AppStrings.nextLineAnnouncement(result.text));
+    return result.index;
   }
 
   /// Pro automatiku: zkontroluj zda se blíží další řádek (časově).
