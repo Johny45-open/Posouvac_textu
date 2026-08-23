@@ -33,6 +33,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<bool> onConcertTrainingModeChanged;
   final int concertZonesMode;
   final ValueChanged<int> onConcertZonesModeChanged;
+  final int setlistDelay;
+  final ValueChanged<int> onSetlistDelayChanged;
   final bool devModeUnlocked;
   final ValueChanged<bool> onDevModeChanged;
 
@@ -51,6 +53,8 @@ class SettingsPage extends StatefulWidget {
     required this.onConcertTrainingModeChanged,
     required this.concertZonesMode,
     required this.onConcertZonesModeChanged,
+    required this.setlistDelay,
+    required this.onSetlistDelayChanged,
     required this.devModeUnlocked,
     required this.onDevModeChanged,
   });
@@ -688,6 +692,41 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: const Text("Při dotyku ohlásí funkci zóny"),
               value: widget.concertTrainingMode,
               onChanged: widget.onConcertTrainingModeChanged,
+            ),
+            const Divider(height: 24),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(AppStrings.setlistDelayTitle, style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  Text(AppStrings.setlistDelaySubtitle, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  const SizedBox(height: 8),
+                  SegmentedButton<int>(
+                    segments: [
+                      ButtonSegment(value: 3, label: Text(AppStrings.setlistDelay3)),
+                      ButtonSegment(value: 5, label: Text(AppStrings.setlistDelay5)),
+                      ButtonSegment(value: 10, label: Text(AppStrings.setlistDelay10)),
+                      ButtonSegment(value: -1, label: Text(AppStrings.setlistDelayWait), icon: Icon(Icons.touch_app)),
+                    ],
+                    selected: {widget.setlistDelay},
+                    onSelectionChanged: (s) {
+                      final d = s.first;
+                      widget.onSetlistDelayChanged(d);
+                      _tts.speak(AppStrings.setlistDelayAnnouncement(d));
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      AppStrings.setlistDelayAnnouncement(widget.setlistDelay),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const Divider(height: 24),
           ],

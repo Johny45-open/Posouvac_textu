@@ -23,11 +23,31 @@ class ConcertAccessibilityService {
     required VoidCallback onToggleScrolling,
     required Future<void> Function(int delta) onAdjustBpm,
     required Future<void> Function() onAnnounceNext,
+    Future<void> Function()? onNextSong,
+    Future<void> Function()? onPrevSong,
   }) {
     if (!concertMode) return false;
     if (event is! KeyDownEvent) return false;
 
     final key = event.logicalKey;
+
+    // Setlist: další / předchozí píseň - HW media klávesy (B2)
+    if (onNextSong != null &&
+        (key == LogicalKeyboardKey.mediaTrackNext ||
+            key == LogicalKeyboardKey.browserForward ||
+            key == LogicalKeyboardKey.f12)) {
+      HapticFeedback.heavyImpact();
+      onNextSong();
+      return true;
+    }
+    if (onPrevSong != null &&
+        (key == LogicalKeyboardKey.mediaTrackPrevious ||
+            key == LogicalKeyboardKey.browserBack ||
+            key == LogicalKeyboardKey.f11)) {
+      HapticFeedback.heavyImpact();
+      onPrevSong();
+      return true;
+    }
 
     // Pedál / klávesnice: mezerník, enter, media play/pause -> play/pause
     if (key == LogicalKeyboardKey.space ||

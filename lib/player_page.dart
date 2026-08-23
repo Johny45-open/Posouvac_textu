@@ -50,6 +50,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   bool _concertTrainingMode = false;
   int _concertZonesMode = 0; // 0 vždy aktivní, 1 na požádání
   bool _zonesArmed = false;
+  int _setlistDelay = 5; // 3,5,10 nebo -1 = čekat na stisk (C2)
+  bool _setlistAutoPending = false;
+  bool _setlistCancelled = false;
   
   SongEntry? _song;
   bool _isLoading = true;
@@ -254,6 +257,10 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       if (_concertMode) {
         await _adjustBpm(delta);
       }
+    } else if (call.method == 'onSetlistNext' || call.method == 'onVolumeLongNext') {
+      if (widget.setlistIds != null) await _handleNextInSetlist(manual: true);
+    } else if (call.method == 'onSetlistPrev' || call.method == 'onVolumeLongPrev') {
+      if (widget.setlistIds != null) await _handlePreviousInSetlist();
     }
     return null;
   }
@@ -274,11 +281,13 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       final preview = prefs.getInt('concertPreviewMode') ?? 1;
       final training = prefs.getBool('concertTrainingMode') ?? false;
       final zonesMode = prefs.getInt('concertZonesMode') ?? 0;
+      final delay = prefs.getInt('setlistDelay') ?? 5;
       setState(() {
         _concertMode = mode;
         _concertPreviewMode = preview;
         _concertTrainingMode = training;
         _concertZonesMode = zonesMode;
+        _setlistDelay = delay;
         // Zóny "na požádání" začínají při každé písni vypnuté
         _zonesArmed = false;
       });
@@ -295,6 +304,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       onToggleScrolling: _toggleScrolling,
       onAdjustBpm: (d) => _adjustBpm(d),
       onAnnounceNext: () => _announceNextLine(isAutomatic: false),
+      onNextSong: widget.setlistIds == null ? null : () => _handleNextInSetlist(manual: true),
+      onPrevSong: widget.setlistIds == null ? null : () => _handlePreviousInSetlist(),
     );
     return handled ? KeyEventResult.handled : KeyEventResult.ignored;
   }
@@ -813,37 +824,129 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _handleNextInSetlist() async {
+  Future<void> _navigateToSetlistSong(int targetSongId) async {
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PlayerPage(
+          songId: targetSongId,
+          db: widget.db,
+          setlistIds: widget.setlistIds,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleNextInSetlist({bool manual = false}) async {
+    if (widget.setlistIds == null) return;
     final currentIndex = widget.setlistIds!.indexOf(widget.songId);
+    // Pokud je automatický přechod zrušen manuálním zásahem, ignoruj
+    if (!manual && _setlistCancelled) {
+      _setlistCancelled = false;
+      return;
+    }
     if (currentIndex != -1 && currentIndex < widget.setlistIds!.length - 1) {
       final nextSongId = widget.setlistIds![currentIndex + 1];
       final nextSong = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(nextSongId))).getSingle();
       
-      if (mounted) {
-        _tts.speak(AppStrings.nextSongMessage(nextSong.title, nextSong.artist));
-        
-        // Krátká pauza na vydýchání
-        await Future.delayed(const Duration(seconds: 3));
-        
+      if (!mounted) return;
+
+      // Oznámit pozici v setlistu (B2)
+      final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex + 2, widget.setlistIds!.length);
+      _tts.speak("${AppStrings.nextSongMessage(nextSong.title, nextSong.artist)} $posMsg");
+      HapticFeedback.mediumImpact();
+
+      if (_setlistDelay < 0) {
+        // Režim čekat na stisk (C2)
+        if (!mounted) return;
+        setState(() => _setlistAutoPending = true);
+        _tts.speak(AppStrings.setlistNextReady);
         if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => PlayerPage(
-                songId: nextSongId,
-                db: widget.db,
-                setlistIds: widget.setlistIds,
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(AppStrings.setlistNextReady),
+              duration: const Duration(days: 1),
+              action: SnackBarAction(
+                label: "Spustit hned",
+                onPressed: () {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  _navigateToSetlistSong(nextSongId);
+                },
               ),
             ),
           );
         }
+        return;
       }
+
+      // Auto režim s nastavitelnou prodlevou + možnost zrušit
+      _setlistCancelled = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Za $_setlistDelay s: ${nextSong.title} - ${nextSong.artist}"),
+            duration: Duration(seconds: _setlistDelay),
+            action: SnackBarAction(
+              label: AppStrings.setlistCancelAutoLabel,
+              onPressed: () {
+                _setlistCancelled = true;
+                _tts.speak(AppStrings.scrollStopped);
+                HapticFeedback.lightImpact();
+              },
+            ),
+          ),
+        );
+      }
+      await Future.delayed(Duration(seconds: _setlistDelay));
+      if (!mounted || _setlistCancelled) {
+        _setlistCancelled = false;
+        return;
+      }
+      await _navigateToSetlistSong(nextSongId);
     } else {
       _tts.speak(AppStrings.setlistEndMessage);
+      HapticFeedback.heavyImpact();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppStrings.setlistEndMessage), duration: const Duration(seconds: 4)),
+        );
+      }
+    }
+  }
+
+  Future<void> _handlePreviousInSetlist() async {
+    if (widget.setlistIds == null) return;
+    final currentIndex = widget.setlistIds!.indexOf(widget.songId);
+    if (currentIndex > 0) {
+      final prevSongId = widget.setlistIds![currentIndex - 1];
+      final prevSong = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(prevSongId))).getSingle();
+      if (!mounted) return;
+      final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex, widget.setlistIds!.length);
+      _tts.speak("${AppStrings.setlistPrevSongAnnouncement(prevSong.title, prevSong.artist)} $posMsg");
+      HapticFeedback.mediumImpact();
+      // Zrušit případný čekající auto-přechod
+      _setlistCancelled = true;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      setState(() => _setlistAutoPending = false);
+      await _navigateToSetlistSong(prevSongId);
+    } else {
+      _tts.speak("Jste na první písni setlistu");
+      HapticFeedback.lightImpact();
     }
   }
 
   void _toggleScrolling() {
+    // Pokud čekáme na potvrzení další písně (režim čekat na stisk), poklep spustí další
+    if (_setlistAutoPending && widget.setlistIds != null) {
+      final idx = widget.setlistIds!.indexOf(widget.songId);
+      if (idx != -1 && idx < widget.setlistIds!.length - 1) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        setState(() => _setlistAutoPending = false);
+        _navigateToSetlistSong(widget.setlistIds![idx + 1]);
+        return;
+      }
+    }
     if (_isScrolling) {
       _stopScrolling();
     } else {
@@ -972,6 +1075,17 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     );
   }
 
+  Widget _buildAppBarTitle() {
+    final base = _song?.title ?? "";
+    if (widget.setlistIds == null) return Text(base);
+    final idx = widget.setlistIds!.indexOf(widget.songId);
+    if (idx == -1) return Text(base);
+    return Semantics(
+      label: "$base. ${AppStrings.setlistPositionAnnouncement(idx + 1, widget.setlistIds!.length)}",
+      child: Text(base),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // V koncertním režimu zvětšit BPM overlay a hit targety
@@ -982,8 +1096,26 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       onKeyEvent: _handleKeyEvent,
       child: Scaffold(
       appBar: AppBar(
-        title: Text(_song?.title ?? ""),
+        title: _buildAppBarTitle(),
         actions: [
+          if (widget.setlistIds != null && !_isLoading)
+            Semantics(
+              label: AppStrings.setlistPositionAnnouncement(
+                widget.setlistIds!.indexOf(widget.songId) + 1,
+                widget.setlistIds!.length,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Chip(
+                  label: Text(
+                    "${widget.setlistIds!.indexOf(widget.songId) + 1}/${widget.setlistIds!.length}",
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  backgroundColor: Colors.blue.withOpacity(0.15),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
           if (_concertMode)
             Semantics(
               label: AppStrings.concertModeTitle,
@@ -1160,6 +1292,35 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          // Setlist: předchozí / další (B2) - přístupné i bez koncertního režimu
+          if (widget.setlistIds != null && widget.setlistIds!.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Semantics(
+                label: AppStrings.setlistSkipPrevLabel,
+                button: true,
+                child: FloatingActionButton.small(
+                  heroTag: 'prevSongFAB',
+                  tooltip: AppStrings.setlistSkipPrevLabel,
+                  onPressed: _handlePreviousInSetlist,
+                  child: const Icon(Icons.skip_previous),
+                ),
+              ),
+            ),
+          if (widget.setlistIds != null && widget.setlistIds!.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Semantics(
+                label: AppStrings.setlistSkipNextLabel,
+                button: true,
+                child: FloatingActionButton.small(
+                  heroTag: 'nextSongFAB',
+                  tooltip: AppStrings.setlistSkipNextLabel,
+                  onPressed: () => _handleNextInSetlist(manual: true),
+                  child: const Icon(Icons.skip_next),
+                ),
+              ),
+            ),
           // Přepínač zónového ovládání (jen v režimu "na požádání")
           if (_concertMode && _concertZonesMode == 1)
             Padding(

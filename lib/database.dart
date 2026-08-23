@@ -471,9 +471,22 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> movePlaylistSong(int playlistId, int songId, int newOrderIndex) async {
-    await (update(playlistSongs)
-          ..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId)))
-        .write(PlaylistSongsCompanion(orderIndex: Value(newOrderIndex)));
+    await transaction(() async {
+      final all = await (select(playlistSongs)
+            ..where((t) => t.playlistId.equals(playlistId))
+            ..orderBy([(t) => OrderingTerm.asc(t.orderIndex)]))
+          .get();
+      final curIdx = all.indexWhere((e) => e.songId == songId);
+      if (curIdx == -1) return;
+      final item = all.removeAt(curIdx);
+      final target = newOrderIndex.clamp(0, all.length).toInt();
+      all.insert(target, item);
+      for (var i = 0; i < all.length; i++) {
+        await (update(playlistSongs)
+              ..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(all[i].songId)))
+            .write(PlaylistSongsCompanion(orderIndex: Value(i)));
+      }
+    });
   }
 
   Stream<List<SongEntry>> watchSongsInPlaylist(int playlistId) {

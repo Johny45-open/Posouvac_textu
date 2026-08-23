@@ -70,10 +70,10 @@ class AppStrings {
       : "Pokud nestíháte, klepněte na minus – tempo se sníží o 5 BPM i během posuvu (podržením o 10). Pro pomalé 75 až 90, pro rychlé 110 až 130 BPM. Pauzu přidáte PAUZOU na začátek sloky.";
 
   // ... (a tak dále pro všechny ostatní metody, ale pro stručnost zde jen hlavní princip)
-  static String get extraTitle => isInformal ? "Ladička a setlisty" : "Ladička a Playlisty";
+  static String get extraTitle => isInformal ? "Ladička a setlisty" : "Ladička a setlisty";
   static String get extraContent => isInformal 
-      ? "Naladíš se přes tu notu v knihovně. A přes plusko si songy naházíš do playlistů, třeba na dnešní oslavu."
-      : "Ikona noty v Knihovně otevře ladičku. Ikona plus u písně vám umožní zařadit ji do vlastních seznamů, jako jsou například playlisty Olympic nebo Oslava.";
+      ? "Naladíš se přes tu notu v knihovně. A přes plusko si songy naházíš do setlistů, třeba na dnešní oslavu."
+      : "Ikona noty v Knihovně otevře ladičku. Ikona plus u písně vám umožní zařadit ji do vlastních seznamů, jako jsou například setlisty Olympic nebo Oslava.";
 
   static String get accessibilityTitle => isInformal ? "Tipy pro nevidomý" : "Informace pro nevidomé";
   static String get accessibilityContent => isInformal 
@@ -151,35 +151,89 @@ class AppStrings {
   static String startSetlistMessage(String name, String firstSong) => 
       isInformal ? "Rozjíždíme setlist $name. První flák je $firstSong." : "Spouštím setlist $name. První píseň je $firstSong.";
 
-  // --- PLAYLISTY ---
+  // --- PLAYLISTY / SETLISTY ---
   static String playlistCreated(String name) => 
-      isInformal ? "Playlist $name je na světě." : "Playlist $name byl vytvořen.";
+      isInformal ? "Setlist $name je na světě." : "Setlist $name byl vytvořen.";
   
   static String playlistDeleted(String name) => 
-      isInformal ? "Smazáno. Playlist $name už neexistuje." : "Playlist $name byl smazán.";
+      isInformal ? "Smazáno. Setlist $name už neexistuje." : "Setlist $name byl smazán.";
 
   static String playlistRenamed(String oldName, String newName) => 
-      isInformal ? "Přejmenováno z $oldName na $newName." : "Playlist $oldName byl přejmenován na $newName.";
+      isInformal ? "Přejmenováno z $oldName na $newName." : "Setlist $oldName byl přejmenován na $newName.";
 
   static String songRemovedFromPlaylist(String title) => 
-      isInformal ? "Song $title z playlistu vyletěl." : "Skladba $title byla odebrána z playlistu.";
+      isInformal ? "Song $title ze setlistu vyletěl." : "Skladba $title byla odebrána ze setlistu.";
 
-  static String get bulkAddTitle => isInformal ? "Co tam přihodíme?" : "Vybrat písně do playlistu";
+  static String get bulkAddTitle => isInformal ? "Co tam přihodíme?" : "Vybrat písně do setlistu";
   static String bulkAddFinished(int count) => 
-      isInformal ? "Přidáno $count kousků. To bude jízda!" : "Do playlistu bylo úspěšně přidáno $count skladeb.";
+      isInformal ? "Přidáno $count kousků. To bude jízda!" : "Do setlistu bylo úspěšně přidáno $count skladeb.";
 
   // --- SDRÍLENÝ IMPORT PLAYLISTU ---
   static String playlistImportSuccess(String name, int matched) =>
-      isInformal ? "Playlist $name nahrán, přiřazeno $matched písní."
-                 : "Playlist $name byl importován, bylo přiřazeno $matched písní.";
+      isInformal ? "Setlist $name nahrán, přiřazeno $matched písní."
+                 : "Setlist $name byl importován, bylo přiřazeno $matched písní.";
 
   static String playlistImportMissing(int missing) =>
       isInformal ? "Celkem $missing se v knihovně nenašlo, ty vynechávám."
                  : "$missing písní nebylo v knihovně nalezeno a byly vynechány.";
 
   static String get playlistImportError =>
-      isInformal ? "Tohle se jako playlist načíst nedá, zkontroluj přijatá data."
-                 : "Nepodařilo se načíst platný playlist z přijatých dat.";
+      isInformal ? "Tohle se jako setlist načíst nedá, zkontroluj přijatá data."
+                 : "Nepodařilo se načíst platný setlist z přijatých dat.";
+
+  // --- SETLIST PRODLEVA ---
+  static String get setlistDelayTitle => isInformal ? "Prodleva mezi písněmi" : "Prodleva mezi písněmi v setlistu";
+  static String get setlistDelaySubtitle => isInformal
+      ? "Jak dlouho čekat než skočí další flák"
+      : "Jak dlouho čekat před automatickým přechodem na další píseň";
+  static String get setlistDelay3 => "3 sekundy";
+  static String get setlistDelay5 => "5 sekund";
+  static String get setlistDelay10 => "10 sekund";
+  static String get setlistDelayWait => isInformal ? "Čekat na poklep" : "Čekat na stisk";
+  static String setlistDelayAnnouncement(int delay) => delay < 0
+      ? (isInformal ? "Prodleva: čekat na poklep" : "Prodleva: čekat na stisk")
+      : (isInformal ? "Prodleva $delay sekund" : "Prodleva $delay sekund");
+  static String get setlistNextReady => isInformal
+      ? "Připravena další píseň. Klepni kamkoliv, stiskni pedál nebo mezerník pro start."
+      : "Připravena další píseň. Klepněte kamkoliv, stiskněte pedál nebo mezerník pro spuštění.";
+  static String setlistPositionAnnouncement(int current, int total) =>
+      isInformal ? "Skladba $current z $total v setlistu" : "Skladba $current z $total v setlistu";
+  static String setlistNextSongAnnouncement(String title, String artist) =>
+      isInformal ? "Další v setlistu: $title od $artist" : "Další v setlistu: $title od $artist";
+  static String setlistPrevSongAnnouncement(String title, String artist) =>
+      isInformal ? "Předchozí v setlistu: $title od $artist" : "Předchozí v setlistu: $title od $artist";
+  static String get setlistSkipNextLabel => isInformal ? "Další píseň v setlistu" : "Další píseň v setlistu";
+  static String get setlistSkipPrevLabel => isInformal ? "Předchozí píseň v setlistu" : "Předchozí píseň v setlistu";
+  static String get setlistCancelAutoLabel => isInformal ? "Zrušit automatický přechod" : "Zrušit automatický přechod";
+
+  // --- SETLIST ČAS NEZNÁMÝ / ODHAD ---
+  static String setlistTimeWithUnknown(String timeText, int unknown) => unknown == 0
+      ? timeText
+      : (isInformal
+          ? "$timeText plus $unknown bez času (tip ~${unknown * 3} min navíc)"
+          : "$timeText plus $unknown bez času (odhad +${unknown * 3} min)");
+  static String setlistUnknownAnnouncement(int unknown) => isInformal
+      ? "U $unknown písní čas neznám, odhad je podhodnocený"
+      : "U $unknown písní čas neznám, odhad je podhodnocený";
+  static String get songDurationUnknown => isInformal ? "Délka neznámá" : "Délka neznámá";
+  static String songDurationEstimateHint(int estMin) => isInformal
+      ? "Tip: odhad asi $estMin minuty"
+      : "Tip: odhad asi $estMin minuty";
+  static String songDurationUnknownSemantics(String title) => isInformal
+      ? "Délka neznámá, odhad asi 3 minuty. Poklepáním na Upravit doplňte přesný čas písně $title"
+      : "Délka neznámá, odhad asi 3 minuty. V Knihovně doplňte přesný čas písně $title";
+  static String get setlistReadOrderLabel => isInformal ? "Přečíst pořadí setlistu" : "Přečíst pořadí setlistu";
+  static String get setlistReadOrderTooltip => isInformal ? "Přečíst celé pořadí setlistu" : "Přečíst celé pořadí setlistu";
+  static String setlistReadOrderAnnouncement(List<String> titles) =>
+      isInformal ? "Pořadí setlistu: ${titles.join(", ")}" : "Pořadí setlistu: ${titles.join(", ")}";
+  static String get setlistUnlockReorderLabel => isInformal ? "Odemknout přesouvání šipkami" : "Odemknout přesouvání šipkami";
+  static String get setlistLockReorderLabel => isInformal ? "Zamknout přesouvání" : "Zamknout přesouvání";
+  static String get setlistUnlockConfirmTitle => isInformal ? "Odemknout přesouvání?" : "Odemknout přesouvání?";
+  static String get setlistUnlockConfirmContent => isInformal
+      ? "Na pódiu hrozí nechtěná změna pořadí dotykem v kapse. Opravdu odemknout šipky?"
+      : "Na pódiu hrozí nechtěná změna pořadí dotykem. Opravdu odemknout šipky pro přesouvání?";
+  static String get setlistReorderUnlockedAnnouncement => isInformal ? "Přesouvání odemknuto" : "Přesouvání šipkami odemknuto";
+  static String get setlistReorderLockedAnnouncement => isInformal ? "Přesouvání zamknuto" : "Přesouvání šipkami zamknuto";
 
   // --- SDÍLENÍ PÍSNĚ ---
   static String get shareTitle => isInformal ? "Komu text pošleš?" : "Sdílet text písně";

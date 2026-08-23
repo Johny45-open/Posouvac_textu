@@ -38,6 +38,8 @@ class LibraryPage extends StatefulWidget {
   final ValueChanged<bool> onConcertTrainingModeChanged;
   final int concertZonesMode;
   final ValueChanged<int> onConcertZonesModeChanged;
+  final int setlistDelay;
+  final ValueChanged<int> onSetlistDelayChanged;
 
   const LibraryPage({
     super.key,
@@ -55,6 +57,8 @@ class LibraryPage extends StatefulWidget {
     required this.onConcertTrainingModeChanged,
     required this.concertZonesMode,
     required this.onConcertZonesModeChanged,
+    required this.setlistDelay,
+    required this.onSetlistDelayChanged,
   });
 
   @override
@@ -490,20 +494,26 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _addToPlaylist(SongEntry song) async {
     final playlists = await widget.db.getAllPlaylists();
     if (playlists.isEmpty) {
-      _tts.speak("Nemáte žádný playlist. Vytvořte ho v sekci Playlisty a pak zkuste skladbu přidat znovu.");
+      _tts.speak("Nemáte žádný setlist. Vytvořte ho v sekci Setlisty a pak zkuste skladbu přidat znovu.");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Nemáte žádný setlist. Vytvořte ho v sekci Setlisty.")),
+        );
+      }
       return;
     }
 
     final selected = await showDialog<Playlist>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text("Přidat do playlistu"),
+        title: const Text("Přidat do setlistu"),
         children: [
           for (final p in playlists)
             SimpleDialogOption(
               onPressed: () => Navigator.pop(context, p),
               child: Semantics(
-                label: "Přidat skladbu ${song.title} do playlistu ${p.name}",
+                label: "Přidat skladbu ${song.title} do setlistu ${p.name}",
+                button: true,
                 child: Text(p.name),
               ),
             ),
@@ -513,7 +523,12 @@ class _LibraryPageState extends State<LibraryPage> {
 
     if (selected == null) return;
     await widget.db.addSongToPlaylist(selected.id, song.id);
-    _tts.speak("Píseň ${song.title} přidána do playlistu ${selected.name}");
+    _tts.speak("Píseň ${song.title} přidána do setlistu ${selected.name}");
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Přidáno do ${selected.name}: ${song.title}")),
+      );
+    }
   }
 
   @override
@@ -559,7 +574,7 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
           IconButton(
             icon: const Icon(Icons.playlist_add),
-            tooltip: "Playlisty",
+            tooltip: "Setlisty",
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => PlaylistsPage(db: widget.db)),
@@ -635,6 +650,8 @@ class _LibraryPageState extends State<LibraryPage> {
                       onConcertTrainingModeChanged: widget.onConcertTrainingModeChanged,
                       concertZonesMode: widget.concertZonesMode,
                       onConcertZonesModeChanged: widget.onConcertZonesModeChanged,
+                      setlistDelay: widget.setlistDelay,
+                      onSetlistDelayChanged: widget.onSetlistDelayChanged,
                       devModeUnlocked: _devModeUnlocked,
                       onDevModeChanged: (v) => setState(() => _devModeUnlocked = v),
                     ),
@@ -800,14 +817,15 @@ class _LibraryPageState extends State<LibraryPage> {
                         ),
                       ),
 
-                    // 3. ŠVIH: Pouze akce Playlist
+                    // 3. ŠVIH: Pouze akce Setlist
                     Semantics(
                       container: true,
                       excludeSemantics: true,
-                      label: "Přidat skladbu $cleanTitle od ${song.artist} do playlistu",
+                      label: "Přidat skladbu $cleanTitle od ${song.artist} do setlistu",
                       button: true,
                       child: IconButton(
                         icon: const Icon(Icons.playlist_add),
+                        tooltip: "Přidat do setlistu",
                         onPressed: () => _addToPlaylist(song),
                       ),
                     ),
