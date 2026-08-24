@@ -293,6 +293,10 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _checkForUpdates() async {
+    await runUpdateCheck(context);
+  }
+
   Future<void> _showGlobalFontSizeDialog() async {
     final prefs = await SharedPreferences.getInstance();
     double currentSize = prefs.getDouble('fontSize') ?? 24.0;
