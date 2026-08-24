@@ -335,13 +335,13 @@ class _LibraryPageState extends State<LibraryPage> {
       }
     } else {
       // Přímý výběr souborů - nejspolehlivější metoda
-      FilePickerResult? result = await FilePicker.pickFiles(
+      final picked = await FilePicker.pickFiles(
         allowMultiple: true,
         type: FileType.custom,
         allowedExtensions: ['txt'],
       );
-      if (result == null || result.files.isEmpty) return;
-      txtFiles = result.files.where((f) => f.path != null).map((f) => File(f.path!)).toList();
+      if (picked.isEmpty) return;
+      txtFiles = picked.where((f) => f.path != null).map((f) => File(f.path!)).toList();
     }
 
     final totalFiles = txtFiles.length;

@@ -181,6 +181,72 @@ class AppStrings {
       isInformal ? "Tohle se jako setlist načíst nedá, zkontroluj přijatá data."
                  : "Nepodařilo se načíst platný setlist z přijatých dat.";
 
+  // --- SDÍLENÍ SETLISTU S ČASEM (v2) ---
+  static String get sharePlaylistTitle => isInformal ? "Jak setlist pošleš?" : "Sdílet setlist";
+  static String get sharePlaylistHtmlLabel => isInformal ? "HTML soubor" : "HTML soubor";
+  static String get sharePlaylistHtmlDescription => isInformal
+      ? "Tabulka s názvy a časy. Otevře se v prohlížeči i bez internetu."
+      : "Tabulka s pořadím, interprety a časy. Otevře se v libovolném prohlížeči offline.";
+  static String sharePlaylistHtmlText(String name) => isInformal
+      ? "Setlist $name – přehled s časy"
+      : "Setlist $name – přehled s časy (HTML)";
+  static String get sharePlaylistHtmlDone => isInformal
+      ? "Soubor setlistu je připraven, vyber kam ho pošleš."
+      : "Soubor setlistu je připraven. Vyberte, kam jej chcete odeslat.";
+  static String get sharePlaylistPackageLabel => isInformal ? "Balíček setlistu" : "Balíček setlistu";
+  static String get sharePlaylistPackageDescription => isInformal
+      ? "Jenom názvy a časy. Stačí když má příjemce písně v knihovně."
+      : "Obsahuje názvy, interprety a časy. Příjemce musí mít písně v knihovně.";
+  static String get sharePlaylistWithContentsLabel => isInformal ? "Balíček včetně textů" : "Balíček včetně textů";
+  static String get sharePlaylistWithContentsDescription => isInformal
+      ? "I s texty a akordy. Větší soubor, ale příjemce nemusí mít písně."
+      : "Obsahuje i texty a akordy. Větší soubor, ale funguje i bez knihovny.";
+  static String sharePlaylistPackageText(String name) => isInformal
+      ? "Setlist $name pro Posouvač textu"
+      : "Setlist $name – balíček pro Posouvač textu";
+  static String get sharePlaylistPackageDone => isInformal
+      ? "Balíček setlistu je připraven, vyber kam ho pošleš."
+      : "Balíček setlistu je připraven. Vyberte, kam jej chcete odeslat.";
+  static String get sharePlaylistQrLabel => isInformal ? "QR kód" : "QR kód";
+  static String get sharePlaylistQrDescription => isInformal
+      ? "Pro menší setlisty. Naskenuje se kamerou bez internetu."
+      : "Pro menší setlisty. Naskenuje se kamerou a funguje offline.";
+  static String get sharePlaylistQrTooLong => isInformal
+      ? "Setlist je moc velký na QR kód, použij balíček nebo HTML soubor."
+      : "Setlist je příliš velký pro QR kód. Použijte prosím balíček nebo HTML soubor.";
+  static String get sharePlaylistQrDialogTitle => isInformal ? "QR kód se setlistem" : "QR kód se setlistem";
+  static String sharePlaylistQrSemantics(String name) => isInformal
+      ? "QR kód se setlistem $name. Obsah je zobrazen níže jako tabulka."
+      : "QR kód se setlistem $name. Obsah je zobrazen níže jako tabulka.";
+  static String playlistShareTimeSemantics(int totalSec, int unknown) {
+    final m = totalSec ~/ 60;
+    final s = totalSec % 60;
+    final base = unknown == 0 ? "$m minut $s sekund" : "$m minut $s sekund plus $unknown bez času";
+    return base;
+  }
+  static String get playlistFixDialogTitle => isInformal ? "Doplnit chybějící údaje?" : "Doplnit chybějící údaje?";
+  static String playlistFixDialogContent(int timeCount, int diaCount) {
+    final parts = <String>[];
+    if (timeCount > 0) parts.add(isInformal ? "u $timeCount písní chybí čas" : "u $timeCount písní chybí čas");
+    if (diaCount > 0) parts.add(isInformal ? "u $diaCount opravit háčky a čárky" : "u $diaCount opravit diakritiku");
+    return "V setlistu ${parts.join(" a ")}. Chcete je doplnit podle sdíleného setlistu?";
+  }
+  static String playlistFixTimeItem(String artist, String title, String duration) =>
+      isInformal ? "$artist – $title: doplnit $duration" : "$artist – $title: doplnit $duration";
+  static String playlistFixDiaItem(String oldA, String oldT, String newA, String newT) =>
+      "$oldA – $oldT → $newA – $newT";
+  static String get playlistFixConfirmLabel => isInformal ? "Doplnit" : "Doplnit";
+  static String get playlistFixSkipLabel => isInformal ? "Ponechat" : "Ponechat";
+  static String playlistFixDone(int timeFixed, int diaFixed) {
+    final parts = <String>[];
+    if (timeFixed > 0) parts.add(isInformal ? "$timeFixed časů" : "$timeFixed časů");
+    if (diaFixed > 0) parts.add(isInformal ? "$diaFixed názvů" : "$diaFixed názvů");
+    return isInformal ? "Doplněno ${parts.join(" a ")}." : "Doplněno ${parts.join(" a ")}.";
+  }
+  static String get playlistExportEmpty => isInformal ? "Setlist je prázdný, není co sdílet." : "Setlist je prázdný, není co sdílet.";
+  static String playlistImportWithTime(String name, int matched, String timeText) =>
+      isInformal ? "Setlist $name nahrán, $matched písní, $timeText." : "Setlist $name importován, $matched písní, $timeText.";
+
   // --- SETLIST PRODLEVA ---
   static String get setlistDelayTitle => isInformal ? "Prodleva mezi písněmi" : "Prodleva mezi písněmi v setlistu";
   static String get setlistDelaySubtitle => isInformal

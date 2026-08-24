@@ -257,14 +257,14 @@ class _SettingsPageState extends State<SettingsPage> {
     if (confirm != true) return;
 
     try {
-      final result = await FilePicker.pickFiles(
+      final files = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
       );
 
-
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
+      final path = files.isNotEmpty ? files.single.path : null;
+      if (path != null) {
+        final file = File(path);
         final jsonString = await file.readAsString();
         final data = jsonDecode(jsonString) as Map<String, dynamic>;
         
@@ -282,8 +282,66 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _checkForUpdates() async {
-    await runUpdateCheck(context);
+  Future<void> _updateGlobalFontSize(double size) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('fontSize', size);
+    if (mounted) {
+      _tts.speak("Globální velikost písma nastavena na ${size.round()}");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Globální velikost písma nastavena na ${size.round()}")),
+      );
+    }
+  }
+
+  Future<void> _showGlobalFontSizeDialog() async {
+    final prefs = await SharedPreferences.getInstance();
+    double currentSize = prefs.getDouble('fontSize') ?? 24.0;
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text("Globální velikost písma"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("${currentSize.round()} bodů", style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.remove, size: 48),
+                    onPressed: () {
+                      setDialogState(() => currentSize = (currentSize - 2).clamp(10, 100));
+                      HapticFeedback.lightImpact();
+                    },
+                    tooltip: "Zmenšit písmo",
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add, size: 48),
+                    onPressed: () {
+                      setDialogState(() => currentSize = (currentSize + 2).clamp(10, 100));
+                      HapticFeedback.lightImpact();
+                    },
+                    tooltip: "Zvětšit písmo",
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
+            TextButton(
+              onPressed: () {
+                _updateGlobalFontSize(currentSize);
+                Navigator.pop(context);
+              },
+              child: const Text("Uložit"),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _showReleaseHistory() async {
@@ -331,12 +389,12 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _importCsv() async {
     DevLog.log("Tlačítko importu stisknuto");
     try {
-      final result = await FilePicker.pickFiles(
+      final files = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['csv'],
       );
 
-      if (result == null) {
+      if (files.isEmpty) {
         DevLog.log("Uživatel nevybral žádný soubor");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Import zrušen.")));
@@ -344,9 +402,9 @@ class _SettingsPageState extends State<SettingsPage> {
         return;
       }
 
-      DevLog.log("Soubor vybrán: ${result.files.single.path}");
+      DevLog.log("Soubor vybrán: ${files.single.path}");
       
-      final file = File(result.files.single.path!);
+      final file = File(files.single.path!);
       final csvString = await file.readAsString(encoding: utf8);
       
       DevLog.log("Soubor přečten, délka: ${csvString.length}");
@@ -735,6 +793,11 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: Text(widget.isInformalMode ? "Zapnuto" : "Vypnuto"),
             value: widget.isInformalMode,
             onChanged: widget.onInformalModeChanged,
+          ),
+          ListTile(
+            leading: const Icon(Icons.text_format),
+            title: const Text("Globální velikost písma"),
+            onTap: _showGlobalFontSizeDialog,
           ),
           ListTile(
             leading: const Icon(Icons.palette),

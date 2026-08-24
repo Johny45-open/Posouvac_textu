@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'database.dart';
 import 'player_page.dart';
 import 'app_strings.dart';
+import 'song_export.dart';
 
 class PlaylistsPage extends StatefulWidget {
   final AppDatabase db;
@@ -28,29 +29,40 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
 
   Future<void> _importPlaylist() async {
     try {
-      final result = await FilePicker.pickFiles(
+      final files = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
       );
 
-      if (result == null || result.files.single.path == null) {
+      if (files.isEmpty) {
         return;
       }
 
-      final file = File(result.files.single.path!);
+      final path = files.single.path;
+      if (path == null) return;
+      final file = File(path);
       final jsonString = await file.readAsString();
       final data = jsonDecode(jsonString) as Map<String, dynamic>;
 
       final syncResult = await widget.db.syncPlaylistFromJson(data);
-      final message = syncResult.notFound.isEmpty
+      final hasTime = syncResult.totalDurationShared > 0 || syncResult.unknownShared > 0;
+      final timeText = hasTime
+          ? _formatImportTime(syncResult.totalDurationShared, syncResult.unknownShared)
+          : null;
+      final baseMessage = syncResult.notFound.isEmpty
           ? AppStrings.playlistImportSuccess(syncResult.playlistName, syncResult.matchedCount)
           : '${AppStrings.playlistImportSuccess(syncResult.playlistName, syncResult.matchedCount)} '
               '${AppStrings.playlistImportMissing(syncResult.notFound.length)}';
+      final message = timeText != null ? '$baseMessage $timeText' : baseMessage;
       _tts.speak(message);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
         setState(() {});
+        if (syncResult.durationCandidates.isNotEmpty || syncResult.diacriticCandidates.isNotEmpty) {
+          await Future.delayed(const Duration(milliseconds: 400));
+          if (mounted) await _showFixDialog(syncResult);
+        }
       }
     } catch (e) {
       _tts.speak(AppStrings.playlistImportError);
@@ -58,6 +70,122 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(AppStrings.playlistImportError)));
       }
+    }
+  }
+
+  String _formatImportTime(int totalSec, int unknown) {
+    if (totalSec <= 0 && unknown == 0) return "";
+    final m = totalSec ~/ 60;
+    final s = totalSec % 60;
+    final base = totalSec > 0 ? "Celkový čas: $m:${s.toString().padLeft(2, '0')}" : "Čas neurčen";
+    if (unknown == 0) return base;
+    return AppStrings.setlistTimeWithUnknown(base, unknown);
+  }
+
+  String _formatDurationShort(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return "$m:${s.toString().padLeft(2, '0')}";
+  }
+
+  Future<void> _showFixDialog(PlaylistSyncResult result) async {
+    final timeCount = result.durationCandidates.length;
+    final diaCount = result.diacriticCandidates.length;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Semantics(header: true, child: Text(AppStrings.playlistFixDialogTitle)),
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            child: Text(AppStrings.playlistFixDialogContent(timeCount, diaCount)),
+          ),
+          if (timeCount > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+              child: Semantics(
+                header: true,
+                child: Text("Chybějící časy:", style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          for (final c in result.durationCandidates.take(5))
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 2),
+              child: Text(AppStrings.playlistFixTimeItem(c.artist, c.title, _formatDurationShort(c.newDuration)),
+                  style: const TextStyle(fontSize: 13)),
+            ),
+          if (timeCount > 5)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text("... a dalších ${timeCount - 5}", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            ),
+          if (diaCount > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+              child: Semantics(
+                header: true,
+                child: Text("Oprava diakritiky:", style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          for (final c in result.diacriticCandidates.take(5))
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 2),
+              child: Text(AppStrings.playlistFixDiaItem(c.oldArtist, c.oldTitle, c.newArtist, c.newTitle),
+                  style: const TextStyle(fontSize: 13)),
+            ),
+          if (diaCount > 5)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text("... a dalších ${diaCount - 5}", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.playlistFixSkipLabel)),
+                const SizedBox(width: 8),
+                FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.playlistFixConfirmLabel)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    int fixedTime = 0;
+    int fixedDia = 0;
+    if (timeCount > 0) fixedTime = await widget.db.applyMissingDurations(result.durationCandidates);
+    if (diaCount > 0) fixedDia = await widget.db.applyDiacriticFixes(result.diacriticCandidates);
+    final doneMsg = AppStrings.playlistFixDone(fixedTime, fixedDia);
+    _tts.speak(doneMsg);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(doneMsg)));
+      setState(() {});
+    }
+  }
+
+  Future<void> _sharePlaylist(Playlist playlist) async {
+    try {
+      final songs = await widget.db.watchSongsInPlaylist(playlist.id).first;
+      if (songs.isEmpty) {
+        _tts.speak(AppStrings.playlistExportEmpty);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.playlistExportEmpty)));
+        return;
+      }
+      int totalDuration = 0;
+      int unknown = 0;
+      for (final s in songs) {
+        if (s.duration != null && s.duration! > 0) totalDuration += s.duration!;
+        else unknown++;
+      }
+      final songsPayload = songs.map((s) => {'title': s.title, 'artist': s.artist, 'duration': s.duration, 'filePath': s.filePath}).toList();
+      if (!mounted) return;
+      await showPlaylistShareDialog(context, playlistName: playlist.name, songs: songsPayload, totalDuration: totalDuration, unknownCount: unknown);
+    } catch (e) {
+      _tts.speak(AppStrings.shareError);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.shareError)));
     }
   }
 
@@ -194,8 +322,10 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
                     tooltip: "Možnosti setlistu ${pl.name}",
                     onSelected: (v) async {
                       if (v == 'manage') _managePlaylist(pl);
+                      if (v == 'share') _sharePlaylist(pl);
                     },
                     itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'share', child: Text("Sdílet")),
                       PopupMenuItem(value: 'manage', child: Text("Spravovat")),
                     ],
                   ),
@@ -515,6 +645,22 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     );
   }
 
+  Future<void> _shareCurrentPlaylist(List<SongEntry> songs) async {
+    if (songs.isEmpty) {
+      tts.speak(AppStrings.playlistExportEmpty);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.playlistExportEmpty)));
+      return;
+    }
+    int totalDuration = 0;
+    int unknown = 0;
+    for (final s in songs) {
+      if (s.duration != null && s.duration! > 0) totalDuration += s.duration!;
+      else unknown++;
+    }
+    final payload = songs.map((s) => {'title': s.title, 'artist': s.artist, 'duration': s.duration, 'filePath': s.filePath}).toList();
+    await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -573,6 +719,25 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
               tooltip: _reorderUnlocked ? AppStrings.setlistLockReorderLabel : AppStrings.setlistUnlockReorderLabel,
               onPressed: _toggleReorderLock,
             ),
+          ),
+          StreamBuilder<List<SongEntry>>(
+            stream: widget.db.watchSongsInPlaylist(widget.playlist.id),
+            builder: (context, snapshot) {
+              final songs = snapshot.data ?? const [];
+              if (songs.isEmpty) return const SizedBox();
+              final totalSec = songs.fold<int>(0, (sum, s) => sum + (s.duration ?? 0));
+              final unknown = songs.where((s) => s.duration == null || s.duration == 0).length;
+              final timeText = _formatTotalTimeWithUnknown(totalSec, unknown);
+              return Semantics(
+                label: "Sdílet setlist ${widget.playlist.name}, ${songs.length} písní, $timeText",
+                button: true,
+                child: IconButton(
+                  icon: const Icon(Icons.ios_share),
+                  tooltip: "Sdílet setlist",
+                  onPressed: () => _shareCurrentPlaylist(songs),
+                ),
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.library_add),

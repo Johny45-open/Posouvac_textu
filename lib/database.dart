@@ -9,15 +9,51 @@ import 'package:sqlite3/sqlite3.dart';
 
 part 'database.g.dart';
 
+class DurationFixCandidate {
+  final int songId;
+  final String title;
+  final String artist;
+  final int newDuration;
+  const DurationFixCandidate({
+    required this.songId,
+    required this.title,
+    required this.artist,
+    required this.newDuration,
+  });
+}
+
+class DiacriticFixCandidate {
+  final int songId;
+  final String oldTitle;
+  final String oldArtist;
+  final String newTitle;
+  final String newArtist;
+  const DiacriticFixCandidate({
+    required this.songId,
+    required this.oldTitle,
+    required this.oldArtist,
+    required this.newTitle,
+    required this.newArtist,
+  });
+}
+
 class PlaylistSyncResult {
   final String playlistName;
   final int matchedCount;
   final List<String> notFound;
+  final int totalDurationShared;
+  final int unknownShared;
+  final List<DurationFixCandidate> durationCandidates;
+  final List<DiacriticFixCandidate> diacriticCandidates;
 
   PlaylistSyncResult({
     required this.playlistName,
     required this.matchedCount,
     required this.notFound,
+    this.totalDurationShared = 0,
+    this.unknownShared = 0,
+    this.durationCandidates = const [],
+    this.diacriticCandidates = const [],
   });
 }
 
@@ -145,7 +181,7 @@ class AppDatabase extends _$AppDatabase {
   Future<int> updateSongDuration(int id, int? seconds) =>
       (update(songs)..where((s) => s.id.equals(id))).write(SongsCompanion(duration: Value(seconds)));
 
-  Future<int> updateSongSettings(int id, double? bpm, double? introDuration, double fontSize, double scrollMultiplier) =>
+  Future<int> updateSongSettings(int id, double? bpm, double? introDuration, double? fontSize, double scrollMultiplier) =>
       (update(songs)..where((s) => s.id.equals(id))).write(SongsCompanion(
         tempo: Value(bpm),
         introDuration: Value(introDuration),
@@ -246,6 +282,28 @@ class AppDatabase extends _$AppDatabase {
   static String _normalizePath(String path) =>
       path.replaceAll('\\', '/').trim().toLowerCase();
 
+  /// Odstraní diakritiku pro porovnání názvů souborů bez háčků/čárek.
+  static String _stripDiacritics(String input) {
+    const map = {
+      'á': 'a', 'č': 'c', 'ď': 'd', 'é': 'e', 'ě': 'e', 'í': 'i', 'ň': 'n',
+      'ó': 'o', 'ř': 'r', 'š': 's', 'ť': 't', 'ú': 'u', 'ů': 'u', 'ý': 'y', 'ž': 'z',
+      'Á': 'A', 'Č': 'C', 'Ď': 'D', 'É': 'E', 'Ě': 'E', 'Í': 'I', 'Ň': 'N',
+      'Ó': 'O', 'Ř': 'R', 'Š': 'S', 'Ť': 'T', 'Ú': 'U', 'Ů': 'U', 'Ý': 'Y', 'Ž': 'Z',
+      'ä': 'a', 'ë': 'e', 'ï': 'i', 'ö': 'o', 'ü': 'u',
+      'Ä': 'A', 'Ë': 'E', 'Ï': 'I', 'Ö': 'O', 'Ü': 'U',
+      'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u',
+      'À': 'A', 'È': 'E', 'Ì': 'I', 'Ò': 'O', 'Ù': 'U',
+      'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u',
+      'Â': 'A', 'Ê': 'E', 'Î': 'I', 'Ô': 'O', 'Û': 'U',
+    };
+    var out = input;
+    map.forEach((k, v) => out = out.replaceAll(k, v));
+    return out;
+  }
+
+  static String _normForMatch(String input) =>
+      _stripDiacritics(input.trim().toLowerCase()).replaceAll(RegExp(r'\s+'), ' ');
+
   /// Výsledek hromadného importu metadat z CSV.
   /// [skipped] obsahuje řádky, které se nepodařilo bezpečně spárovat
   /// (id existuje, ale filePath nesedí) – ty se záměrně nepřepisují,
@@ -336,47 +394,154 @@ class AppDatabase extends _$AppDatabase {
     return preview;
   }
 
+  /// Export setlistu včetně časů pro sdílení (v2). Vrací mapu připravenou pro jsonEncode.
+  Future<Map<String, dynamic>> exportPlaylistToJson(int playlistId, {bool includeContents = false}) async {
+    final playlist = await (select(playlists)..where((t) => t.id.equals(playlistId))).getSingle();
+    final songsInPlaylist = await watchSongsInPlaylist(playlistId).first;
+    int totalDuration = 0;
+    int unknownCount = 0;
+    for (final s in songsInPlaylist) {
+      if (s.duration != null && s.duration! > 0) {
+        totalDuration += s.duration!;
+      } else {
+        unknownCount++;
+      }
+    }
+    final songsJson = <Map<String, dynamic>>[];
+    for (final s in songsInPlaylist) {
+      final entry = <String, dynamic>{
+        'title': s.title,
+        'artist': s.artist,
+        'duration': s.duration,
+      };
+      if (includeContents) {
+        try {
+          final file = File(s.filePath);
+          if (await file.exists()) {
+            final bytes = await file.readAsBytes();
+            String content;
+            try {
+              content = utf8.decode(bytes);
+            } catch (_) {
+              content = latin1.decode(bytes);
+            }
+            entry['content'] = content;
+          }
+        } catch (_) {}
+      }
+      songsJson.add(entry);
+    }
+    return {
+      'type': 'playlist',
+      'version': 2,
+      'name': playlist.name,
+      'exportedAt': DateTime.now().toIso8601String(),
+      'totalDuration': totalDuration,
+      'unknownCount': unknownCount,
+      'songs': songsJson,
+    };
+  }
+
   Future<PlaylistSyncResult> syncPlaylistFromJson(Map<String, dynamic> data) async {
     final playlistName = (data['name'] as String?)?.trim() ?? '';
     if (playlistName.isEmpty) {
       throw const FormatException('Chybějící název playlistu.');
     }
-    final songTitles = (data['songs'] as List<dynamic>? ?? const [])
-        .map((s) => s.toString().trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
+    final rawSongs = data['songs'] as List<dynamic>? ?? const [];
+    // V2: List<Map> s title/artist/duration, zpětně kompatibilní List<String>
+    final List<Map<String, dynamic>> parsedSongs = [];
+    final List<String> notFoundLabels = [];
+    int totalDurationShared = 0;
+    int unknownShared = 0;
+    // Spočítat sdílený čas pro hlášku (pokud je v exportu)
+    if (data.containsKey('totalDuration') && data['totalDuration'] is int) {
+      totalDurationShared = data['totalDuration'] as int;
+    }
+    if (data.containsKey('unknownCount') && data['unknownCount'] is int) {
+      unknownShared = data['unknownCount'] as int;
+    }
+    for (final raw in rawSongs) {
+      if (raw is Map) {
+        final m = Map<String, dynamic>.from(raw);
+        final title = (m['title'] ?? m['name'] ?? '').toString().trim();
+        if (title.isEmpty) continue;
+        final artist = (m['artist'] ?? '').toString().trim();
+        final duration = m['duration'] is int ? m['duration'] as int : int.tryParse(m['duration']?.toString() ?? '');
+        parsedSongs.add({'title': title, 'artist': artist, 'duration': duration, 'content': m['content']});
+        if (duration != null && duration > 0) {
+          if (totalDurationShared == 0) totalDurationShared += duration;
+        } else {
+          if (unknownShared == 0 && data['totalDuration'] == null) unknownShared++;
+        }
+      } else {
+        final title = raw.toString().trim();
+        if (title.isEmpty) continue;
+        parsedSongs.add({'title': title, 'artist': '', 'duration': null});
+        unknownShared++;
+      }
+    }
+    // Pokud totalDuration nebyl v exportu, spočítat z parsed
+    if (!data.containsKey('totalDuration')) {
+      totalDurationShared = parsedSongs.fold<int>(0, (sum, e) => sum + ((e['duration'] as int?) ?? 0));
+      unknownShared = parsedSongs.where((e) => (e['duration'] as int?) == null || (e['duration'] as int) == 0).length;
+    }
 
-    // Sestavíme slovník podle normalizovaného názvu (bez ohledu na velikost písmen a mezer).
+    // Slovníky pro match: norm(artist|title) primárně, norm(title) fallback, vše s diakritikou-insensitive
     final allSongs = await select(songs).get();
+    final byNormFull = <String, SongEntry>{};
     final byNormTitle = <String, SongEntry>{};
     for (final song in allSongs) {
-      final key = song.title.trim().toLowerCase();
-      if (key.isNotEmpty && !byNormTitle.containsKey(key)) {
-        byNormTitle[key] = song;
-      }
+      final fullKey = _normForMatch('${song.artist}|${song.title}');
+      final titleKey = _normForMatch(song.title);
+      if (fullKey.isNotEmpty && !byNormFull.containsKey(fullKey)) byNormFull[fullKey] = song;
+      if (titleKey.isNotEmpty && !byNormTitle.containsKey(titleKey)) byNormTitle[titleKey] = song;
     }
 
     final notFound = <String>[];
+    final matchedIds = <int>[];
+    final matchedEntries = <SongEntry>[];
+    // Kandidáti na doplnění budou spočítáni až po transakci, kdy máme matchedEntries
+    final Map<int, int> sharedDurationBySongId = {};
+    final Map<int, Map<String, String>> sharedDiacriticBySongId = {};
+
     var matchedCount = 0;
 
     await transaction(() async {
-      // 1. Najít nebo vytvořit playlist
       Playlist? playlist = await (select(playlists)..where((t) => t.name.equals(playlistName))).getSingleOrNull();
       int playlistId;
       if (playlist == null) {
         playlistId = await into(playlists).insert(PlaylistsCompanion.insert(name: playlistName));
       } else {
         playlistId = playlist.id;
-        // Vyčistit stávající songy v playlistu pro novou verzi
         await (delete(playlistSongs)..where((t) => t.playlistId.equals(playlistId))).go();
       }
-
-      // 2. Přiřadit písně
       int order = 0;
-      for (final title in songTitles) {
-        final song = byNormTitle[title.toLowerCase()];
+      for (final entry in parsedSongs) {
+        final title = entry['title'] as String;
+        final artist = entry['artist'] as String? ?? '';
+        final duration = entry['duration'] as int?;
+        final fullKey = artist.isNotEmpty ? _normForMatch('$artist|$title') : '';
+        final titleKey = _normForMatch(title);
+        SongEntry? song = fullKey.isNotEmpty ? byNormFull[fullKey] : null;
+        song ??= byNormTitle[titleKey];
+        final label = artist.isNotEmpty ? '$artist - $title' : title;
         if (song != null) {
           matchedCount++;
+          matchedIds.add(song.id);
+          matchedEntries.add(song);
+          if (duration != null && duration > 0) {
+            sharedDurationBySongId[song.id] = duration;
+          }
+          // Kandidát na diakritiku: norm shodný ale přesný string se liší
+          final normLocalTitle = _normForMatch(song.title);
+          final normSharedTitle = _normForMatch(title);
+          final normLocalArtist = _normForMatch(song.artist);
+          final normSharedArtist = _normForMatch(artist);
+          final needsDiacritic = (normLocalTitle == normSharedTitle && song.title != title) ||
+              (artist.isNotEmpty && normLocalArtist == normSharedArtist && song.artist != artist);
+          if (needsDiacritic && title.isNotEmpty) {
+            sharedDiacriticBySongId[song.id] = {'newTitle': title, 'newArtist': artist.isNotEmpty ? artist : song.artist};
+          }
           await into(playlistSongs).insert(
             PlaylistSongsCompanion.insert(
               playlistId: playlistId,
@@ -385,17 +550,120 @@ class AppDatabase extends _$AppDatabase {
             ),
             mode: InsertMode.insertOrIgnore,
           );
+          // Pokud byl v exportu i content a píseň lokálně neexistovala by, řeší se jinde;
+          // zde content ignorujeme, protože match už proběhl – text se nesdílí pro existující píseň
         } else {
-          notFound.add(title);
+          notFound.add(label);
+          notFoundLabels.add(label);
+        }
+      }
+      // Pokud export obsahoval nové písně s content a nenašly se, vytvořit je (volitelně)
+      for (final entry in parsedSongs) {
+        final label = (entry['artist'] as String).isNotEmpty ? "${entry['artist']} - ${entry['title']}" : entry['title'] as String;
+        if (notFound.contains(label) && entry['content'] != null && (entry['content'] as String).trim().isNotEmpty) {
+          final title = entry['title'] as String;
+          final artist = (entry['artist'] as String).isNotEmpty ? entry['artist'] as String : 'Neznámý interpret';
+          final content = entry['content'] as String;
+          final duration = entry['duration'] as int?;
+          // Zkusit vytvořit píseň přes importSongPackage logiku (bez duplikace)
+          final created = await _importSongWithContent(title: title, artist: artist, content: content, duration: duration);
+          if (created != null) {
+            // Najít playlistId znovu
+            final pl = await (select(playlists)..where((t) => t.name.equals(playlistName))).getSingle();
+            await into(playlistSongs).insert(
+              PlaylistSongsCompanion.insert(playlistId: pl.id, songId: created.id, orderIndex: Value(matchedCount++)),
+              mode: InsertMode.insertOrIgnore,
+            );
+            notFound.remove(label);
+            matchedIds.add(created.id);
+            matchedEntries.add(created);
+          }
         }
       }
     });
+
+    // Sestavit kandidáty na doplnění
+    final durationCandidates = <DurationFixCandidate>[];
+    final diacriticCandidates = <DiacriticFixCandidate>[];
+    for (final song in matchedEntries) {
+      final sharedDur = sharedDurationBySongId[song.id];
+      if (sharedDur != null && (song.duration == null || song.duration == 0)) {
+        durationCandidates.add(DurationFixCandidate(
+          songId: song.id,
+          title: song.title,
+          artist: song.artist,
+          newDuration: sharedDur,
+        ));
+      }
+      final dia = sharedDiacriticBySongId[song.id];
+      if (dia != null) {
+        diacriticCandidates.add(DiacriticFixCandidate(
+          songId: song.id,
+          oldTitle: song.title,
+          oldArtist: song.artist,
+          newTitle: dia['newTitle']!,
+          newArtist: dia['newArtist']!,
+        ));
+      }
+    }
 
     return PlaylistSyncResult(
       playlistName: playlistName,
       matchedCount: matchedCount,
       notFound: notFound,
+      totalDurationShared: totalDurationShared,
+      unknownShared: unknownShared,
+      durationCandidates: durationCandidates,
+      diacriticCandidates: diacriticCandidates,
     );
+  }
+
+  Future<SongEntry?> _importSongWithContent({required String title, required String artist, required String content, int? duration}) async {
+    final existing = await (select(songs)..where((t) => t.title.equals(title) & t.artist.equals(artist))).getSingleOrNull();
+    if (existing != null) return null;
+    final appDir = await getApplicationDocumentsDirectory();
+    final songsDir = Directory(p.join(appDir.path, 'imported_songs'));
+    if (!await songsDir.exists()) await songsDir.create(recursive: true);
+    final safeArtist = artist.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    final safeTitle = title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    var fileName = '${safeArtist.isNotEmpty ? '$safeArtist - ' : ''}$safeTitle.txt';
+    var filePath = p.join(songsDir.path, fileName);
+    var counter = 1;
+    while (await File(filePath).exists()) {
+      final base = fileName.replaceAll('.txt', '');
+      filePath = p.join(songsDir.path, '${base}_$counter.txt');
+      counter++;
+    }
+    await File(filePath).writeAsString(content, encoding: utf8);
+    final id = await into(songs).insert(SongsCompanion.insert(
+      filePath: filePath,
+      artist: artist,
+      title: title,
+      duration: Value(duration != null && duration > 0 ? duration : null),
+    ));
+    return (select(songs)..where((t) => t.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<int> applyMissingDurations(List<DurationFixCandidate> candidates) async {
+    var count = 0;
+    await transaction(() async {
+      for (final c in candidates) {
+        final res = await (update(songs)..where((t) => t.id.equals(c.songId))).write(SongsCompanion(duration: Value(c.newDuration)));
+        if (res > 0) count++;
+      }
+    });
+    return count;
+  }
+
+  Future<int> applyDiacriticFixes(List<DiacriticFixCandidate> candidates) async {
+    var count = 0;
+    await transaction(() async {
+      for (final c in candidates) {
+        final res = await (update(songs)..where((t) => t.id.equals(c.songId))).write(SongsCompanion(title: Value(c.newTitle), artist: Value(c.newArtist)));
+        if (res > 0) count++;
+      }
+    });
+    return count;
   }
 
   Future<int> createPlaylist(String name) => into(playlists).insert(PlaylistsCompanion.insert(name: name));

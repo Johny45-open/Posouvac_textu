@@ -96,6 +96,78 @@ String buildSongPackageJson({
   });
 }
 
+/// Balíček setlistu – názvy, interpreti, časy, volitelně texty.
+String buildPlaylistPackageJson({
+  required String name,
+  required List<Map<String, dynamic>> songs,
+  required int totalDuration,
+  required int unknownCount,
+  String? exportedAt,
+}) {
+  return jsonEncode({
+    'type': 'playlist',
+    'version': 2,
+    'name': name,
+    'exportedAt': exportedAt ?? DateTime.now().toIso8601String(),
+    'totalDuration': totalDuration,
+    'unknownCount': unknownCount,
+    'songs': songs,
+  });
+}
+
+/// HTML přehled setlistu s tabulkou časů – funguje offline v prohlížeči.
+String buildPlaylistHtml({
+  required String name,
+  required List<Map<String, dynamic>> songs,
+  required int totalDuration,
+  required int unknownCount,
+}) {
+  final buffer = StringBuffer();
+  buffer.writeln('<!DOCTYPE html>');
+  buffer.writeln('<html lang="cs">');
+  buffer.writeln('<head>');
+  buffer.writeln('<meta charset="UTF-8">');
+  buffer.writeln('<meta name="viewport" content="width=device-width, initial-scale=1.0">');
+  buffer.writeln('<title>${_escape(name)} – setlist</title>');
+  buffer.writeln('<style>');
+  buffer.writeln('  body { font-family: sans-serif; font-size: 18px; line-height: 1.5; margin: 16px; color: #111; }');
+  buffer.writeln('  h1 { font-size: 28px; margin-bottom: 4px; }');
+  buffer.writeln('  .meta { color: #555; margin-bottom: 16px; }');
+  buffer.writeln('  table { width: 100%; border-collapse: collapse; }');
+  buffer.writeln('  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }');
+  buffer.writeln('  th { background: #f0f0f0; }');
+  buffer.writeln('  .dur { text-align: right; white-space: nowrap; }');
+  buffer.writeln('  .unknown { color: #c62828; }');
+  buffer.writeln('</style>');
+  buffer.writeln('</head>');
+  buffer.writeln('<body>');
+  buffer.writeln('<main>');
+  buffer.writeln('<h1>${_escape(name)}</h1>');
+  final totalMin = totalDuration ~/ 60;
+  final totalSec = totalDuration % 60;
+  final timeLabel = unknownCount == 0
+      ? 'Celkový čas: $totalMin min ${totalSec.toString().padLeft(2, '0')} s'
+      : 'Celkový čas: $totalMin min ${totalSec.toString().padLeft(2, '0')} s + $unknownCount bez času (odhad +${unknownCount * 3} min)';
+  buffer.writeln('<p class="meta">${_escape(timeLabel)} • ${songs.length} písní</p>');
+  buffer.writeln('<table>');
+  buffer.writeln('<caption>Seznam písní v setlistu ${_escape(name)}</caption>');
+  buffer.writeln('<thead><tr><th scope="col">#</th><th scope="col">Interpret</th><th scope="col">Název</th><th scope="col" class="dur">Délka</th></tr></thead>');
+  buffer.writeln('<tbody>');
+  for (var i = 0; i < songs.length; i++) {
+    final s = songs[i];
+    final artist = _escape((s['artist'] ?? '').toString());
+    final title = _escape((s['title'] ?? '').toString());
+    final dur = s['duration'] as int?;
+    final durText = (dur != null && dur > 0) ? '${dur ~/ 60}:${(dur % 60).toString().padLeft(2, '0')}' : '<span class="unknown">?</span>';
+    buffer.writeln('<tr><td>${i + 1}</td><td>$artist</td><td>$title</td><td class="dur">$durText</td></tr>');
+  }
+  buffer.writeln('</tbody></table>');
+  buffer.writeln('</main>');
+  buffer.writeln('</body>');
+  buffer.writeln('</html>');
+  return buffer.toString();
+}
+
 String _escape(String input) => input
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -269,6 +341,227 @@ Future<void> _showQrDialog(
           onPressed: () => Navigator.pop(context),
           child: const Text("Zavřít"),
         ),
+      ],
+    ),
+  );
+}
+
+Future<void> showPlaylistShareDialog(
+  BuildContext context, {
+  required String playlistName,
+  required List<Map<String, dynamic>> songs,
+  required int totalDuration,
+  required int unknownCount,
+}) async {
+  final tts = FlutterTts();
+  await tts.setLanguage("cs-CZ");
+  await tts.setSpeechRate(0.5);
+
+  if (songs.isEmpty) {
+    tts.speak(AppStrings.playlistExportEmpty);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.playlistExportEmpty)));
+    }
+    return;
+  }
+
+  final choice = await showDialog<String>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: Semantics(header: true, child: Text(AppStrings.sharePlaylistTitle)),
+      children: [
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, 'package'),
+          child: _ShareOption(
+            title: AppStrings.sharePlaylistPackageLabel,
+            description: AppStrings.sharePlaylistPackageDescription,
+            icon: Icons.playlist_play,
+          ),
+        ),
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, 'package_with_contents'),
+          child: _ShareOption(
+            title: AppStrings.sharePlaylistWithContentsLabel,
+            description: AppStrings.sharePlaylistWithContentsDescription,
+            icon: Icons.library_music,
+          ),
+        ),
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, 'html'),
+          child: _ShareOption(
+            title: AppStrings.sharePlaylistHtmlLabel,
+            description: AppStrings.sharePlaylistHtmlDescription,
+            icon: Icons.public,
+          ),
+        ),
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, 'qr'),
+          child: _ShareOption(
+            title: AppStrings.sharePlaylistQrLabel,
+            description: AppStrings.sharePlaylistQrDescription,
+            icon: Icons.qr_code,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  if (choice == null || !context.mounted) return;
+
+  switch (choice) {
+    case 'package':
+      await _sharePlaylistPackage(context, tts,
+          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount, includeContents: false);
+      break;
+    case 'package_with_contents':
+      await _sharePlaylistPackage(context, tts,
+          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount, includeContents: true);
+      break;
+    case 'html':
+      await _sharePlaylistHtml(context, tts,
+          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount);
+      break;
+    case 'qr':
+      await _showPlaylistQrDialog(context, tts,
+          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount);
+      break;
+  }
+}
+
+Future<void> _sharePlaylistPackage(
+  BuildContext context,
+  FlutterTts tts, {
+  required String playlistName,
+  required List<Map<String, dynamic>> songs,
+  required int totalDuration,
+  required int unknownCount,
+  required bool includeContents,
+}) async {
+  try {
+    // Pokud uživatel zvolil včetně textů a payload zatím neobsahuje content, doplnit z filePath
+    List<Map<String, dynamic>> payload = songs;
+    if (includeContents) {
+      payload = [];
+      for (final s in songs) {
+        final entry = Map<String, dynamic>.from(s);
+        if (!entry.containsKey('content') || (entry['content'] as String?)?.isEmpty == true) {
+          final path = entry['filePath'] as String?;
+          if (path != null) {
+            try {
+              final file = File(path);
+              if (await file.exists()) {
+                final bytes = await file.readAsBytes();
+                String content;
+                try { content = utf8.decode(bytes); } catch (_) { content = latin1.decode(bytes); }
+                entry['content'] = content;
+              }
+            } catch (_) {}
+          }
+        }
+        entry.remove('filePath');
+        payload.add(entry);
+      }
+    } else {
+      payload = payload.map((e) { final m = Map<String, dynamic>.from(e); m.remove('filePath'); m.remove('content'); return m; }).toList();
+    }
+    final dir = await getTemporaryDirectory();
+    final suffix = includeContents ? '_s_texty' : '';
+    final file = File('${dir.path}/setlist_${_safeName(playlistName)}$suffix.json');
+    final jsonStr = buildPlaylistPackageJson(
+      name: playlistName,
+      songs: payload,
+      totalDuration: totalDuration,
+      unknownCount: unknownCount,
+    );
+    await file.writeAsString(jsonStr, encoding: utf8);
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'application/json')],
+      text: AppStrings.sharePlaylistPackageText(playlistName),
+    );
+    tts.speak(AppStrings.sharePlaylistPackageDone);
+  } catch (e) {
+    _announceError(context, tts, e);
+  }
+}
+
+Future<void> _sharePlaylistHtml(
+  BuildContext context,
+  FlutterTts tts, {
+  required String playlistName,
+  required List<Map<String, dynamic>> songs,
+  required int totalDuration,
+  required int unknownCount,
+}) async {
+  try {
+    final cleanSongs = songs.map((e) { final m = Map<String, dynamic>.from(e); m.remove('filePath'); return m; }).toList();
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/setlist_${_safeName(playlistName)}.html');
+    await file.writeAsString(
+      buildPlaylistHtml(name: playlistName, songs: cleanSongs, totalDuration: totalDuration, unknownCount: unknownCount),
+      encoding: utf8,
+    );
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'text/html')],
+      text: AppStrings.sharePlaylistHtmlText(playlistName),
+    );
+    tts.speak(AppStrings.sharePlaylistHtmlDone);
+  } catch (e) {
+    _announceError(context, tts, e);
+  }
+}
+
+Future<void> _showPlaylistQrDialog(
+  BuildContext context,
+  FlutterTts tts, {
+  required String playlistName,
+  required List<Map<String, dynamic>> songs,
+  required int totalDuration,
+  required int unknownCount,
+}) async {
+  final cleanSongs = songs.map((e) { final m = Map<String, dynamic>.from(e); m.remove('filePath'); m.remove('content'); return m; }).toList();
+  final jsonStr = buildPlaylistPackageJson(
+    name: playlistName,
+    songs: cleanSongs,
+    totalDuration: totalDuration,
+    unknownCount: unknownCount,
+  );
+  if (jsonStr.length > maxQrContentLength) {
+    tts.speak(AppStrings.sharePlaylistQrTooLong);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.sharePlaylistQrTooLong)));
+    }
+    return;
+  }
+  await showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Semantics(header: true, child: Text(AppStrings.sharePlaylistQrDialogTitle)),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Semantics(
+                label: AppStrings.sharePlaylistQrSemantics(playlistName),
+                image: true,
+                child: QrImageView(data: jsonStr, version: QrVersions.auto, size: 240),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text("Setlist: $playlistName", style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            ...songs.asMap().entries.map((e) {
+              final s = e.value;
+              final dur = s['duration'] as int?;
+              final durText = (dur != null && dur > 0) ? "${dur ~/ 60}:${(dur % 60).toString().padLeft(2, '0')}" : "?";
+              return Text("${e.key + 1}. ${s['artist']} – ${s['title']} [$durText]");
+            }),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zavřít")),
       ],
     ),
   );

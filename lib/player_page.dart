@@ -73,8 +73,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   /// Kurzor ručního náhledu - index dalšího řádku k ohlášení při zastaveném posuvu.
   int? _manualPreviewCursor;
 
-  Future<void> _saveSettings() async {
-    await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, _fontSize, _scrollMultiplier);
+  Future<void> _saveSettings({double? customFontSize}) async {
+    await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);
   }
 
   double _effectiveBpm() => (_bpm ?? 120.0) * _scrollMultiplier;
@@ -111,7 +111,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     setState(() => _bpm = newBpm);
     await _saveSettings();
     _updateScrollingSpeed();
-    HapticFeedback.selectionClick();
+    HapticFeedback.vibrate(); 
     _tts.stop();
     _tts.speak(AppStrings.bpmChangedMessage(newBpm.round()));
     if (mounted) {
@@ -211,7 +211,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
 
   void _startWithCountdown() async {
     setState(() => _isScrolling = true);
-    HapticFeedback.heavyImpact(); // Vibrace na začátku celého procesu
+    HapticFeedback.vibrate(); 
     
     if (_introDuration != null && _introDuration! > 0) {
       _tts.speak(AppStrings.introMessage(_introDuration!.round()));
@@ -224,13 +224,13 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       if (!mounted || !_isScrolling) return;
       setState(() => _countdown = i);
       _tts.speak("$i");
-      HapticFeedback.mediumImpact(); // Vibrace pro každou sekundu odpočtu
+      HapticFeedback.vibrate(); 
       await Future.delayed(const Duration(seconds: 1));
     }
 
     if (!mounted || !_isScrolling) return;
     setState(() => _countdown = 0);
-    HapticFeedback.vibrate(); // Delší vibrace při startu samotného posuvu
+    HapticFeedback.vibrate(); 
     
     debugPrint("Countdown finished, calling _startScrolling");
     _startScrolling();
@@ -397,16 +397,16 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     final bars = mark.bars > 0 ? mark.bars : 2;
     _scrollAnimationController.stop();
     _tts.speak(AppStrings.stopMarkMessage(bars));
-    HapticFeedback.mediumImpact(); // Vibrace na začátku pauzy
+    HapticFeedback.vibrate(); 
 
     final totalMs = ((60000 / (_bpm ?? 120)) * bars * 4).round();
 
     // Pokud je pauza delší než 2 sekundy, zavibrujeme sekundu před koncem jako varování
     if (totalMs > 2000) {
       await Future.delayed(Duration(milliseconds: totalMs - 1000));
-      if (mounted && _isScrolling) HapticFeedback.lightImpact(); // Varování před rozjezdem
+      if (mounted && _isScrolling) HapticFeedback.vibrate(); 
       await Future.delayed(const Duration(milliseconds: 500));
-      if (mounted && _isScrolling) HapticFeedback.lightImpact(); // Dvojitý pulz
+      if (mounted && _isScrolling) HapticFeedback.vibrate(); 
       await Future.delayed(const Duration(milliseconds: 500));
     } else {
       await Future.delayed(Duration(milliseconds: totalMs));
@@ -426,8 +426,11 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       _song = song;
       _stopMarks = await widget.db.getStopMarksForSong(widget.songId);
 
+      final prefs = await SharedPreferences.getInstance();
+      final globalFontSize = prefs.getDouble('fontSize') ?? 24.0;
+
       setState(() {
-        _fontSize = song.customFontSize ?? 20.0;
+        _fontSize = song.customFontSize ?? globalFontSize;
         _scrollMultiplier = song.customScrollSpeed ?? 1.0;
         _bpm = song.tempo;
         _introDuration = song.introDuration;
@@ -656,6 +659,18 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                     ),
                   ],
                 ),
+                TextButton(
+                  onPressed: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    final globalFontSize = prefs.getDouble('fontSize') ?? 24.0;
+                    setSheetState(() => localFontSize = globalFontSize);
+                    setState(() => _fontSize = globalFontSize);
+                    await _saveSettings(customFontSize: null);
+                    _updateScrollingSpeed();
+                    _tts.speak("Nastaveno na globální velikost ${globalFontSize.round()}");
+                  },
+                  child: const Text("Použít globální velikost"),
+                ),
                 const Divider(),
                 Column(
                   children: [
@@ -745,7 +760,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   Future<void> _quickAddStopMark() async {
     await _saveStopMarkAtTopLine(2); // Výchozí 2 takty
     _tts.speak(AppStrings.stopMarkQuickAdded);
-    HapticFeedback.lightImpact(); // Potvrzení uložení jemnou vibrací
+    HapticFeedback.vibrate(); 
   }
 
   /// Uloží zarážku na právě viditelný (horní) řádek, případně záložně procentem.
@@ -855,7 +870,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       // Oznámit pozici v setlistu (B2)
       final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex + 2, widget.setlistIds!.length);
       _tts.speak("${AppStrings.nextSongMessage(nextSong.title, nextSong.artist)} $posMsg");
-      HapticFeedback.mediumImpact();
+      HapticFeedback.vibrate(); 
 
       if (_setlistDelay < 0) {
         // Režim čekat na stisk (C2)
@@ -924,7 +939,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       if (!mounted) return;
       final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex, widget.setlistIds!.length);
       _tts.speak("${AppStrings.setlistPrevSongAnnouncement(prevSong.title, prevSong.artist)} $posMsg");
-      HapticFeedback.mediumImpact();
+      HapticFeedback.vibrate(); 
       // Zrušit případný čekající auto-přechod
       _setlistCancelled = true;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -932,7 +947,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       await _navigateToSetlistSong(prevSongId);
     } else {
       _tts.speak("Jste na první písni setlistu");
-      HapticFeedback.lightImpact();
+      HapticFeedback.vibrate(); 
     }
   }
 
@@ -1029,27 +1044,30 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                 ),
               ),
             ),
-            // Střední třetina - play/pause + double-tap 2 prsty = další řádek
-            Expanded(
-              child: Semantics(
-                label: AppStrings.concertZoneCenterSemantics,
-                hint: AppStrings.nextLineGestureHint,
-                button: true,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: () {
-                    if (_concertTrainingMode) {
-                      _tts.speak("Spustit posuv");
-                    } else {
-                      _toggleScrolling();
-                    }
-                  },
-                  onDoubleTap: () => _announceNextLine(isAutomatic: false),
-                  onLongPress: () => _announceNextLine(isAutomatic: false),
-                  child: Container(color: Colors.transparent),
+                // Střední třetina - další řádek (tap) + play/pause (double-tap)
+                Expanded(
+                  child: Semantics(
+                    label: AppStrings.concertZoneCenterSemantics,
+                    hint: "Poklepání: další řádek. Dvojité poklepání: pauza/start.",
+                    button: true,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: () {
+                         _announceNextLine(isAutomatic: false);
+                      },
+                      onDoubleTap: () {
+                        if (_concertTrainingMode) {
+                          _tts.speak("Spustit posuv");
+                        } else {
+                          _toggleScrolling();
+                        }
+                      },
+                      onLongPress: () => _announceNextLine(isAutomatic: false),
+                      child: Container(color: Colors.transparent),
+                    ),
+                  ),
                 ),
-              ),
-            ),
+
             // Pravá třetina - zrychlit
             Expanded(
               child: Semantics(

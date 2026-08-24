@@ -81,7 +81,7 @@ class ConcertAccessibilityService {
     // Šipka dolů - náhled dalšího řádku (pedál long = držení posílá opakovaně)
     if (key == LogicalKeyboardKey.arrowDown ||
         key == LogicalKeyboardKey.numpad5) {
-      HapticFeedback.lightImpact();
+      HapticFeedback.vibrate();
       onAnnounceNext();
       return true;
     }
@@ -192,7 +192,7 @@ class ConcertAccessibilityService {
     if (isAutomatic) _lastAnnouncedIndex = result.index;
 
     await tts.stop();
-    HapticFeedback.lightImpact();
+    HapticFeedback.vibrate();
     await tts.speak(AppStrings.nextLineAnnouncement(result.text));
     return result.index;
   }
