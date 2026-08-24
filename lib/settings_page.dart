@@ -187,7 +187,7 @@ class _SettingsPageState extends State<SettingsPage> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Info o aplikaci a zařízení"),
+        title: Semantics(header: true, child: Text("Info o aplikaci a zařízení")),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -245,7 +245,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(AppStrings.backupTitle),
+        title: Semantics(header: true, child: Text(AppStrings.backupTitle)),
         content: Text(AppStrings.backupImportWarning),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
@@ -303,7 +303,7 @@ class _SettingsPageState extends State<SettingsPage> {
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Jak upravit metadata"),
+        title: Semantics(header: true, child: Text("Jak upravit metadata")),
         content: const Text(helpText),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Rozumím")),
@@ -366,7 +366,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final bool? confirm = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text("Náhled změn"),
+          title: Semantics(header: true, child: Text("Náhled změn")),
           content: SizedBox(
             width: double.maxFinite,
             child: ListView.builder(
@@ -447,7 +447,7 @@ class _SettingsPageState extends State<SettingsPage> {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: Text(AppStrings.libraryCheckTile),
+          title: Semantics(header: true, child: Text(AppStrings.libraryCheckTile)),
           content: Text(AppStrings.libraryCheckOk),
           actions: [
             TextButton(
@@ -465,7 +465,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final bool? repair = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(AppStrings.libraryCheckTile),
+        title: Semantics(header: true, child: Text(AppStrings.libraryCheckTile)),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.builder(
@@ -597,7 +597,7 @@ class _SettingsPageState extends State<SettingsPage> {
               final confirm = await showDialog<bool>(
                 context: context,
                 builder: (context) => AlertDialog(
-                  title: const Text("Vynulovat koncert"),
+                  title: Semantics(header: true, child: Text("Vynulovat koncert")),
                   content: const Text("Opravdu chcete vynulovat všechny odehrané písně?"),
                   actions: [
                     TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
@@ -826,4 +826,3 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 }
-

@@ -139,6 +139,9 @@ class AppDatabase extends _$AppDatabase {
   Future<int> updateSong(int id, String newArtist, String newTitle) =>
       (update(songs)..where((s) => s.id.equals(id))).write(SongsCompanion(artist: Value(newArtist), title: Value(newTitle)));
 
+  Future<int> updateSongPath(int id, String newPath) =>
+      (update(songs)..where((s) => s.id.equals(id))).write(SongsCompanion(filePath: Value(newPath)));
+
   Future<int> updateSongDuration(int id, int? seconds) =>
       (update(songs)..where((s) => s.id.equals(id))).write(SongsCompanion(duration: Value(seconds)));
 

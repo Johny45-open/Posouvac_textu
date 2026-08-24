@@ -37,7 +37,14 @@ class Song {
     String fileName,
   ) {
     final baseName = p.basenameWithoutExtension(fileName).trim();
-    final separator = RegExp(r'\s+[-–—]\s+').firstMatch(baseName);
+    // 1. pokus: s mezerami okolo pomlčky (preferovaný) — nerozbije AC-DC, zachová "Interpret - Název - Live"
+    var separator = RegExp(r'\s+[-–—]\s+').firstMatch(baseName);
+    // 2. pokus: bez mezer / s jednou mezerou — pokryje "Kabát-Oxygene", "A-B"
+    //    Pro hyphen bez mezer bereme poslední výskyt, aby "AC-DC-Highway" -> AC-DC / Highway
+    if (separator == null) {
+      final all = RegExp(r'\s*[-–—]\s*').allMatches(baseName).toList();
+      if (all.isNotEmpty) separator = all.last;
+    }
 
     if (separator == null) return (title: baseName, artist: null);
 
@@ -49,6 +56,27 @@ class Song {
     }
 
     return (title: title, artist: artist);
+  }
+
+  /// Odvodí metadata z názvu souboru s prioritou `Interpret - Název`.
+  /// Varianta B: pokud název souboru obsahuje oddělovač, použije se;
+  /// jinak fallback na první řádek obsahu (<50 znaků).
+  static ({String title, String artist}) deriveMetadataFromFile(
+    String filePath,
+    String content,
+  ) {
+    final parsed = parseImportedFileName(filePath);
+    if (parsed.artist != null) {
+      return (title: parsed.title, artist: parsed.artist!);
+    }
+    // Fallback: interpret neznámý, titul z prvního řádku nebo basename
+    final firstLine = content.split('\n').isNotEmpty
+        ? content.split('\n').first.trim()
+        : '';
+    final title = (firstLine.isNotEmpty && firstLine.length < 50)
+        ? firstLine
+        : parsed.title;
+    return (title: title, artist: unknownArtist);
   }
 
   Map<String, dynamic> toJson() => {

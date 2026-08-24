@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:drift/drift.dart' show InsertMode, Value;
+import 'package:drift/drift.dart' show InsertMode;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +13,7 @@ import 'playlists_page.dart';
 import 'player_page.dart';
 import 'settings_page.dart';
 import 'dev_pin_service.dart';
+import 'package:path/path.dart' as p;
 import 'manual_page.dart';
 import 'song_utils.dart';
 import 'app_progress_indicator.dart';
@@ -174,7 +175,7 @@ class _LibraryPageState extends State<LibraryPage> {
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Upravit píseň"),
+        title: Semantics(header: true, child: Text("Upravit píseň")),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -236,10 +237,45 @@ class _LibraryPageState extends State<LibraryPage> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
           TextButton(
             onPressed: () async {
-              await widget.db.updateSong(song.id, artistController.text, titleController.text);
+              final newArtistRaw = artistController.text.trim();
+              final newTitleRaw = titleController.text.trim();
+              final newArtist = newArtistRaw.isEmpty ? Song.unknownArtist : newArtistRaw;
+              final newTitle = newTitleRaw.isEmpty ? song.title : newTitleRaw;
+
+              await widget.db.updateSong(song.id, newArtist, newTitle);
               
               int totalSec = (int.tryParse(minController.text) ?? 0) * 60 + (int.tryParse(secController.text) ?? 0);
               await widget.db.updateSongDuration(song.id, totalSec > 0 ? totalSec : null);
+
+              // Rovnou přepsat i soubor na disku (Interpret - Název.txt)
+              try {
+                final oldFile = File(song.filePath);
+                if (await oldFile.exists() && (newArtist != song.artist || newTitle != song.title)) {
+                  final dir = p.dirname(song.filePath);
+                  final safeArtist = newArtist.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+                  final safeTitle = newTitle.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+                  var newFileName = '${safeArtist.isNotEmpty ? '$safeArtist - ' : ''}$safeTitle.txt';
+                  var newPath = p.join(dir, newFileName);
+                  // unikátnost
+                  var counter = 1;
+                  while (newPath != song.filePath && await File(newPath).exists()) {
+                    final base = newFileName.replaceAll('.txt', '');
+                    newPath = p.join(dir, '${base}_$counter.txt');
+                    counter++;
+                  }
+                  if (newPath != song.filePath) {
+                    await oldFile.rename(newPath);
+                    await widget.db.updateSongPath(song.id, newPath);
+                  }
+                }
+              } catch (e) {
+                debugPrint("Chyba přejmenování souboru: $e");
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Metadata uložena, ale soubor se nepodařilo přejmenovat.")),
+                  );
+                }
+              }
               
               _tts.speak("Píseň upravena");
               if (mounted) Navigator.pop(context);
@@ -261,7 +297,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final importType = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(AppStrings.importTypeTitle),
+        title: Semantics(header: true, child: Text(AppStrings.importTypeTitle)),
         content: Text(AppStrings.importTypeContent),
         actions: [
           TextButton(
@@ -328,7 +364,7 @@ class _LibraryPageState extends State<LibraryPage> {
       final choice = await showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(AppStrings.importExistingFound(existingCount)),
+          title: Semantics(header: true, child: Text(AppStrings.importExistingFound(existingCount))),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, null),
@@ -363,7 +399,7 @@ class _LibraryPageState extends State<LibraryPage> {
             updateDialog = setS;
             final progress = totalFiles > 0 ? processed / totalFiles : 0.0;
             return AlertDialog(
-              title: Text(AppStrings.importDialogTitle),
+              title: Semantics(header: true, child: Text(AppStrings.importDialogTitle)),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -389,12 +425,10 @@ class _LibraryPageState extends State<LibraryPage> {
           content = latin1.decode(bytes);
         }
         
-        final lines = content.split('\n');
-        final firstLine = lines.isNotEmpty ? lines.first.trim() : "";
-        final title = (firstLine.isNotEmpty && firstLine.length < 50) 
-            ? firstLine 
-            : Song.parseImportedFileName(entity.path).title;
-        final artist = Song.parseImportedFileName(entity.path).artist ?? "Neznámý interpret";
+        // Priorita: Interpret - Název z názvu souboru, fallback první řádek (varianta B)
+        final derived = Song.deriveMetadataFromFile(entity.path, content);
+        final title = derived.title;
+        final artist = derived.artist;
 
         if (existingPaths.contains(entity.path)) {
           // Soubor už v knihovně je – buď aktualizujeme metadata, nebo přeskočíme
@@ -443,7 +477,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Smazat píseň"),
+        title: Semantics(header: true, child: Text("Smazat píseň")),
         content: Text("Opravdu chcete smazat píseň \"${song.title}\" od interpreta \"${song.artist}\"?"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
@@ -506,7 +540,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final selected = await showDialog<Playlist>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text("Přidat do setlistu"),
+        title: Semantics(header: true, child: Text("Přidat do setlistu")),
         children: [
           for (final p in playlists)
             SimpleDialogOption(
@@ -687,7 +721,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 final confirm = await showDialog<bool>(
                   context: context,
                   builder: (context) => AlertDialog(
-                    title: const Text("Vynulovat odehrané"),
+                    title: Semantics(header: true, child: Text("Vynulovat odehrané")),
                     content: const Text("Opravdu chcete vynulovat všechny odehrané písně?"),
                     actions: [
                       TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),

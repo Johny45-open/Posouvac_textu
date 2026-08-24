@@ -63,7 +63,7 @@ class _CustomTtsSettingsPageState extends State<CustomTtsSettingsPage> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Reset hlasových zpráv"),
+        title: Semantics(header: true, child: Text("Reset hlasových zpráv")),
         content: const Text("Opravdu chcete vrátit všechny hlasové zprávy na výchozí hodnoty?"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),

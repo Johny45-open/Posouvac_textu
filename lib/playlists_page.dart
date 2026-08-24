@@ -69,7 +69,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Nový setlist"),
+        title: Semantics(header: true, child: Text("Nový setlist")),
         content: TextField(
           controller: controller, 
           focusNode: focusNode,
@@ -107,7 +107,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Spravovat setlist"),
+        title: Semantics(header: true, child: Text("Spravovat setlist")),
         content: TextFormField(
           controller: controller, 
           focusNode: focusNode,
@@ -280,7 +280,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(AppStrings.setlistUnlockConfirmTitle),
+        title: Semantics(header: true, child: Text(AppStrings.setlistUnlockConfirmTitle)),
         content: Text(AppStrings.setlistUnlockConfirmContent),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Zrušit")),
@@ -299,7 +299,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("Přesunout ${song.title}"),
+        title: Semantics(header: true, child: Text("Přesunout ${song.title}")),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
@@ -351,7 +351,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
                   s.title.toLowerCase().contains(filter.toLowerCase()) ||
                   s.artist.toLowerCase().contains(filter.toLowerCase())).toList();
           return AlertDialog(
-            title: Text(AppStrings.bulkAddTitle),
+            title: Semantics(header: true, child: Text(AppStrings.bulkAddTitle)),
             content: SizedBox(
               width: double.maxFinite,
               height: 400,
@@ -450,7 +450,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     final confirm = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("Spustit setlist ${widget.playlist.name}?"),
+        title: Semantics(header: true, child: Text("Spustit setlist ${widget.playlist.name}?")),
         content: Semantics(
           liveRegion: true,
           child: Text(shortSummary + (unknown > 0 ? "\n${AppStrings.setlistUnknownAnnouncement(unknown)}" : "")),
@@ -491,7 +491,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(song.title),
+        title: Semantics(header: true, child: Text(song.title)),
         content: Text("${song.artist} - položka ${index + 1} z $total"),
         actions: [
           TextButton(

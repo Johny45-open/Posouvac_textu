@@ -71,7 +71,11 @@ class Song {
     String fileName,
   ) {
     final baseName = p.basenameWithoutExtension(fileName).trim();
-    final separator = RegExp(r'\s+[-–—]\s+').firstMatch(baseName);
+    var separator = RegExp(r'\s+[-–—]\s+').firstMatch(baseName);
+    if (separator == null) {
+      final all = RegExp(r'\s*[-–—]\s*').allMatches(baseName).toList();
+      if (all.isNotEmpty) separator = all.last;
+    }
 
     if (separator == null) return (title: baseName, artist: null);
 
@@ -83,6 +87,24 @@ class Song {
     }
 
     return (title: title, artist: artist);
+  }
+
+  /// Varianta B: priorita filename `Interpret - Název`, fallback první řádek.
+  static ({String title, String artist}) deriveMetadataFromFile(
+    String filePath,
+    String content,
+  ) {
+    final parsed = parseImportedFileName(filePath);
+    if (parsed.artist != null) {
+      return (title: parsed.title, artist: parsed.artist!);
+    }
+    final firstLine = content.split('\n').isNotEmpty
+        ? content.split('\n').first.trim()
+        : '';
+    final title = (firstLine.isNotEmpty && firstLine.length < 50)
+        ? firstLine
+        : parsed.title;
+    return (title: title, artist: normalizeArtist(parsed.artist));
   }
 
   Map<String, dynamic> toJson() => {

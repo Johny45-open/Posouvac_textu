@@ -74,7 +74,7 @@ class DevPinService {
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(title),
+        title: Semantics(header: true, child: Text(title)),
         content: TextField(
           controller: controller,
           obscureText: true,
@@ -160,7 +160,7 @@ class DevPinService {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Vývojářská data resetována"),
+        title: Semantics(header: true, child: Text("Vývojářská data resetována")),
         content: const Text("Po mnoha špatných pokusech byly hlasové zprávy vráceny na výchozí hodnoty a vývojářský PIN na výchozí. Vaše písně a playlisty zůstaly nedotčené."),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Rozumím")),
@@ -213,7 +213,7 @@ class _DevLockoutDialogState extends State<DevLockoutDialog> {
   Widget build(BuildContext context) {
     final remaining = widget.until.difference(DateTime.now());
     return AlertDialog(
-      title: const Text("Příliš mnoho pokusů"),
+      title: Semantics(header: true, child: Text("Příliš mnoho pokusů")),
       content: Text("Vyčkejte prosím ${_format(remaining)} než to zkusíte znovu."),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zavřít")),

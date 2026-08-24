@@ -117,7 +117,7 @@ class _QrScanPageState extends State<QrScanPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(AppStrings.scanPlainDialogTitle),
+        title: Semantics(header: true, child: Text(AppStrings.scanPlainDialogTitle)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

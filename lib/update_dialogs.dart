@@ -77,7 +77,7 @@ Future<void> runUpdateCheck(BuildContext context) async {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(AppStrings.updateNewsTitle),
+        title: Semantics(header: true, child: Text(AppStrings.updateNewsTitle)),
         content: Text(AppStrings.updateUpToDate),
         actions: [
           TextButton(
@@ -99,7 +99,7 @@ Future<void> showUpdateAvailableDialog(
   final openBrowser = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: Text(AppStrings.updateAvailableTitle),
+      title: Semantics(header: true, child: Text(AppStrings.updateAvailableTitle)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,

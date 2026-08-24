@@ -146,7 +146,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(AppStrings.bpmDialogTitle),
+          title: Semantics(header: true, child: Text(AppStrings.bpmDialogTitle)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -524,7 +524,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text("Správa pauz"),
+          title: Semantics(header: true, child: Text("Správa pauz")),
           content: _stopMarks.isEmpty 
             ? const Text("Tato píseň nemá žádné nastavené pauzy.")
             : SizedBox(
@@ -720,7 +720,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Přidat pauzu"),
+        title: Semantics(header: true, child: Text("Přidat pauzu")),
         content: TextField(
           controller: barsController,
           keyboardType: TextInputType.number,

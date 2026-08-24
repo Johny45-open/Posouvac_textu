@@ -34,8 +34,8 @@ class LibraryIssue {
 /// s obsahem txt souborů (stejnou logikou, jakou používá import).
 class LibraryChecker {
   /// Odvodí očekávaný název a interpreta ze souboru.
-  /// Název: první řádek souboru (pokud není prázdný a je do 50 znaků),
-  /// jinak ze jména souboru. Interpret: vždy ze jména souboru.
+  /// Priorita (varianta B): `Interpret - Název` z názvu souboru,
+  /// fallback na první řádek (<50 znaků) pokud oddělovač chybí.
   static Future<({String title, String artist})> deriveMetadata(File file) async {
     final bytes = await file.readAsBytes();
     String content;
@@ -44,13 +44,7 @@ class LibraryChecker {
     } catch (_) {
       content = latin1.decode(bytes);
     }
-    final lines = content.split('\n');
-    final firstLine = lines.isNotEmpty ? lines.first.trim() : '';
-    final parsed = Song.parseImportedFileName(file.path);
-    final title =
-        (firstLine.isNotEmpty && firstLine.length < 50) ? firstLine : parsed.title;
-    final artist = parsed.artist ?? Song.unknownArtist;
-    return (title: title, artist: artist);
+    return Song.deriveMetadataFromFile(file.path, content);
   }
 
   /// Projde celou knihovnu a vrátí seznam neshod a chybějících souborů.

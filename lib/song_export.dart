@@ -118,7 +118,7 @@ Future<void> showSongShareDialog(
   final choice = await showDialog<String>(
     context: context,
     builder: (context) => SimpleDialog(
-      title: Text(AppStrings.shareTitle),
+      title: Semantics(header: true, child: Text(AppStrings.shareTitle)),
       children: [
         SimpleDialogOption(
           onPressed: () => Navigator.pop(context, 'html'),
@@ -232,7 +232,7 @@ Future<void> _showQrDialog(
   await showDialog(
     context: context,
     builder: (context) => AlertDialog(
-      title: Text(AppStrings.shareQrDialogTitle),
+      title: Semantics(header: true, child: Text(AppStrings.shareQrDialogTitle)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
