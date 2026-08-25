@@ -161,7 +161,7 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   @override
   void initState() {
     super.initState();
-    _themeMode = ThemeMode.values[widget.prefs.getInt('themeMode') ?? 0];
+    _themeMode = ThemeMode.values[widget.prefs.getInt('themeMode') ?? 2];
     _fontSize = widget.prefs.getDouble('fontSize') ?? 24.0;
     _scrollSpeed = widget.prefs.getDouble('scrollSpeed') ?? 1.0;
     _useMonospace = widget.prefs.getBool('useMonospace') ?? false;
