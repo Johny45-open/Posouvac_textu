@@ -903,8 +903,14 @@ class AppDatabase extends _$AppDatabase {
         if (line.isEmpty) continue;
         final parts = _parseDiacriticCsvLine(line);
         if (parts.length < 2) continue;
-        final key = _normForMatch(parts[0]);
-        final value = parts[1].trim();
+        final key = _normForMatch(parts[0].split(';').first.trim());
+        var rawValue = parts[1].trim();
+        // Defenzivně ořež trailing artefakty z českého Excelu (oddělovač ; a zbytečné ))
+        // a případný duplicitní obsah za středníkem: "Ivan Mládek;Ivan Mládek" -> "Ivan Mládek"
+        if (rawValue.contains(';')) rawValue = rawValue.split(';').first.trim();
+        rawValue = rawValue.replaceAll(RegExp(r'[;\)]+$'), '').trim();
+        rawValue = rawValue.replaceAll(RegExp(r'^"+|"+$'), '').trim();
+        final value = rawValue;
         if (key.isEmpty || value.isEmpty || key == value.toLowerCase().trim()) continue;
         await into(diacriticMappings).insert(
           DiacriticMappingsCompanion.insert(normKey: key, corrected: value),
