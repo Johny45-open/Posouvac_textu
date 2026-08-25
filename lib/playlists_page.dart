@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:drift/drift.dart' show innerJoin;
 import 'package:file_picker/file_picker.dart';
@@ -10,6 +11,8 @@ import 'player_page.dart';
 import 'app_strings.dart';
 import 'song_export.dart';
 import 'dev_log.dart';
+import 'playlist_html_parser.dart';
+import 'qr_scan_page.dart';
 
 class PlaylistsPage extends StatefulWidget {
   final AppDatabase db;
@@ -29,28 +32,83 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
     _tts.setSpeechRate(0.5);
   }
 
-  Future<void> _importPlaylist() async {
+  Future<void> _showImportChoice() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Semantics(header: true, child: Text(AppStrings.playlistImportChoiceTitle)),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'file'),
+            child: ListTile(leading: const Icon(Icons.file_upload), title: Text(AppStrings.playlistImportFileLabel), subtitle: Text(AppStrings.playlistImportFileDescription)),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'html'),
+            child: ListTile(leading: const Icon(Icons.public), title: Text(AppStrings.playlistImportHtmlLabel), subtitle: Text(AppStrings.playlistImportHtmlDescription)),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'clipboard'),
+            child: ListTile(leading: const Icon(Icons.content_paste), title: Text(AppStrings.playlistImportClipboardLabel), subtitle: Text(AppStrings.playlistImportClipboardDescription)),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'qr'),
+            child: ListTile(leading: const Icon(Icons.qr_code_scanner), title: Text("QR kód"), subtitle: const Text("Naskenovat QR")),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == null) return;
+    if (choice == 'file') _importFromFile();
+    if (choice == 'html') _importFromHtmlFile();
+    if (choice == 'clipboard') _importFromClipboard();
+    if (choice == 'qr') {
+        Navigator.push(context, MaterialPageRoute(builder: (context) => QrScanPage(db: widget.db)));
+    }
+  }
+
+  Future<void> _importFromFile() async {
     try {
-      final files = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['json'],
-      );
-
-      if (files.isEmpty) {
-        return;
-      }
-
-      final path = files.single.path;
-      if (path == null) return;
-      final file = File(path);
+      final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
+      if (files == null || files.isEmpty) return;
+      final file = File(files.single.path!);
       final jsonString = await file.readAsString();
-      final data = jsonDecode(jsonString) as Map<String, dynamic>;
+      await _importFromString(jsonString);
+    } catch (e) {
+      _announceError(AppStrings.playlistImportError);
+    }
+  }
 
-      final syncResult = await widget.db.syncPlaylistFromJson(data);
+  Future<void> _importFromHtmlFile() async {
+    try {
+      final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['html', 'htm']);
+      if (files == null || files.isEmpty) return;
+      final file = File(files.single.path!);
+      final htmlString = await file.readAsString();
+      final data = parsePlaylistHtml(htmlString);
+      await _importFromString(jsonEncode(data));
+    } catch (e) {
+      _announceError(AppStrings.playlistImportHtmlError);
+    }
+  }
+
+  Future<void> _importFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data?.text == null || data!.text!.isEmpty) {
+        _tts.speak(AppStrings.playlistImportClipboardEmpty);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.playlistImportClipboardEmpty)));
+        return;
+    }
+    await _importFromString(data.text!);
+  }
+
+  Future<void> _importFromString(String raw) async {
+    try {
+      final decoded = jsonDecode(raw.startsWith('\uFEFF') ? raw.substring(1) : raw);
+      final syncResult = await widget.db.syncPlaylistFromJson(decoded as Map<String, dynamic>);
+      
       final hasTime = syncResult.totalDurationShared > 0 || syncResult.unknownShared > 0;
-      final timeText = hasTime
-          ? _formatImportTime(syncResult.totalDurationShared, syncResult.unknownShared)
-          : null;
+      final timeText = hasTime ? _formatImportTime(syncResult.totalDurationShared, syncResult.unknownShared) : null;
       final baseMessage = syncResult.notFound.isEmpty
           ? AppStrings.playlistImportSuccess(syncResult.playlistName, syncResult.matchedCount)
           : '${AppStrings.playlistImportSuccess(syncResult.playlistName, syncResult.matchedCount)} '
@@ -67,11 +125,14 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
         }
       }
     } catch (e) {
-      _tts.speak(AppStrings.playlistImportError);
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(AppStrings.playlistImportError)));
-      }
+      _announceError(AppStrings.playlistImportError);
+    }
+  }
+
+  void _announceError(String message) {
+    _tts.speak(message);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -319,11 +380,12 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
       appBar: AppBar(
         title: const Text("Moje setlisty"),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.file_upload),
-            tooltip: "Importovat setlist ze souboru",
-            onPressed: _importPlaylist,
-          ),
+            IconButton(
+              icon: const Icon(Icons.file_upload),
+              tooltip: "Importovat setlist",
+              onPressed: _showImportChoice,
+            ),
+
         ],
       ),
       body: FutureBuilder<List<Playlist>>(

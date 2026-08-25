@@ -7,6 +7,8 @@ import 'package:drift/drift.dart' show InsertMode;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'database.dart';
 import 'song_entry.dart';
 import 'playlists_page.dart';
@@ -711,6 +713,22 @@ class _LibraryPageState extends State<LibraryPage> {
               onTap: () {
                 Navigator.pop(context);
                 widget.onOpenManual();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: const Text("Export CSV pro Generátor"),
+              onTap: () async {
+                Navigator.pop(context);
+                try {
+                  final csv = await widget.db.exportSongsToCsv();
+                  final dir = await getTemporaryDirectory();
+                  final file = File('${dir.path}/metadata_pisni.csv');
+                  await file.writeAsString(csv, encoding: utf8);
+                  await Share.shareXFiles([XFile(file.path, mimeType: 'text/csv')], text: "Knihovna písní pro Generátor");
+                } catch (e) {
+                  _tts.speak("Export se nezdařil.");
+                }
               },
             ),
             const Divider(),

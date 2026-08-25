@@ -44,6 +44,11 @@ class SharingHandler {
     if (files.isEmpty) return;
 
     for (final file in files) {
+      if (file.type == SharedMediaType.text) {
+        await _importFromString(file.path.trim());
+        continue;
+      }
+      
       if (file.type == SharedMediaType.image ||
           file.type == SharedMediaType.video ||
           file.type == SharedMediaType.url) {

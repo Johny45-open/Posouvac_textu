@@ -181,6 +181,17 @@ class AppStrings {
       isInformal ? "Tohle se jako setlist načíst nedá, zkontroluj přijatá data."
                  : "Nepodařilo se načíst platný setlist z přijatých dat.";
 
+  static String get playlistImportChoiceTitle => isInformal ? "Odkud setlist vzít?" : "Importovat setlist z...";
+  static String get playlistImportFileLabel => isInformal ? "Ze souboru" : "Ze souboru";
+  static String get playlistImportFileDescription => isInformal ? "JSON nebo HTML soubor" : "Importovat setlist ze souboru (JSON/HTML)";
+  static String get playlistImportHtmlLabel => isInformal ? "HTML přehled" : "HTML přehled";
+  static String get playlistImportHtmlDescription => isInformal ? "Soubor vygenerovaný v prohlížeči" : "Importovat z HTML přehledu";
+  static String get playlistImportClipboardLabel => isInformal ? "Ze schránky" : "Ze schránky";
+  static String get playlistImportClipboardDescription => isInformal ? "Vložit text zkopírovaný odjinud" : "Importovat ze schránky (text)";
+  static String get playlistImportClipboardEmpty => isInformal ? "Schránka je prázdná" : "Schránka je prázdná";
+  static String get playlistImportHtmlSuccess => isInformal ? "Setlist z HTML nahraný." : "Setlist z HTML byl úspěšně importován.";
+  static String get playlistImportHtmlError => isInformal ? "Z toho HTML se setlist načíst nedá." : "Nepodařilo se importovat setlist z HTML.";
+
   // --- SDÍLENÍ SETLISTU S ČASEM (v2) ---
   static String get sharePlaylistTitle => isInformal ? "Jak setlist pošleš?" : "Sdílet setlist";
   static String get sharePlaylistHtmlLabel => isInformal ? "HTML soubor" : "HTML soubor";
