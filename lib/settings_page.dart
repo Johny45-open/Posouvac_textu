@@ -68,6 +68,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final DevPinService _pinService;
 
   late bool _devModeUnlocked;
+  int _diacriticCount = 0;
 
   @override
   void initState() {
@@ -75,6 +76,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _tts.setLanguage("cs-CZ");
     _devModeUnlocked = widget.devModeUnlocked;
     _pinService = DevPinService(db: widget.db);
+    _loadDiacriticCount();
   }
 
   /// Hlasové zprávy - PIN už byl ověřen při vstupu do vývojářského režimu.
@@ -295,6 +297,125 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _checkForUpdates() async {
     await runUpdateCheck(context);
+  }
+
+  Future<void> _loadDiacriticCount() async {
+    final count = await widget.db.getDiacriticCount();
+    if (mounted) setState(() => _diacriticCount = count);
+  }
+
+  Future<void> _runDiacriticRepair() async {
+    _tts.speak("Prohledávám knihovnu, čekejte.");
+
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        content: AppProgressIndicator(label: "Prohledávám knihovnu"),
+      ),
+    ));
+
+    List<DiacriticRepairCandidate> candidates;
+    try {
+      candidates = await widget.db.findDiacriticRepairs();
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _tts.speak("Opravu se nepodařilo dokončit.");
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+
+    if (candidates.isEmpty) {
+      _tts.speak("Žádné názvy k opravě nebyly nalezeny.");
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Semantics(header: true, child: const Text("Hromadná oprava diakritiky")),
+          content: const Text("Žádné názvy k opravě nebyly nalezeny."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text("Zavřít")),
+          ],
+        ),
+      );
+      return;
+    }
+
+    _tts.speak("Nalezeno ${candidates.length} návrhů na opravu. Zkontrolujte seznam.");
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Semantics(header: true, child: const Text("Kontrola změn")),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: candidates.length,
+            itemBuilder: (context, i) {
+              final c = candidates[i];
+              return Semantics(
+                label: "Položka ${i + 1}: změna z \"${c.currentArtist} - ${c.currentTitle}\" na \"${c.newArtist} - ${c.newTitle}\"",
+                child: ListTile(
+                  leading: const Icon(Icons.edit_note),
+                  title: Text("${c.currentArtist} - ${c.currentTitle}"),
+                  subtitle: Text("→ ${c.newArtist} - ${c.newTitle}"),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text("Zrušit")),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text("Potvrdit změny")),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    final applied = await widget.db.applyDiacriticRepairs(candidates);
+    _tts.speak("Bylo opraveno $applied názvů.");
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Bylo opraveno $applied názvů.")));
+    }
+  }
+
+  Future<void> _exportDiacriticCsv() async {
+    try {
+      final csvString = await widget.db.exportDiacriticCsv();
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/slovnik_diakritiky.csv');
+      await file.writeAsString(csvString, encoding: utf8);
+      await Share.shareXFiles([XFile(file.path)], text: 'Slovník diakritiky aplikace Posouvač textu');
+      _tts.speak("Slovník exportován");
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při exportu slovníku: $e")));
+      }
+    }
+  }
+
+  Future<void> _importDiacriticCsv() async {
+    try {
+      final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['csv']);
+      final path = files.isNotEmpty ? files.single.path : null;
+      if (path == null) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Import slovníku zrušen.")));
+        return;
+      }
+      final csvString = await File(path).readAsString(encoding: utf8);
+      final imported = await widget.db.importDiacriticCsv(csvString);
+      await _loadDiacriticCount();
+      _tts.speak("Do slovníku bylo přidáno $imported záznamů");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Do slovníku bylo přidáno $imported záznamů")));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při importu slovníku: $e")));
+      }
+    }
   }
 
   Future<void> _showGlobalFontSizeDialog() async {
@@ -650,6 +771,39 @@ class _SettingsPageState extends State<SettingsPage> {
             title: Text(AppStrings.libraryCheckTile),
             subtitle: Text(AppStrings.libraryCheckSubtitle),
             onTap: _checkLibrary,
+          ),
+          const Divider(height: 40),
+          ListTile(
+            leading: const Icon(Icons.spellcheck),
+            title: const Text("Slovník diakritiky"),
+            subtitle: Text("$_diacriticCount uložených oprav. Učí se z ručních úprav názvů."),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Column(
+              children: [
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(double.maxFinite, 50)),
+                  icon: const Icon(Icons.auto_fix_high),
+                  label: const Text("Hromadná oprava názvů"),
+                  onPressed: _runDiacriticRepair,
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(double.maxFinite, 50)),
+                  icon: const Icon(Icons.upload),
+                  label: const Text("Exportovat slovník"),
+                  onPressed: _exportDiacriticCsv,
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(double.maxFinite, 50)),
+                  icon: const Icon(Icons.download),
+                  label: const Text("Importovat slovník"),
+                  onPressed: _importDiacriticCsv,
+                ),
+              ],
+            ),
           ),
           const Divider(height: 40),
           ListTile(

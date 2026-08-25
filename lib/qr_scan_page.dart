@@ -241,7 +241,7 @@ class _QrScanPageState extends State<QrScanPage> {
     int fixedTime = 0;
     int fixedDia = 0;
     if (timeCount > 0) fixedTime = await widget.db.applyMissingDurations(result.durationCandidates);
-    if (diaCount > 0) fixedDia = await widget.db.applyDiacriticFixes(result.diacriticCandidates);
+    if (diaCount > 0) fixedDia = await widget.db.applyDiacriticRepairs(result.diacriticCandidates);
     final doneMsg = AppStrings.playlistFixDone(fixedTime, fixedDia);
     _tts.speak(doneMsg);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(doneMsg)));

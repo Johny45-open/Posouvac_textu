@@ -243,6 +243,14 @@ class _LibraryPageState extends State<LibraryPage> {
               final newTitle = newTitleRaw.isEmpty ? song.title : newTitleRaw;
 
               await widget.db.updateSong(song.id, newArtist, newTitle);
+
+              // Naučit slovník diakritiky z ruční opravy
+              if (newTitle != song.title) {
+                await widget.db.learnDiacritic(song.title, newTitle);
+              }
+              if (newArtist != song.artist) {
+                await widget.db.learnDiacritic(song.artist, newArtist);
+              }
               
               int totalSec = (int.tryParse(minController.text) ?? 0) * 60 + (int.tryParse(secController.text) ?? 0);
               await widget.db.updateSongDuration(song.id, totalSec > 0 ? totalSec : null);
@@ -427,8 +435,12 @@ class _LibraryPageState extends State<LibraryPage> {
         
         // Priorita: Interpret - Název z názvu souboru, fallback první řádek (varianta B)
         final derived = Song.deriveMetadataFromFile(entity.path, content);
-        final title = derived.title;
-        final artist = derived.artist;
+        var title = derived.title;
+        var artist = derived.artist;
+
+        // Automatické doplnění diakritiky ze slovníku
+        title = await widget.db.lookupDiacritic(title) ?? title;
+        artist = await widget.db.lookupDiacritic(artist) ?? artist;
 
         if (existingPaths.contains(entity.path)) {
           // Soubor už v knihovně je – buď aktualizujeme metadata, nebo přeskočíme

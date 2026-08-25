@@ -1756,6 +1756,226 @@ class CustomStringsCompanion extends UpdateCompanion<CustomString> {
   }
 }
 
+class $DiacriticMappingsTable extends DiacriticMappings
+    with TableInfo<$DiacriticMappingsTable, DiacriticMappingEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DiacriticMappingsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _normKeyMeta = const VerificationMeta(
+    'normKey',
+  );
+  @override
+  late final GeneratedColumn<String> normKey = GeneratedColumn<String>(
+    'norm_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _correctedMeta = const VerificationMeta(
+    'corrected',
+  );
+  @override
+  late final GeneratedColumn<String> corrected = GeneratedColumn<String>(
+    'corrected',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [normKey, corrected];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'diacritic_mappings';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DiacriticMappingEntry> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('norm_key')) {
+      context.handle(
+        _normKeyMeta,
+        normKey.isAcceptableOrUnknown(data['norm_key']!, _normKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_normKeyMeta);
+    }
+    if (data.containsKey('corrected')) {
+      context.handle(
+        _correctedMeta,
+        corrected.isAcceptableOrUnknown(data['corrected']!, _correctedMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_correctedMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {normKey};
+  @override
+  DiacriticMappingEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DiacriticMappingEntry(
+      normKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}norm_key'],
+      )!,
+      corrected: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}corrected'],
+      )!,
+    );
+  }
+
+  @override
+  $DiacriticMappingsTable createAlias(String alias) {
+    return $DiacriticMappingsTable(attachedDatabase, alias);
+  }
+}
+
+class DiacriticMappingEntry extends DataClass
+    implements Insertable<DiacriticMappingEntry> {
+  final String normKey;
+  final String corrected;
+  const DiacriticMappingEntry({required this.normKey, required this.corrected});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['norm_key'] = Variable<String>(normKey);
+    map['corrected'] = Variable<String>(corrected);
+    return map;
+  }
+
+  DiacriticMappingsCompanion toCompanion(bool nullToAbsent) {
+    return DiacriticMappingsCompanion(
+      normKey: Value(normKey),
+      corrected: Value(corrected),
+    );
+  }
+
+  factory DiacriticMappingEntry.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DiacriticMappingEntry(
+      normKey: serializer.fromJson<String>(json['normKey']),
+      corrected: serializer.fromJson<String>(json['corrected']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'normKey': serializer.toJson<String>(normKey),
+      'corrected': serializer.toJson<String>(corrected),
+    };
+  }
+
+  DiacriticMappingEntry copyWith({String? normKey, String? corrected}) =>
+      DiacriticMappingEntry(
+        normKey: normKey ?? this.normKey,
+        corrected: corrected ?? this.corrected,
+      );
+  DiacriticMappingEntry copyWithCompanion(DiacriticMappingsCompanion data) {
+    return DiacriticMappingEntry(
+      normKey: data.normKey.present ? data.normKey.value : this.normKey,
+      corrected: data.corrected.present ? data.corrected.value : this.corrected,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DiacriticMappingEntry(')
+          ..write('normKey: $normKey, ')
+          ..write('corrected: $corrected')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(normKey, corrected);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DiacriticMappingEntry &&
+          other.normKey == this.normKey &&
+          other.corrected == this.corrected);
+}
+
+class DiacriticMappingsCompanion
+    extends UpdateCompanion<DiacriticMappingEntry> {
+  final Value<String> normKey;
+  final Value<String> corrected;
+  final Value<int> rowid;
+  const DiacriticMappingsCompanion({
+    this.normKey = const Value.absent(),
+    this.corrected = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DiacriticMappingsCompanion.insert({
+    required String normKey,
+    required String corrected,
+    this.rowid = const Value.absent(),
+  }) : normKey = Value(normKey),
+       corrected = Value(corrected);
+  static Insertable<DiacriticMappingEntry> custom({
+    Expression<String>? normKey,
+    Expression<String>? corrected,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (normKey != null) 'norm_key': normKey,
+      if (corrected != null) 'corrected': corrected,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DiacriticMappingsCompanion copyWith({
+    Value<String>? normKey,
+    Value<String>? corrected,
+    Value<int>? rowid,
+  }) {
+    return DiacriticMappingsCompanion(
+      normKey: normKey ?? this.normKey,
+      corrected: corrected ?? this.corrected,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (normKey.present) {
+      map['norm_key'] = Variable<String>(normKey.value);
+    }
+    if (corrected.present) {
+      map['corrected'] = Variable<String>(corrected.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DiacriticMappingsCompanion(')
+          ..write('normKey: $normKey, ')
+          ..write('corrected: $corrected, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -1764,6 +1984,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $PlaylistSongsTable playlistSongs = $PlaylistSongsTable(this);
   late final $StopMarksTable stopMarks = $StopMarksTable(this);
   late final $CustomStringsTable customStrings = $CustomStringsTable(this);
+  late final $DiacriticMappingsTable diacriticMappings =
+      $DiacriticMappingsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -1774,6 +1996,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     playlistSongs,
     stopMarks,
     customStrings,
+    diacriticMappings,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -3381,6 +3604,162 @@ typedef $$CustomStringsTableProcessedTableManager =
       CustomString,
       PrefetchHooks Function()
     >;
+typedef $$DiacriticMappingsTableCreateCompanionBuilder =
+    DiacriticMappingsCompanion Function({
+      required String normKey,
+      required String corrected,
+      Value<int> rowid,
+    });
+typedef $$DiacriticMappingsTableUpdateCompanionBuilder =
+    DiacriticMappingsCompanion Function({
+      Value<String> normKey,
+      Value<String> corrected,
+      Value<int> rowid,
+    });
+
+class $$DiacriticMappingsTableFilterComposer
+    extends Composer<_$AppDatabase, $DiacriticMappingsTable> {
+  $$DiacriticMappingsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get normKey => $composableBuilder(
+    column: $table.normKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get corrected => $composableBuilder(
+    column: $table.corrected,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$DiacriticMappingsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DiacriticMappingsTable> {
+  $$DiacriticMappingsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get normKey => $composableBuilder(
+    column: $table.normKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get corrected => $composableBuilder(
+    column: $table.corrected,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$DiacriticMappingsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DiacriticMappingsTable> {
+  $$DiacriticMappingsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get normKey =>
+      $composableBuilder(column: $table.normKey, builder: (column) => column);
+
+  GeneratedColumn<String> get corrected =>
+      $composableBuilder(column: $table.corrected, builder: (column) => column);
+}
+
+class $$DiacriticMappingsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DiacriticMappingsTable,
+          DiacriticMappingEntry,
+          $$DiacriticMappingsTableFilterComposer,
+          $$DiacriticMappingsTableOrderingComposer,
+          $$DiacriticMappingsTableAnnotationComposer,
+          $$DiacriticMappingsTableCreateCompanionBuilder,
+          $$DiacriticMappingsTableUpdateCompanionBuilder,
+          (
+            DiacriticMappingEntry,
+            BaseReferences<
+              _$AppDatabase,
+              $DiacriticMappingsTable,
+              DiacriticMappingEntry
+            >,
+          ),
+          DiacriticMappingEntry,
+          PrefetchHooks Function()
+        > {
+  $$DiacriticMappingsTableTableManager(
+    _$AppDatabase db,
+    $DiacriticMappingsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DiacriticMappingsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DiacriticMappingsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DiacriticMappingsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> normKey = const Value.absent(),
+                Value<String> corrected = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DiacriticMappingsCompanion(
+                normKey: normKey,
+                corrected: corrected,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String normKey,
+                required String corrected,
+                Value<int> rowid = const Value.absent(),
+              }) => DiacriticMappingsCompanion.insert(
+                normKey: normKey,
+                corrected: corrected,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$DiacriticMappingsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DiacriticMappingsTable,
+      DiacriticMappingEntry,
+      $$DiacriticMappingsTableFilterComposer,
+      $$DiacriticMappingsTableOrderingComposer,
+      $$DiacriticMappingsTableAnnotationComposer,
+      $$DiacriticMappingsTableCreateCompanionBuilder,
+      $$DiacriticMappingsTableUpdateCompanionBuilder,
+      (
+        DiacriticMappingEntry,
+        BaseReferences<
+          _$AppDatabase,
+          $DiacriticMappingsTable,
+          DiacriticMappingEntry
+        >,
+      ),
+      DiacriticMappingEntry,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -3395,4 +3774,6 @@ class $AppDatabaseManager {
       $$StopMarksTableTableManager(_db, _db.stopMarks);
   $$CustomStringsTableTableManager get customStrings =>
       $$CustomStringsTableTableManager(_db, _db.customStrings);
+  $$DiacriticMappingsTableTableManager get diacriticMappings =>
+      $$DiacriticMappingsTableTableManager(_db, _db.diacriticMappings);
 }

@@ -22,16 +22,16 @@ class DurationFixCandidate {
   });
 }
 
-class DiacriticFixCandidate {
+class DiacriticRepairCandidate {
   final int songId;
-  final String oldTitle;
-  final String oldArtist;
+  final String currentTitle;
+  final String currentArtist;
   final String newTitle;
   final String newArtist;
-  const DiacriticFixCandidate({
+  const DiacriticRepairCandidate({
     required this.songId,
-    required this.oldTitle,
-    required this.oldArtist,
+    required this.currentTitle,
+    required this.currentArtist,
     required this.newTitle,
     required this.newArtist,
   });
@@ -96,7 +96,7 @@ class CustomStrings extends Table {
   Set<Column> get primaryKey => {key};
 }
 
-@DriftDatabase(tables: [Songs, Playlists, PlaylistSongs, StopMarks, CustomStrings])
+@DriftDatabase(tables: [Songs, Playlists, PlaylistSongs, StopMarks, CustomStrings, DiacriticMappings])
 class AppDatabase extends _$AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
 
@@ -110,7 +110,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase._testing() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration {
@@ -142,6 +142,9 @@ class AppDatabase extends _$AppDatabase {
         if (from < 9) {
           await m.addColumn(stopMarks, stopMarks.lineIndex);
           await m.addColumn(stopMarks, stopMarks.lineText);
+        }
+        if (from < 10) {
+          await m.createTable(diacriticMappings);
         }
       },
     );
@@ -655,12 +658,102 @@ class AppDatabase extends _$AppDatabase {
     return count;
   }
 
-  Future<int> applyDiacriticFixes(List<DiacriticFixCandidate> candidates) async {
+  // --- SLOVNÍK DIAKRITIKY ---
+  /// Vyhledá opravený zápis ve slovníku (podle textu bez diakritiky).
+  Future<String?> lookupDiacritic(String rawText) async {
+    final key = _normForMatch(rawText);
+    if (key.isEmpty) return null;
+    final row = await (select(diacriticMappings)..where((t) => t.normKey.equals(key))).getSingleOrNull();
+    return row?.corrected;
+  }
+
+  /// Naučí slovník dvojici [raw] -> [corrected] (např. z ruční opravy písně).
+  Future<void> learnDiacritic(String raw, String corrected) async {
+    final key = _normForMatch(raw);
+    final value = corrected.trim();
+    if (key.isEmpty || value.isEmpty || key == _normForMatch(value)) return;
+    await into(diacriticMappings).insert(
+      DiacriticMappingsCompanion.insert(normKey: key, corrected: value),
+      mode: InsertMode.insertOrReplace,
+    );
+  }
+
+  Future<int> getDiacriticCount() async {
+    final countExp = diacriticMappings.normKey.count();
+    final query = selectOnly(diacriticMappings)..addColumns([countExp]);
+    final row = await query.getSingle();
+    return row.read(countExp) ?? 0;
+  }
+
+  /// Najde písně, jejichž název/interpret má ve slovníku opravenou verzi.
+  Future<List<DiacriticRepairCandidate>> findDiacriticRepairs() async {
+    final all = await select(songs).get();
+    final mappings = await select(diacriticMappings).get();
+    final map = {for (final m in mappings) m.normKey: m.corrected};
+    if (map.isEmpty) return const [];
+    final result = <DiacriticRepairCandidate>[];
+    for (final s in all) {
+      final newTitle = map[_normForMatch(s.title)];
+      final newArtist = map[_normForMatch(s.artist)];
+      final changedTitle = newTitle != null && newTitle != s.title;
+      final changedArtist = newArtist != null && newArtist != s.artist;
+      if (!changedTitle && !changedArtist) continue;
+      result.add(DiacriticRepairCandidate(
+        songId: s.id,
+        currentTitle: s.title,
+        currentArtist: s.artist,
+        newTitle: changedTitle ? newTitle! : s.title,
+        newArtist: changedArtist ? newArtist! : s.artist,
+      ));
+    }
+    return result;
+  }
+
+  /// Aplikuje potvrzené hromadné opravy diakritiky.
+  Future<int> applyDiacriticRepairs(List<DiacriticRepairCandidate> candidates) async {
     var count = 0;
     await transaction(() async {
       for (final c in candidates) {
-        final res = await (update(songs)..where((t) => t.id.equals(c.songId))).write(SongsCompanion(title: Value(c.newTitle), artist: Value(c.newArtist)));
+        final res = await (update(songs)..where((t) => t.id.equals(c.songId))).write(
+          SongsCompanion(title: Value(c.newTitle), artist: Value(c.newArtist)),
+        );
         if (res > 0) count++;
+      }
+    });
+    return count;
+  }
+
+  Future<String> exportDiacriticCsv() async {
+    final rows = await select(diacriticMappings).get();
+    final buffer = StringBuffer();
+    // Přidání UTF-8 BOM pro správnou interpretaci v Excelu
+    buffer.write('\uFEFF');
+    buffer.writeln('bezDiakritiky,sDiakritikou');
+    String escape(String s) => s.replaceAll('"', '""');
+    for (final r in rows) {
+      buffer.writeln('"${escape(r.normKey)}","${escape(r.corrected)}"');
+    }
+    return buffer.toString();
+  }
+
+  Future<int> importDiacriticCsv(String csvContent) async {
+    final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
+    final lines = content.split(RegExp(r'\r?\n'));
+    int count = 0;
+    await transaction(() async {
+      for (var i = 1; i < lines.length; i++) {
+        final line = lines[i].trim();
+        if (line.isEmpty) continue;
+        final parts = _parseCsvLine(line);
+        if (parts.length < 2) continue;
+        final key = _normForMatch(parts[0]);
+        final value = parts[1].trim();
+        if (key.isEmpty || value.isEmpty || key == _normForMatch(value)) continue;
+        await into(diacriticMappings).insert(
+          DiacriticMappingsCompanion.insert(normKey: key, corrected: value),
+          mode: InsertMode.insertOrReplace,
+        );
+        count++;
       }
     });
     return count;

@@ -14,3 +14,13 @@ class Songs extends Table {
   RealColumn get customScrollSpeed => real().nullable()();
   IntColumn get duration => integer().nullable()();
 }
+
+/// Slovník diakritiky: normalizovaný klíč (bez diakritiky) -> opravený zápis.
+@DataClassName('DiacriticMappingEntry')
+class DiacriticMappings extends Table {
+  TextColumn get normKey => text()();
+  TextColumn get corrected => text()();
+
+  @override
+  Set<Column> get primaryKey => {normKey};
+}
