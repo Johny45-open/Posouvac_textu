@@ -599,9 +599,32 @@ class AppDatabase extends _$AppDatabase {
           if (unknownShared == 0 && data['totalDuration'] == null) unknownShared++;
         }
       } else {
-        final title = raw.toString().trim();
-        if (title.isEmpty) continue;
-        parsedSongs.add({'title': title, 'artist': '', 'duration': null, 'tempo': null});
+        final rawTitle = raw.toString().trim();
+        if (rawTitle.isEmpty) continue;
+        // Fallback pro staré Generator soubory: "Interpret - Název" jako jeden string
+        var artist = '';
+        var title = rawTitle;
+        final sep = RegExp(r'\s+[-–—]\s+').firstMatch(rawTitle);
+        if (sep != null) {
+          final a = rawTitle.substring(0, sep.start).trim();
+          final t = rawTitle.substring(sep.end).trim();
+          if (a.isNotEmpty && t.isNotEmpty) {
+            artist = a;
+            title = t;
+          }
+        } else {
+          final all = RegExp(r'\s*[-–—]\s*').allMatches(rawTitle).toList();
+          if (all.isNotEmpty) {
+            final last = all.last;
+            final a = rawTitle.substring(0, last.start).trim();
+            final t = rawTitle.substring(last.end).trim();
+            if (a.isNotEmpty && t.isNotEmpty) {
+              artist = a;
+              title = t;
+            }
+          }
+        }
+        parsedSongs.add({'title': title, 'artist': artist, 'duration': null, 'tempo': null});
         unknownShared++;
       }
     }
