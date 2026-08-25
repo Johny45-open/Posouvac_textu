@@ -22,6 +22,33 @@ class DurationFixCandidate {
   });
 }
 
+class DiacriticFixCandidate {
+  final int songId;
+  final String oldTitle;
+  final String oldArtist;
+  final String newTitle;
+  final String newArtist;
+  const DiacriticFixCandidate({
+    required this.songId,
+    required this.oldTitle,
+    required this.oldArtist,
+    required this.newTitle,
+    required this.newArtist,
+  });
+
+  // Kompatibilita pro sjednocené API (A): umožní číst i jako current*
+  String get currentTitle => oldTitle;
+  String get currentArtist => oldArtist;
+
+  DiacriticRepairCandidate toRepair() => DiacriticRepairCandidate(
+        songId: songId,
+        currentTitle: oldTitle,
+        currentArtist: oldArtist,
+        newTitle: newTitle,
+        newArtist: newArtist,
+      );
+}
+
 class DiacriticRepairCandidate {
   final int songId;
   final String currentTitle;
@@ -35,6 +62,18 @@ class DiacriticRepairCandidate {
     required this.newTitle,
     required this.newArtist,
   });
+
+  // Kompatibilita pro kód očekávající DiacriticFixCandidate (B)
+  String get oldTitle => currentTitle;
+  String get oldArtist => currentArtist;
+
+  DiacriticFixCandidate toFix() => DiacriticFixCandidate(
+        songId: songId,
+        oldTitle: currentTitle,
+        oldArtist: currentArtist,
+        newTitle: newTitle,
+        newArtist: newArtist,
+      );
 }
 
 class PlaylistSyncResult {
@@ -44,7 +83,7 @@ class PlaylistSyncResult {
   final int totalDurationShared;
   final int unknownShared;
   final List<DurationFixCandidate> durationCandidates;
-  final List<DiacriticFixCandidate> diacriticCandidates;
+  final List<DiacriticRepairCandidate> diacriticCandidates;
 
   PlaylistSyncResult({
     required this.playlistName,
@@ -587,7 +626,7 @@ class AppDatabase extends _$AppDatabase {
 
     // Sestavit kandidáty na doplnění
     final durationCandidates = <DurationFixCandidate>[];
-    final diacriticCandidates = <DiacriticFixCandidate>[];
+    final diacriticCandidates = <DiacriticRepairCandidate>[];
     for (final song in matchedEntries) {
       final sharedDur = sharedDurationBySongId[song.id];
       if (sharedDur != null && (song.duration == null || song.duration == 0)) {
@@ -600,10 +639,10 @@ class AppDatabase extends _$AppDatabase {
       }
       final dia = sharedDiacriticBySongId[song.id];
       if (dia != null) {
-        diacriticCandidates.add(DiacriticFixCandidate(
+        diacriticCandidates.add(DiacriticRepairCandidate(
           songId: song.id,
-          oldTitle: song.title,
-          oldArtist: song.artist,
+          currentTitle: song.title,
+          currentArtist: song.artist,
           newTitle: dia['newTitle']!,
           newArtist: dia['newArtist']!,
         ));
@@ -721,6 +760,12 @@ class AppDatabase extends _$AppDatabase {
       }
     });
     return count;
+  }
+
+  /// (B) Kompatibilita: aplikace oprav z playlist syncu (DiacriticFixCandidate).
+  Future<int> applyDiacriticFixes(List<DiacriticFixCandidate> candidates) async {
+    // Deleguje na Repair variantu přes konverzi - sjednocené chování (A+B)
+    return applyDiacriticRepairs(candidates.map((c) => c.toRepair()).toList());
   }
 
   Future<String> exportDiacriticCsv() async {
