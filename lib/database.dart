@@ -128,6 +128,20 @@ class DiacriticRepairResult {
   });
 }
 
+/// Záznam písně bez návrhu opravy s důvodem (pro výpis 23→21).
+class DiacriticUnrepairedEntry {
+  final SongEntry song;
+  final String reason; // alreadyCorrect, missingInMap, compositeNoMatch
+  final String normTitle;
+  final String normArtist;
+  const DiacriticUnrepairedEntry({
+    required this.song,
+    required this.reason,
+    required this.normTitle,
+    required this.normArtist,
+  });
+}
+
 class Playlists extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
@@ -1002,6 +1016,47 @@ class AppDatabase extends _$AppDatabase {
         currentArtist: s.artist,
         newTitle: changedTitle ? resolvedTitle! : s.title,
         newArtist: changedArtist ? resolvedArtist! : s.artist,
+      ));
+    }
+    return result;
+  }
+
+  /// Vrátí písně bez návrhu opravy s důvodem (pro výpis 23→21).
+  Future<List<DiacriticUnrepairedEntry>> getDiacriticUnrepairedWithReason() async {
+    final all = await select(songs).get();
+    final mappings = await select(diacriticMappings).get();
+    final map = {for (final m in mappings) m.normKey: m.corrected};
+    final repairedIds = (await findDiacriticRepairs()).map((e) => e.songId).toSet();
+    final result = <DiacriticUnrepairedEntry>[];
+    for (final s in all) {
+      if (repairedIds.contains(s.id)) continue;
+      final normTitle = _normForMatch(s.title);
+      final normArtist = _normForMatch(s.artist);
+      final hasTitleDiacritic = _stripDiacritics(s.title) != s.title;
+      final hasArtistDiacritic = _stripDiacritics(s.artist) != s.artist;
+      final titleInMap = map.containsKey(normTitle);
+      final artistInMap = map.containsKey(normArtist) || _resolveComposite(s.artist, map) != null;
+      String reason;
+      if ((hasTitleDiacritic || hasArtistDiacritic) && !titleInMap && !artistInMap) {
+        // má háčky, ale není v mapě – považujeme za už správně (nebo chybí jiný tvar)
+        // pokud map neobsahuje norm, ale text už má diakritiku, nespravujeme
+        reason = 'alreadyCorrect';
+      } else if (!titleInMap && !artistInMap) {
+        // bez háčků a není v mapě
+        final isComposite = _artistDelimiter.hasMatch(s.artist) ||
+            _featParenPattern.hasMatch(s.artist) ||
+            _featBarePattern.hasMatch(s.artist);
+        reason = isComposite ? 'compositeNoMatch' : 'missingInMap';
+      } else {
+        // v mapě je, ale current == corrected (už opraveno)
+        reason = 'alreadyCorrect';
+      }
+      // upřesnění: pokud už má diakritiku a map by vracel stejný text, je to alreadyCorrect
+      result.add(DiacriticUnrepairedEntry(
+        song: s,
+        reason: reason,
+        normTitle: normTitle,
+        normArtist: normArtist,
       ));
     }
     return result;

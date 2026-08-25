@@ -327,13 +327,56 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     Navigator.of(context).pop();
 
+    // Výpis všech i když candidates == 0 (pro 23→23 už správně)
+    List<DiacriticUnrepairedEntry> unrepairedEarly = [];
     if (candidates.isEmpty) {
-      _tts.speak("Žádné názvy k opravě nebyly nalezeny.");
+      try {
+        unrepairedEarly = await widget.db.getDiacriticUnrepairedWithReason();
+        DevLog.log("Žádní kandidáti, unrepaired=${unrepairedEarly.length}");
+        for (final u in unrepairedEarly) {
+          DevLog.log("Bez návrhu: ${u.song.artist} - ${u.song.title} [${u.reason}]");
+        }
+      } catch (_) {}
+      final totalEarly = unrepairedEarly.length;
+      _tts.speak(totalEarly > 0
+          ? "Žádné názvy k opravě nebyly nalezeny. V knihovně $totalEarly písní, všechny už správně nebo bez položky ve slovníku. Zkontrolujte výpis."
+          : "Žádné názvy k opravě nebyly nalezeny.");
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: Semantics(header: true, child: const Text("Hromadná oprava diakritiky")),
-          content: const Text("Žádné názvy k opravě nebyly nalezeny."),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(totalEarly > 0
+                    ? "Žádné názvy k opravě nebyly nalezeny. V knihovně $totalEarly písní."
+                    : "Žádné názvy k opravě nebyly nalezeny."),
+                if (unrepairedEarly.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text("Bez návrhu (${unrepairedEarly.length}):", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: unrepairedEarly.length,
+                      itemBuilder: (context, i) {
+                        final u = unrepairedEarly[i];
+                        final reasonLabel = u.reason == 'alreadyCorrect' ? 'už správně' : u.reason == 'missingInMap' ? 'chybí ve slovníku' : 'composite';
+                        return ListTile(
+                          leading: Icon(u.reason == 'alreadyCorrect' ? Icons.check_circle_outline : Icons.help_outline, color: u.reason == 'alreadyCorrect' ? Colors.green : Colors.orange),
+                          title: Text("${u.song.artist} - ${u.song.title}"),
+                          subtitle: Text(reasonLabel, style: const TextStyle(fontSize: 12)),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text("Zavřít")),
           ],
@@ -342,7 +385,24 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    _tts.speak("Nalezeno ${candidates.length} návrhů na opravu. Zkontrolujte seznam.");
+    // Výpis všech: kandidáti + 2 bez návrhu (už správně / chybí ve slovníku)
+    List<DiacriticUnrepairedEntry> unrepaired = [];
+    try {
+      unrepaired = await widget.db.getDiacriticUnrepairedWithReason();
+      DevLog.log("Výpis všech: total=${candidates.length + unrepaired.length}, candidates=${candidates.length}, unrepaired=${unrepaired.length}");
+      for (final u in unrepaired) {
+        final reasonLabel = u.reason == 'alreadyCorrect'
+            ? 'už správně'
+            : u.reason == 'missingInMap'
+                ? 'chybí ve slovníku'
+                : 'compositeNoMatch';
+        DevLog.log("Bez návrhu: ${u.song.artist} - ${u.song.title} [${reasonLabel}] normTitle=${u.normTitle} normArtist=${u.normArtist}");
+      }
+    } catch (e) {
+      DevLog.log("Chyba výpisu neopravených: $e");
+    }
+    final totalSongs = candidates.length + unrepaired.length;
+    _tts.speak("Nalezeno ${candidates.length} návrhů na opravu z $totalSongs. ${unrepaired.isNotEmpty ? 'Bez návrhu ${unrepaired.length}. ' : ''}Zkontrolujte seznam.");
 
     final prefs = await SharedPreferences.getInstance();
     bool renameFiles = prefs.getBool('diacriticRenameFiles') ?? false;
@@ -351,29 +411,65 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Semantics(header: true, child: const Text("Kontrola změn")),
+          title: Semantics(header: true, child: Text("Kontrola změn ($totalSongs písní)")),
           content: SizedBox(
             width: double.maxFinite,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: candidates.length,
-                    itemBuilder: (context, i) {
-                      final c = candidates[i];
-                      return Semantics(
-                        label: "Položka ${i + 1}: změna z \"${c.currentArtist} - ${c.currentTitle}\" na \"${c.newArtist} - ${c.newTitle}\"",
-                        child: ListTile(
-                          leading: const Icon(Icons.edit_note),
-                          title: Text("${c.currentArtist} - ${c.currentTitle}"),
-                          subtitle: Text("→ ${c.newArtist} - ${c.newTitle}"),
-                        ),
-                      );
-                    },
+                if (candidates.isNotEmpty) ...[
+                  Semantics(header: true, child: Text("K opravě (${candidates.length}):", style: const TextStyle(fontWeight: FontWeight.bold))),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: candidates.length,
+                      itemBuilder: (context, i) {
+                        final c = candidates[i];
+                        return Semantics(
+                          label: "Položka ${i + 1}: změna z \"${c.currentArtist} - ${c.currentTitle}\" na \"${c.newArtist} - ${c.newTitle}\"",
+                          child: ListTile(
+                            leading: const Icon(Icons.edit_note),
+                            title: Text("${c.currentArtist} - ${c.currentTitle}"),
+                            subtitle: Text("→ ${c.newArtist} - ${c.newTitle}"),
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                ),
+                ],
+                if (unrepaired.isNotEmpty) ...[
+                  const Divider(),
+                  Semantics(header: true, child: Text("Bez návrhu (${unrepaired.length}):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey))),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: unrepaired.length,
+                      itemBuilder: (context, i) {
+                        final u = unrepaired[i];
+                        final reasonLabel = u.reason == 'alreadyCorrect'
+                            ? 'už správně'
+                            : u.reason == 'missingInMap'
+                                ? 'chybí ve slovníku (norm=${u.normTitle} / ${u.normArtist})'
+                                : 'composite bez shody';
+                        final icon = u.reason == 'alreadyCorrect' ? Icons.check_circle_outline : Icons.help_outline;
+                        final color = u.reason == 'alreadyCorrect' ? Colors.green : Colors.orange;
+                        return Semantics(
+                          label: "Bez návrhu ${i + 1}: ${u.song.artist} - ${u.song.title}, důvod $reasonLabel",
+                          child: ListTile(
+                            leading: Icon(icon, color: color),
+                            title: Text("${u.song.artist} - ${u.song.title}"),
+                            subtitle: Text(reasonLabel, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text("Celkem $totalSongs písní v knihovně, k opravě ${candidates.length}, bez návrhu ${unrepaired.length}.",
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  ),
+                ],
                 const Divider(),
                 Semantics(
                   label: renameFiles
@@ -394,7 +490,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text("Zrušit")),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text("Potvrdit změny")),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(candidates.isNotEmpty ? "Potvrdit změny (${candidates.length})" : "Zavřít")),
           ],
         ),
       ),
