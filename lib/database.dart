@@ -747,19 +747,76 @@ class AppDatabase extends _$AppDatabase {
   }
 
   // --- SLOVNÍK DIAKRITIKY ---
+  /// Oddělovače pro kompozitního interpreta: ", ", " a ", " & ", ";", "/"
+  static final RegExp _artistDelimiter = RegExp(
+    r'(\s*,\s*|\s+a\s+|\s+&\s+|\s*;\s*|\s*/\s*)',
+    caseSensitive: false,
+  );
+
+  /// Aplikuje slovník na kompozitní řetězec (např. "Hana Hegerova, Karel Gott a Waldemar Matuska").
+  /// Zachovává původní oddělovače, opravuje jen sub-části nalezené v [map].
+  static String? _resolveComposite(String raw, Map<String, String> map) {
+    if (raw.trim().isEmpty) return null;
+    // rychlá cesta – celý řetězec přímo v mapě
+    final direct = map[_normForMatch(raw)];
+    if (direct != null && direct != raw) return direct;
+    if (!_artistDelimiter.hasMatch(raw)) return direct;
+    final resolved = raw.splitMapJoin(
+      _artistDelimiter,
+      onMatch: (m) => m.group(0)!,
+      onNonMatch: (part) {
+        if (part.trim().isEmpty) return part;
+        final corrected = map[_normForMatch(part)];
+        if (corrected != null && corrected != part) return corrected;
+        return part;
+      },
+    );
+    return resolved != raw ? resolved : null;
+  }
+
   /// Vyhledá opravený zápis ve slovníku (podle textu bez diakritiky).
+  /// Podporuje kompozitní interprety – opraví po částech.
   Future<String?> lookupDiacritic(String rawText) async {
     final key = _normForMatch(rawText);
     if (key.isEmpty) return null;
     final row = await (select(diacriticMappings)..where((t) => t.normKey.equals(key))).getSingleOrNull();
-    return row?.corrected;
+    if (row != null) return row.corrected;
+    // kompozit: "Hana Hegerova, Karel Gott a Waldemar Matuska"
+    if (!_artistDelimiter.hasMatch(rawText)) return null;
+    final mappings = await select(diacriticMappings).get();
+    final map = {for (final m in mappings) m.normKey: m.corrected};
+    if (map.isEmpty) return null;
+    return _resolveComposite(rawText, map);
   }
 
   /// Naučí slovník dvojici [raw] -> [corrected] (např. z ruční opravy písně).
+  /// Pro kompozitní interprety ("A, B a C") učí po částech.
   Future<void> learnDiacritic(String raw, String corrected) async {
+    // Pokud oba obsahují stejný počet delimiterů, uč po částech
+    if (_artistDelimiter.hasMatch(raw) || _artistDelimiter.hasMatch(corrected)) {
+      final rawParts = raw.split(_artistDelimiter);
+      final corrParts = corrected.split(_artistDelimiter);
+      if (rawParts.length == corrParts.length && rawParts.length > 1) {
+        for (var i = 0; i < rawParts.length; i++) {
+          final r = rawParts[i].trim();
+          final c = corrParts[i].trim();
+          if (r.isEmpty || c.isEmpty) continue;
+          final k = _normForMatch(r);
+          if (k.isEmpty || k == c.toLowerCase().trim()) continue;
+          // přeskočit "Karel Gott" -> "Karel Gott" beze změny
+          if (r == c) continue;
+          await into(diacriticMappings).insert(
+            DiacriticMappingsCompanion.insert(normKey: k, corrected: c),
+            mode: InsertMode.insertOrReplace,
+          );
+        }
+        return;
+      }
+    }
     final key = _normForMatch(raw);
     final value = corrected.trim();
     if (key.isEmpty || value.isEmpty || key == value.toLowerCase().trim()) return;
+    if (raw.trim() == value) return;
     await into(diacriticMappings).insert(
       DiacriticMappingsCompanion.insert(normKey: key, corrected: value),
       mode: InsertMode.insertOrReplace,
@@ -774,6 +831,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Najde písně, jejichž název/interpret má ve slovníku opravenou verzi.
+  /// Podporuje kompozitní interprety (",", " a ", " & ", ";", "/").
   Future<List<DiacriticRepairCandidate>> findDiacriticRepairs() async {
     final all = await select(songs).get();
     final mappings = await select(diacriticMappings).get();
@@ -781,17 +839,22 @@ class AppDatabase extends _$AppDatabase {
     if (map.isEmpty) return const [];
     final result = <DiacriticRepairCandidate>[];
     for (final s in all) {
-      final newTitle = map[_normForMatch(s.title)];
-      final newArtist = map[_normForMatch(s.artist)];
-      final changedTitle = newTitle != null && newTitle != s.title;
-      final changedArtist = newArtist != null && newArtist != s.artist;
+      final directTitle = map[_normForMatch(s.title)];
+      final directArtist = map[_normForMatch(s.artist)];
+      final compositeArtist = _resolveComposite(s.artist, map);
+      final compositeTitle = _resolveComposite(s.title, map);
+      // pokud existuje kompozitní oprava, použij ji; jinak direct
+      final resolvedTitle = compositeTitle ?? directTitle;
+      final resolvedArtist = compositeArtist ?? directArtist;
+      final changedTitle = resolvedTitle != null && resolvedTitle != s.title;
+      final changedArtist = resolvedArtist != null && resolvedArtist != s.artist;
       if (!changedTitle && !changedArtist) continue;
       result.add(DiacriticRepairCandidate(
         songId: s.id,
         currentTitle: s.title,
         currentArtist: s.artist,
-        newTitle: changedTitle ? newTitle! : s.title,
-        newArtist: changedArtist ? newArtist! : s.artist,
+        newTitle: changedTitle ? resolvedTitle! : s.title,
+        newArtist: changedArtist ? resolvedArtist! : s.artist,
       ));
     }
     return result;
