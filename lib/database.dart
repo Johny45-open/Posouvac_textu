@@ -104,6 +104,30 @@ class CsvImportResult {
   const CsvImportResult({required this.updated, required this.skipped});
 }
 
+/// Výsledek importu slovníku diakritiky.
+class DiacriticCsvImportResult {
+  final int imported;
+  final int skipped;
+  final List<String> errors;
+
+  const DiacriticCsvImportResult({required this.imported, required this.skipped, this.errors = const []});
+}
+
+/// Výsledek hromadné opravy diakritiky včetně volitelného přejmenování souborů.
+class DiacriticRepairResult {
+  final int dbUpdated;
+  final int filesRenamed;
+  final int filesFailed;
+  final List<String> failedPaths;
+
+  const DiacriticRepairResult({
+    required this.dbUpdated,
+    this.filesRenamed = 0,
+    this.filesFailed = 0,
+    this.failedPaths = const [],
+  });
+}
+
 class Playlists extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
@@ -747,20 +771,104 @@ class AppDatabase extends _$AppDatabase {
   }
 
   // --- SLOVNÍK DIAKRITIKY ---
-  /// Oddělovače pro kompozitního interpreta: ", ", " a ", " & ", ";", "/"
+  /// Oddělovače pro kompozitního interpreta: ", ", " a ", " & ", ";", "/", " feat. ", " ft. ", " featuring "
   static final RegExp _artistDelimiter = RegExp(
-    r'(\s*,\s*|\s+a\s+|\s+&\s+|\s*;\s*|\s*/\s*)',
+    r'(\s*,\s*|\s+a\s+|\s+&\s+|\s*;\s*|\s*/\s*|\s+feat\.?\s+|\s+ft\.?\s+|\s+featuring\s+)',
     caseSensitive: false,
   );
 
+  /// Pattern pro "Artist (feat. Host)" – závorková verze
+  static final RegExp _featParenPattern = RegExp(
+    r'^(.*)\s*\(\s*(feat\.?|ft\.?|featuring)\s+(.+?)\s*\)\s*$',
+    caseSensitive: false,
+  );
+
+  /// Pattern pro "Artist feat. Host" – bez závorek
+  static final RegExp _featBarePattern = RegExp(
+    r'^(.*)\s+(feat\.?|ft\.?|featuring)\s+(.+)$',
+    caseSensitive: false,
+  );
+
+  static String? _lookupSingle(String part, Map<String, String> map) {
+    final trimmed = part.trim();
+    if (trimmed.isEmpty) return null;
+    final corrected = map[_normForMatch(trimmed)];
+    if (corrected != null && corrected != trimmed) return corrected;
+    return null;
+  }
+
   /// Aplikuje slovník na kompozitní řetězec (např. "Hana Hegerova, Karel Gott a Waldemar Matuska").
   /// Zachovává původní oddělovače, opravuje jen sub-části nalezené v [map].
+  /// Podporuje i "feat." varianty: "Ivan Mladek (feat. Ludek Sobota)" -> "Ivan Mládek (feat. Luděk Sobota)"
   static String? _resolveComposite(String raw, Map<String, String> map) {
     if (raw.trim().isEmpty) return null;
     // rychlá cesta – celý řetězec přímo v mapě
     final direct = map[_normForMatch(raw)];
     if (direct != null && direct != raw) return direct;
+
+    // 1) Závorková feat verze: "Hlavní (feat. Host)" – oprav obě části i když host je kompozitní
+    final parenMatch = _featParenPattern.firstMatch(raw);
+    if (parenMatch != null) {
+      final mainPart = parenMatch.group(1)!.trim();
+      final featTag = parenMatch.group(2)!.trim(); // "feat." / "ft." / "featuring"
+      final featPart = parenMatch.group(3)!.trim();
+      if (mainPart.isNotEmpty && featPart.isNotEmpty) {
+        // hlavní interpret může být sám kompozitní (",", " a ", atd.)
+        String? fixedMain = _lookupSingle(mainPart, map) ?? _resolveCompositeInner(mainPart, map);
+        String? fixedFeat = _lookupSingle(featPart, map) ?? _resolveCompositeInner(featPart, map);
+        // pokud ani jedno neopravitelné, zkus rekurzi na celé části
+        fixedMain ??= (mainPart != raw ? null : null); // placeholder, fixedMain již je null pokud neopraveno
+        // efektivně: pokud nenalezeno, ponech původní
+        final newMain = fixedMain ?? mainPart;
+        final newFeat = fixedFeat ?? featPart;
+        if (newMain != mainPart || newFeat != featPart) {
+          // normalizuj tag na "feat." pro konzistenci, ale zachovej původní variantu pokud je "featuring"
+          final normalizedTag = featTag.toLowerCase().startsWith('featuring') ? 'featuring' : featTag.toLowerCase().contains('ft') && !featTag.toLowerCase().contains('fea') ? 'ft.' : 'feat.';
+          // zachovej původní tečku? použij normalizedTag
+          return '$newMain ($normalizedTag $newFeat)';
+        }
+      }
+    }
+
+    // 2) Bare feat verze bez závorek: "Hlavní feat. Host" – zachytí i delimiter fallback
+    final bareMatch = _featBarePattern.firstMatch(raw);
+    if (bareMatch != null) {
+      final mainPart = bareMatch.group(1)!.trim();
+      final featTag = bareMatch.group(2)!.trim();
+      final featPart = bareMatch.group(3)!.trim();
+      if (mainPart.isNotEmpty && featPart.isNotEmpty) {
+        String? fixedMain = _lookupSingle(mainPart, map) ?? _resolveCompositeInner(mainPart, map);
+        String? fixedFeat = _lookupSingle(featPart, map) ?? _resolveCompositeInner(featPart, map);
+        final newMain = fixedMain ?? mainPart;
+        final newFeat = fixedFeat ?? featPart;
+        if (newMain != mainPart || newFeat != featPart) {
+          final normalizedTag = featTag.toLowerCase().startsWith('featuring') ? 'featuring' : featTag.toLowerCase().contains('ft') && !featTag.toLowerCase().contains('fea') ? 'ft.' : 'feat.';
+          return '$newMain $normalizedTag $newFeat';
+        }
+      }
+    }
+
     if (!_artistDelimiter.hasMatch(raw)) return direct;
+    final resolved = raw.splitMapJoin(
+      _artistDelimiter,
+      onMatch: (m) => m.group(0)!,
+      onNonMatch: (part) {
+        if (part.trim().isEmpty) return part;
+        // zkus přímý lookup, jinak rekurzi pro feat uvnitř části (např. "A (feat. B)")
+        final subFeat = _resolveComposite(part.trim(), map);
+        if (subFeat != null) return subFeat;
+        final corrected = map[_normForMatch(part)];
+        if (corrected != null && corrected != part) return corrected;
+        return part;
+      },
+    );
+    return resolved != raw ? resolved : null;
+  }
+
+  /// Vnitřní helper pro kompozit bez feat-paren rekurze (zabrání cyklu).
+  static String? _resolveCompositeInner(String raw, Map<String, String> map) {
+    if (raw.trim().isEmpty) return null;
+    if (!_artistDelimiter.hasMatch(raw)) return null;
     final resolved = raw.splitMapJoin(
       _artistDelimiter,
       onMatch: (m) => m.group(0)!,
@@ -775,14 +883,17 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Vyhledá opravený zápis ve slovníku (podle textu bez diakritiky).
-  /// Podporuje kompozitní interprety – opraví po částech.
+  /// Podporuje kompozitní interprety – opraví po částech, včetně "feat.".
   Future<String?> lookupDiacritic(String rawText) async {
     final key = _normForMatch(rawText);
     if (key.isEmpty) return null;
     final row = await (select(diacriticMappings)..where((t) => t.normKey.equals(key))).getSingleOrNull();
     if (row != null) return row.corrected;
-    // kompozit: "Hana Hegerova, Karel Gott a Waldemar Matuska"
-    if (!_artistDelimiter.hasMatch(rawText)) return null;
+    // kompozit: "Hana Hegerova, Karel Gott a Waldemar Matuska" nebo "Ivan Mladek (feat. Ludek Sobota)"
+    final isComposite = _artistDelimiter.hasMatch(rawText) ||
+        _featParenPattern.hasMatch(rawText) ||
+        _featBarePattern.hasMatch(rawText);
+    if (!isComposite) return null;
     final mappings = await select(diacriticMappings).get();
     final map = {for (final m in mappings) m.normKey: m.corrected};
     if (map.isEmpty) return null;
@@ -790,8 +901,45 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Naučí slovník dvojici [raw] -> [corrected] (např. z ruční opravy písně).
-  /// Pro kompozitní interprety ("A, B a C") učí po částech.
+  /// Pro kompozitní interprety ("A, B a C") učí po částech, včetně "feat.".
   Future<void> learnDiacritic(String raw, String corrected) async {
+    // Speciálně pro feat závorkovou verzi: uč hlavní a hosta zvlášť
+    final rawFeatParen = _featParenPattern.firstMatch(raw);
+    final corrFeatParen = _featParenPattern.firstMatch(corrected);
+    if (rawFeatParen != null && corrFeatParen != null) {
+      final rMain = rawFeatParen.group(1)!.trim();
+      final cMain = corrFeatParen.group(1)!.trim();
+      final rFeat = rawFeatParen.group(3)!.trim();
+      final cFeat = corrFeatParen.group(3)!.trim();
+      if (rMain.isNotEmpty && cMain.isNotEmpty && rMain != cMain) {
+        await learnDiacritic(rMain, cMain);
+      } else if (rMain.isNotEmpty && cMain.isNotEmpty && _artistDelimiter.hasMatch(rMain)) {
+        await learnDiacritic(rMain, cMain);
+      }
+      if (rFeat.isNotEmpty && cFeat.isNotEmpty && rFeat != cFeat) {
+        await learnDiacritic(rFeat, cFeat);
+      } else if (rFeat.isNotEmpty && cFeat.isNotEmpty && _artistDelimiter.hasMatch(rFeat)) {
+        await learnDiacritic(rFeat, cFeat);
+      }
+      // pokud obě části naučeny, není třeba učit celek
+      if (rMain != cMain || rFeat != cFeat) return;
+    }
+    final rawFeatBare = _featBarePattern.firstMatch(raw);
+    final corrFeatBare = _featBarePattern.firstMatch(corrected);
+    if (rawFeatBare != null && corrFeatBare != null) {
+      final rMain = rawFeatBare.group(1)!.trim();
+      final cMain = corrFeatBare.group(1)!.trim();
+      final rFeat = rawFeatBare.group(3)!.trim();
+      final cFeat = corrFeatBare.group(3)!.trim();
+      if (rMain.isNotEmpty && cMain.isNotEmpty && rMain != cMain) {
+        await learnDiacritic(rMain, cMain);
+      }
+      if (rFeat.isNotEmpty && cFeat.isNotEmpty && rFeat != cFeat) {
+        await learnDiacritic(rFeat, cFeat);
+      }
+      if (rMain != cMain || rFeat != cFeat) return;
+    }
+
     // Pokud oba obsahují stejný počet delimiterů, uč po částech
     if (_artistDelimiter.hasMatch(raw) || _artistDelimiter.hasMatch(corrected)) {
       final rawParts = raw.split(_artistDelimiter);
@@ -831,7 +979,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Najde písně, jejichž název/interpret má ve slovníku opravenou verzi.
-  /// Podporuje kompozitní interprety (",", " a ", " & ", ";", "/").
+  /// Podporuje kompozitní interprety (",", " a ", " & ", ";", "/") pouze pro interpreta.
   Future<List<DiacriticRepairCandidate>> findDiacriticRepairs() async {
     final all = await select(songs).get();
     final mappings = await select(diacriticMappings).get();
@@ -840,11 +988,10 @@ class AppDatabase extends _$AppDatabase {
     final result = <DiacriticRepairCandidate>[];
     for (final s in all) {
       final directTitle = map[_normForMatch(s.title)];
-      final directArtist = map[_normForMatch(s.artist)];
       final compositeArtist = _resolveComposite(s.artist, map);
-      final compositeTitle = _resolveComposite(s.title, map);
-      // pokud existuje kompozitní oprava, použij ji; jinak direct
-      final resolvedTitle = compositeTitle ?? directTitle;
+      final directArtist = map[_normForMatch(s.artist)];
+      // tituly se opravují pouze přímou shodou; kompozitní logika jen pro interpreta
+      final resolvedTitle = directTitle;
       final resolvedArtist = compositeArtist ?? directArtist;
       final changedTitle = resolvedTitle != null && resolvedTitle != s.title;
       final changedArtist = resolvedArtist != null && resolvedArtist != s.artist;
@@ -861,23 +1008,94 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Aplikuje potvrzené hromadné opravy diakritiky.
-  Future<int> applyDiacriticRepairs(List<DiacriticRepairCandidate> candidates) async {
-    var count = 0;
+  /// Pokud [renameFiles] je true, pokusí se přejmenovat i soubory na disku (volitelně kvůli Windows).
+  Future<DiacriticRepairResult> applyDiacriticRepairs(
+    List<DiacriticRepairCandidate> candidates, {
+    bool renameFiles = false,
+  }) async {
+    var dbCount = 0;
+    // Uložit původní cesty před transakcí pro případné přejmenování
+    final Map<int, SongEntry> byId = {};
+    if (renameFiles && candidates.isNotEmpty) {
+      final all = await select(songs).get();
+      for (final s in all) {
+        byId[s.id] = s;
+      }
+    }
     await transaction(() async {
       for (final c in candidates) {
         final res = await (update(songs)..where((t) => t.id.equals(c.songId))).write(
           SongsCompanion(title: Value(c.newTitle), artist: Value(c.newArtist)),
         );
-        if (res > 0) count++;
+        if (res > 0) dbCount++;
       }
     });
-    return count;
+    if (!renameFiles) {
+      return DiacriticRepairResult(dbUpdated: dbCount);
+    }
+    // Volitelné přejmenování souborů – mimo transakci, odolné vůči Windows zámkům
+    var renamed = 0;
+    var failed = 0;
+    final failedPaths = <String>[];
+    for (final c in candidates) {
+      final song = byId[c.songId];
+      if (song == null) continue;
+      // přeskočit pokud se název nezměnil (nemělo by nastat, ale defenzivně)
+      if (c.newTitle == song.title && c.newArtist == song.artist) continue;
+      try {
+        final oldFile = File(song.filePath);
+        if (!await oldFile.exists()) continue;
+        final dir = p.dirname(song.filePath);
+        final safeArtist = c.newArtist.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+        final safeTitle = c.newTitle.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+        var newFileName = '${safeArtist.isNotEmpty ? '$safeArtist - ' : ''}$safeTitle.txt';
+        var newPath = p.join(dir, newFileName);
+        // Windows MAX_PATH ochrana – ořez názvu
+        if (newPath.length > 240) {
+          final ext = '.txt';
+          final maxBase = 240 - dir.length - ext.length - 1;
+          if (maxBase > 10) {
+            newFileName = newFileName.substring(0, maxBase) + ext;
+            newPath = p.join(dir, newFileName);
+          }
+        }
+        var counter = 1;
+        while (newPath != song.filePath && await File(newPath).exists()) {
+          final base = newFileName.replaceAll('.txt', '');
+          newPath = p.join(dir, '${base}_$counter.txt');
+          counter++;
+        }
+        if (newPath != song.filePath) {
+          await oldFile.rename(newPath);
+          await (update(songs)..where((t) => t.id.equals(c.songId))).write(SongsCompanion(filePath: Value(newPath)));
+          renamed++;
+        }
+      } catch (_) {
+        failed++;
+        failedPaths.add(song.filePath);
+      }
+    }
+    return DiacriticRepairResult(
+      dbUpdated: dbCount,
+      filesRenamed: renamed,
+      filesFailed: failed,
+      failedPaths: failedPaths,
+    );
   }
 
   /// (B) Kompatibilita: aplikace oprav z playlist syncu (DiacriticFixCandidate).
-  Future<int> applyDiacriticFixes(List<DiacriticFixCandidate> candidates) async {
+  Future<DiacriticRepairResult> applyDiacriticFixes(
+    List<DiacriticFixCandidate> candidates, {
+    bool renameFiles = false,
+  }) async {
     // Deleguje na Repair variantu přes konverzi - sjednocené chování (A+B)
-    return applyDiacriticRepairs(candidates.map((c) => c.toRepair()).toList());
+    return applyDiacriticRepairs(candidates.map((c) => c.toRepair()).toList(), renameFiles: renameFiles);
+  }
+
+  /// Zpětná kompatibilita pro volání očekávající int (vrací dbUpdated).
+  Future<int> applyDiacriticRepairsLegacy(List<DiacriticRepairCandidate> candidates) async {
+    final r = await applyDiacriticRepairs(candidates);
+    return r.dbUpdated;
   }
 
   Future<String> exportDiacriticCsv() async {
@@ -893,16 +1111,22 @@ class AppDatabase extends _$AppDatabase {
     return buffer.toString();
   }
 
-  Future<int> importDiacriticCsv(String csvContent) async {
+  Future<DiacriticCsvImportResult> importDiacriticCsv(String csvContent) async {
     final content = csvContent.startsWith('\uFEFF') ? csvContent.substring(1) : csvContent;
     final lines = content.split(RegExp(r'\r?\n'));
     int count = 0;
+    int skipped = 0;
+    final errors = <String>[];
     await transaction(() async {
       for (var i = 1; i < lines.length; i++) {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
         final parts = _parseDiacriticCsvLine(line);
-        if (parts.length < 2) continue;
+        if (parts.length < 2) {
+          skipped++;
+          errors.add('ř.${i + 1}: $line');
+          continue;
+        }
         final key = _normForMatch(parts[0].split(';').first.trim());
         var rawValue = parts[1].trim();
         // Defenzivně ořež trailing artefakty z českého Excelu (oddělovač ; a zbytečné ))
@@ -911,7 +1135,10 @@ class AppDatabase extends _$AppDatabase {
         rawValue = rawValue.replaceAll(RegExp(r'[;\)]+$'), '').trim();
         rawValue = rawValue.replaceAll(RegExp(r'^"+|"+$'), '').trim();
         final value = rawValue;
-        if (key.isEmpty || value.isEmpty || key == value.toLowerCase().trim()) continue;
+        if (key.isEmpty || value.isEmpty || key == value.toLowerCase().trim()) {
+          skipped++;
+          continue;
+        }
         await into(diacriticMappings).insert(
           DiacriticMappingsCompanion.insert(normKey: key, corrected: value),
           mode: InsertMode.insertOrReplace,
@@ -919,7 +1146,7 @@ class AppDatabase extends _$AppDatabase {
         count++;
       }
     });
-    return count;
+    return DiacriticCsvImportResult(imported: count, skipped: skipped, errors: errors);
   }
 
   Future<int> createPlaylist(String name) => into(playlists).insert(PlaylistsCompanion.insert(name: name));

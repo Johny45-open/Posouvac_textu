@@ -344,40 +344,77 @@ class _SettingsPageState extends State<SettingsPage> {
 
     _tts.speak("Nalezeno ${candidates.length} návrhů na opravu. Zkontrolujte seznam.");
 
+    final prefs = await SharedPreferences.getInstance();
+    bool renameFiles = prefs.getBool('diacriticRenameFiles') ?? false;
+
     final bool? confirm = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Semantics(header: true, child: const Text("Kontrola změn")),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: candidates.length,
-            itemBuilder: (context, i) {
-              final c = candidates[i];
-              return Semantics(
-                label: "Položka ${i + 1}: změna z \"${c.currentArtist} - ${c.currentTitle}\" na \"${c.newArtist} - ${c.newTitle}\"",
-                child: ListTile(
-                  leading: const Icon(Icons.edit_note),
-                  title: Text("${c.currentArtist} - ${c.currentTitle}"),
-                  subtitle: Text("→ ${c.newArtist} - ${c.newTitle}"),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Semantics(header: true, child: const Text("Kontrola změn")),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: candidates.length,
+                    itemBuilder: (context, i) {
+                      final c = candidates[i];
+                      return Semantics(
+                        label: "Položka ${i + 1}: změna z \"${c.currentArtist} - ${c.currentTitle}\" na \"${c.newArtist} - ${c.newTitle}\"",
+                        child: ListTile(
+                          leading: const Icon(Icons.edit_note),
+                          title: Text("${c.currentArtist} - ${c.currentTitle}"),
+                          subtitle: Text("→ ${c.newArtist} - ${c.newTitle}"),
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              );
-            },
+                const Divider(),
+                Semantics(
+                  label: renameFiles
+                      ? "Přejmenovat i soubory na disku, zaškrtnuto. Může selhat na Windows když je soubor otevřen."
+                      : "Přejmenovat i soubory na disku, nezaškrtnuto. Na Windows doporučeno nechat vypnuto.",
+                  child: CheckboxListTile(
+                    title: const Text("Přejmenovat i soubory na disku"),
+                    subtitle: const Text("Na Windows může selhat, pokud je soubor otevřen"),
+                    value: renameFiles,
+                    onChanged: (v) {
+                      setDialogState(() => renameFiles = v ?? false);
+                      DevLog.log("Checkbox přejmenovat soubory: $v");
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text("Zrušit")),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text("Potvrdit změny")),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text("Zrušit")),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text("Potvrdit změny")),
-        ],
       ),
     );
 
     if (confirm != true) return;
-    final applied = await widget.db.applyDiacriticRepairs(candidates);
-    _tts.speak("Bylo opraveno $applied názvů.");
+    await prefs.setBool('diacriticRenameFiles', renameFiles);
+    DevLog.log("Hromadná oprava spuštěna, renameFiles=$renameFiles, candidates=${candidates.length}");
+    final result = await widget.db.applyDiacriticRepairs(candidates, renameFiles: renameFiles);
+    final msg = result.filesFailed > 0
+        ? "Bylo opraveno ${result.dbUpdated} názvů, přejmenováno ${result.filesRenamed} souborů, ${result.filesFailed} selhalo (soubor otevřen nebo chráněn)."
+        : result.filesRenamed > 0
+            ? "Bylo opraveno ${result.dbUpdated} názvů a přejmenováno ${result.filesRenamed} souborů."
+            : "Bylo opraveno ${result.dbUpdated} názvů.";
+    _tts.speak(msg);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Bylo opraveno $applied názvů.")));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+    if (result.filesFailed > 0) {
+      DevLog.log("Selhání přejmenování: ${result.failedPaths.join(', ')}");
     }
   }
 
@@ -405,13 +442,18 @@ class _SettingsPageState extends State<SettingsPage> {
         return;
       }
       final csvString = await File(path).readAsString(encoding: utf8);
-      final imported = await widget.db.importDiacriticCsv(csvString);
+      final result = await widget.db.importDiacriticCsv(csvString);
       await _loadDiacriticCount();
-      _tts.speak("Do slovníku bylo přidáno $imported záznamů");
+      DevLog.log("Import slovníku: imported=${result.imported}, skipped=${result.skipped}, errors=${result.errors.join('; ')}");
+      final msg = result.skipped > 0
+          ? "Do slovníku přidáno ${result.imported}, přeskočeno ${result.skipped}. ${result.errors.isNotEmpty ? result.errors.take(3).join(', ') : ''}"
+          : "Do slovníku bylo přidáno ${result.imported} záznamů";
+      _tts.speak(msg);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Do slovníku bylo přidáno $imported záznamů")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e) {
+      DevLog.log("Chyba importu slovníku: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při importu slovníku: $e")));
       }

@@ -4,9 +4,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_strings.dart';
 import 'database.dart';
+import 'dev_log.dart';
 import 'playlists_page.dart';
 
 /// Zajišťuje příjem sdílených playlistů (souborů i textu) a jejich import.
@@ -155,39 +157,64 @@ class SharingHandler {
     final context = nav.overlay?.context ?? nav.context;
     final timeCount = result.durationCandidates.length;
     final diaCount = result.diacriticCandidates.length;
+    final prefs = await SharedPreferences.getInstance();
+    bool renameFiles = prefs.getBool('diacriticRenameFiles') ?? false;
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: Semantics(header: true, child: Text(AppStrings.playlistFixDialogTitle)),
-        children: [
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8), child: Text(AppStrings.playlistFixDialogContent(timeCount, diaCount))),
-          if (timeCount > 0)
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4), child: Semantics(header: true, child: Text("Chybějící časy:", style: const TextStyle(fontWeight: FontWeight.bold)))),
-          for (final c in result.durationCandidates.take(5))
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 2), child: Text(AppStrings.playlistFixTimeItem(c.artist, c.title, _formatDurationShort(c.newDuration)), style: const TextStyle(fontSize: 13))),
-          if (timeCount > 5) Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text("... a dalších ${timeCount - 5}", style: TextStyle(fontSize: 12, color: Colors.grey[600]))),
-          if (diaCount > 0)
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4), child: Semantics(header: true, child: Text("Oprava diakritiky:", style: const TextStyle(fontWeight: FontWeight.bold)))),
-          for (final c in result.diacriticCandidates.take(5))
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 2), child: Text(AppStrings.playlistFixDiaItem(c.oldArtist, c.oldTitle, c.newArtist, c.newTitle), style: const TextStyle(fontSize: 13))),
-          if (diaCount > 5) Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text("... a dalších ${diaCount - 5}", style: TextStyle(fontSize: 12, color: Colors.grey[600]))),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.playlistFixSkipLabel)),
-              const SizedBox(width: 8),
-              FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.playlistFixConfirmLabel)),
-            ]),
-          ),
-        ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => SimpleDialog(
+          title: Semantics(header: true, child: Text(AppStrings.playlistFixDialogTitle)),
+          children: [
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8), child: Text(AppStrings.playlistFixDialogContent(timeCount, diaCount))),
+            if (timeCount > 0)
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4), child: Semantics(header: true, child: Text("Chybějící časy:", style: const TextStyle(fontWeight: FontWeight.bold)))),
+            for (final c in result.durationCandidates.take(5))
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 2), child: Text(AppStrings.playlistFixTimeItem(c.artist, c.title, _formatDurationShort(c.newDuration)), style: const TextStyle(fontSize: 13))),
+            if (timeCount > 5) Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text("... a dalších ${timeCount - 5}", style: TextStyle(fontSize: 12, color: Colors.grey[600]))),
+            if (diaCount > 0)
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4), child: Semantics(header: true, child: Text("Oprava diakritiky:", style: const TextStyle(fontWeight: FontWeight.bold)))),
+            for (final c in result.diacriticCandidates.take(5))
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 2), child: Text(AppStrings.playlistFixDiaItem(c.oldArtist, c.oldTitle, c.newArtist, c.newTitle), style: const TextStyle(fontSize: 13))),
+            if (diaCount > 5) Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text("... a dalších ${diaCount - 5}", style: TextStyle(fontSize: 12, color: Colors.grey[600]))),
+            if (diaCount > 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Semantics(
+                  label: renameFiles ? "Přejmenovat i soubory, zaškrtnuto" : "Přejmenovat i soubory, nezaškrtnuto",
+                  child: CheckboxListTile(
+                    title: const Text("Přejmenovat i soubory"),
+                    subtitle: const Text("Na Windows může selhat, pokud je soubor otevřen"),
+                    value: renameFiles,
+                    onChanged: (v) {
+                      setDialogState(() => renameFiles = v ?? false);
+                      DevLog.log("Sharing fix checkbox renameFiles=$v");
+                    },
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.playlistFixSkipLabel)),
+                const SizedBox(width: 8),
+                FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.playlistFixConfirmLabel)),
+              ]),
+            ),
+          ],
+        ),
       ),
     );
     if (confirm != true) return;
+    await prefs.setBool('diacriticRenameFiles', renameFiles);
     int fixedTime = 0;
     int fixedDia = 0;
     if (timeCount > 0) fixedTime = await _db!.applyMissingDurations(result.durationCandidates);
-    if (diaCount > 0) fixedDia = await _db!.applyDiacriticRepairs(result.diacriticCandidates);
+    if (diaCount > 0) {
+      final res = await _db!.applyDiacriticRepairs(result.diacriticCandidates, renameFiles: renameFiles);
+      fixedDia = res.dbUpdated;
+      if (res.filesFailed > 0) DevLog.log("Sharing fix failed rename: ${res.failedPaths.join(', ')}");
+    }
     final doneMsg = AppStrings.playlistFixDone(fixedTime, fixedDia);
     _tts.speak(doneMsg);
     final nav2 = navKey.currentState;
