@@ -151,7 +151,7 @@ String buildPlaylistHtml({
   buffer.writeln('<p class="meta">${_escape(timeLabel)} • ${songs.length} písní</p>');
   buffer.writeln('<table>');
   buffer.writeln('<caption>Seznam písní v setlistu ${_escape(name)}</caption>');
-  buffer.writeln('<thead><tr><th scope="col">#</th><th scope="col">Interpret</th><th scope="col">Název</th><th scope="col" class="dur">Délka</th></tr></thead>');
+  buffer.writeln('<thead><tr><th scope="col">#</th><th scope="col">Interpret</th><th scope="col">Název</th><th scope="col" class="dur">Délka</th><th scope="col" class="dur">Tempo</th></tr></thead>');
   buffer.writeln('<tbody>');
   for (var i = 0; i < songs.length; i++) {
     final s = songs[i];
@@ -159,7 +159,12 @@ String buildPlaylistHtml({
     final title = _escape((s['title'] ?? '').toString());
     final dur = s['duration'] as int?;
     final durText = (dur != null && dur > 0) ? '${dur ~/ 60}:${(dur % 60).toString().padLeft(2, '0')}' : '<span class="unknown">?</span>';
-    buffer.writeln('<tr><td>${i + 1}</td><td>$artist</td><td>$title</td><td class="dur">$durText</td></tr>');
+    final tempoVal = s['tempo'];
+    double? tempo;
+    if (tempoVal is num) tempo = tempoVal.toDouble();
+    else if (tempoVal is String) tempo = double.tryParse(tempoVal);
+    final tempoText = tempo != null ? '${tempo.round()} BPM' : '<span class="unknown">—</span>';
+    buffer.writeln('<tr><td>${i + 1}</td><td>$artist</td><td>$title</td><td class="dur">$durText</td><td class="dur">$tempoText</td></tr>');
   }
   buffer.writeln('</tbody></table>');
   buffer.writeln('</main>');
@@ -555,7 +560,12 @@ Future<void> _showPlaylistQrDialog(
               final s = e.value;
               final dur = s['duration'] as int?;
               final durText = (dur != null && dur > 0) ? "${dur ~/ 60}:${(dur % 60).toString().padLeft(2, '0')}" : "?";
-              return Text("${e.key + 1}. ${s['artist']} – ${s['title']} [$durText]");
+              final tempoVal = s['tempo'];
+              double? tempo;
+              if (tempoVal is num) tempo = tempoVal.toDouble();
+              else if (tempoVal is String) tempo = double.tryParse(tempoVal.toString());
+              final tempoText = tempo != null ? "${tempo.round()} BPM" : "—";
+              return Text("${e.key + 1}. ${s['artist']} – ${s['title']} [$durText, $tempoText]");
             }),
           ],
         ),

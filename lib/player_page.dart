@@ -31,8 +31,9 @@ class PlayerPage extends StatefulWidget {
   final int songId;
   final AppDatabase db;
   final List<int>? setlistIds;
+  final int? playlistId;
 
-  const PlayerPage({super.key, required this.songId, required this.db, this.setlistIds});
+  const PlayerPage({super.key, required this.songId, required this.db, this.setlistIds, this.playlistId});
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -74,7 +75,14 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   int? _manualPreviewCursor;
 
   Future<void> _saveSettings({double? customFontSize}) async {
-    await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);
+    // Pokud jsme v setlistu s playlistId, ulož tempo per-setlist (globální ostatní)
+    if (widget.playlistId != null) {
+      await widget.db.updatePlaylistSongTempo(widget.playlistId!, widget.songId, _bpm);
+      // ostatní nastavení (font, rychlost, intro) stále globálně na písni
+      await widget.db.updateSongSettings(widget.songId, null, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);
+    } else {
+      await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);
+    }
   }
 
   double _effectiveBpm() => (_bpm ?? 120.0) * _scrollMultiplier;
@@ -429,10 +437,16 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       final prefs = await SharedPreferences.getInstance();
       final globalFontSize = prefs.getDouble('fontSize') ?? 24.0;
 
+      double? effectiveTempo = song.tempo;
+      if (widget.playlistId != null) {
+        final pt = await widget.db.getPlaylistSongTempo(widget.playlistId!, widget.songId);
+        if (pt != null) effectiveTempo = pt;
+      }
+
       setState(() {
         _fontSize = song.customFontSize ?? globalFontSize;
         _scrollMultiplier = song.customScrollSpeed ?? 1.0;
-        _bpm = song.tempo;
+        _bpm = effectiveTempo;
         _introDuration = song.introDuration;
       });
 
@@ -848,6 +862,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           songId: targetSongId,
           db: widget.db,
           setlistIds: widget.setlistIds,
+          playlistId: widget.playlistId,
         ),
       ),
     );

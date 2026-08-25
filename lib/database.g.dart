@@ -907,8 +907,17 @@ class $PlaylistSongsTable extends PlaylistSongs
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _tempoMeta = const VerificationMeta('tempo');
   @override
-  List<GeneratedColumn> get $columns => [playlistId, songId, orderIndex];
+  late final GeneratedColumn<double> tempo = GeneratedColumn<double>(
+    'tempo',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [playlistId, songId, orderIndex, tempo];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -943,6 +952,12 @@ class $PlaylistSongsTable extends PlaylistSongs
         orderIndex.isAcceptableOrUnknown(data['order_index']!, _orderIndexMeta),
       );
     }
+    if (data.containsKey('tempo')) {
+      context.handle(
+        _tempoMeta,
+        tempo.isAcceptableOrUnknown(data['tempo']!, _tempoMeta),
+      );
+    }
     return context;
   }
 
@@ -964,6 +979,10 @@ class $PlaylistSongsTable extends PlaylistSongs
         DriftSqlType.int,
         data['${effectivePrefix}order_index'],
       )!,
+      tempo: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}tempo'],
+      ),
     );
   }
 
@@ -977,10 +996,12 @@ class PlaylistSong extends DataClass implements Insertable<PlaylistSong> {
   final int playlistId;
   final int songId;
   final int orderIndex;
+  final double? tempo;
   const PlaylistSong({
     required this.playlistId,
     required this.songId,
     required this.orderIndex,
+    this.tempo,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -988,6 +1009,9 @@ class PlaylistSong extends DataClass implements Insertable<PlaylistSong> {
     map['playlist_id'] = Variable<int>(playlistId);
     map['song_id'] = Variable<int>(songId);
     map['order_index'] = Variable<int>(orderIndex);
+    if (!nullToAbsent || tempo != null) {
+      map['tempo'] = Variable<double>(tempo);
+    }
     return map;
   }
 
@@ -996,6 +1020,7 @@ class PlaylistSong extends DataClass implements Insertable<PlaylistSong> {
       playlistId: Value(playlistId),
       songId: Value(songId),
       orderIndex: Value(orderIndex),
+      tempo: tempo == null && nullToAbsent ? const Value.absent() : Value(tempo),
     );
   }
 
@@ -1008,6 +1033,7 @@ class PlaylistSong extends DataClass implements Insertable<PlaylistSong> {
       playlistId: serializer.fromJson<int>(json['playlistId']),
       songId: serializer.fromJson<int>(json['songId']),
       orderIndex: serializer.fromJson<int>(json['orderIndex']),
+      tempo: serializer.fromJson<double?>(json['tempo']),
     );
   }
   @override
@@ -1017,14 +1043,16 @@ class PlaylistSong extends DataClass implements Insertable<PlaylistSong> {
       'playlistId': serializer.toJson<int>(playlistId),
       'songId': serializer.toJson<int>(songId),
       'orderIndex': serializer.toJson<int>(orderIndex),
+      'tempo': serializer.toJson<double?>(tempo),
     };
   }
 
-  PlaylistSong copyWith({int? playlistId, int? songId, int? orderIndex}) =>
+  PlaylistSong copyWith({int? playlistId, int? songId, int? orderIndex, Value<double?> tempo = const Value.absent()}) =>
       PlaylistSong(
         playlistId: playlistId ?? this.playlistId,
         songId: songId ?? this.songId,
         orderIndex: orderIndex ?? this.orderIndex,
+        tempo: tempo.present ? tempo.value : this.tempo,
       );
   PlaylistSong copyWithCompanion(PlaylistSongsCompanion data) {
     return PlaylistSong(
@@ -1035,6 +1063,7 @@ class PlaylistSong extends DataClass implements Insertable<PlaylistSong> {
       orderIndex: data.orderIndex.present
           ? data.orderIndex.value
           : this.orderIndex,
+      tempo: data.tempo.present ? data.tempo.value : this.tempo,
     );
   }
 
@@ -1043,37 +1072,42 @@ class PlaylistSong extends DataClass implements Insertable<PlaylistSong> {
     return (StringBuffer('PlaylistSong(')
           ..write('playlistId: $playlistId, ')
           ..write('songId: $songId, ')
-          ..write('orderIndex: $orderIndex')
+          ..write('orderIndex: $orderIndex, ')
+          ..write('tempo: $tempo')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(playlistId, songId, orderIndex);
+  int get hashCode => Object.hash(playlistId, songId, orderIndex, tempo);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is PlaylistSong &&
           other.playlistId == this.playlistId &&
           other.songId == this.songId &&
-          other.orderIndex == this.orderIndex);
+          other.orderIndex == this.orderIndex &&
+          other.tempo == this.tempo);
 }
 
 class PlaylistSongsCompanion extends UpdateCompanion<PlaylistSong> {
   final Value<int> playlistId;
   final Value<int> songId;
   final Value<int> orderIndex;
+  final Value<double?> tempo;
   final Value<int> rowid;
   const PlaylistSongsCompanion({
     this.playlistId = const Value.absent(),
     this.songId = const Value.absent(),
     this.orderIndex = const Value.absent(),
+    this.tempo = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   PlaylistSongsCompanion.insert({
     required int playlistId,
     required int songId,
     this.orderIndex = const Value.absent(),
+    this.tempo = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : playlistId = Value(playlistId),
        songId = Value(songId);
@@ -1081,12 +1115,14 @@ class PlaylistSongsCompanion extends UpdateCompanion<PlaylistSong> {
     Expression<int>? playlistId,
     Expression<int>? songId,
     Expression<int>? orderIndex,
+    Expression<double>? tempo,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (playlistId != null) 'playlist_id': playlistId,
       if (songId != null) 'song_id': songId,
       if (orderIndex != null) 'order_index': orderIndex,
+      if (tempo != null) 'tempo': tempo,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1095,12 +1131,14 @@ class PlaylistSongsCompanion extends UpdateCompanion<PlaylistSong> {
     Value<int>? playlistId,
     Value<int>? songId,
     Value<int>? orderIndex,
+    Value<double?>? tempo,
     Value<int>? rowid,
   }) {
     return PlaylistSongsCompanion(
       playlistId: playlistId ?? this.playlistId,
       songId: songId ?? this.songId,
       orderIndex: orderIndex ?? this.orderIndex,
+      tempo: tempo ?? this.tempo,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1117,6 +1155,9 @@ class PlaylistSongsCompanion extends UpdateCompanion<PlaylistSong> {
     if (orderIndex.present) {
       map['order_index'] = Variable<int>(orderIndex.value);
     }
+    if (tempo.present) {
+      map['tempo'] = Variable<double>(tempo.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1129,6 +1170,7 @@ class PlaylistSongsCompanion extends UpdateCompanion<PlaylistSong> {
           ..write('playlistId: $playlistId, ')
           ..write('songId: $songId, ')
           ..write('orderIndex: $orderIndex, ')
+          ..write('tempo: $tempo, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();

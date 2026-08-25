@@ -113,9 +113,24 @@ class PlaylistSongs extends Table {
   IntColumn get playlistId => integer().references(Playlists, #id, onDelete: KeyAction.cascade)();
   IntColumn get songId => integer().references(Songs, #id, onDelete: KeyAction.cascade)();
   IntColumn get orderIndex => integer().withDefault(const Constant(0))();
+  RealColumn get tempo => real().nullable()(); // Tempo specifické pro setlist (BPM), null = globální z Songs.tempo
 
   @override
   Set<Column> get primaryKey => {playlistId, songId};
+}
+
+/// Obálka písně v setlistu včetně per-setlist tempa.
+class PlaylistSongWithTempo {
+  final SongEntry song;
+  final double? playlistTempo;
+  final int orderIndex;
+  const PlaylistSongWithTempo({
+    required this.song,
+    this.playlistTempo,
+    required this.orderIndex,
+  });
+
+  double? get effectiveTempo => playlistTempo ?? song.tempo;
 }
 
 class StopMarks extends Table {
@@ -149,7 +164,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase._testing() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration {
@@ -184,6 +199,9 @@ class AppDatabase extends _$AppDatabase {
         }
         if (from < 10) {
           await m.createTable(diacriticMappings);
+        }
+        if (from < 11) {
+          await m.addColumn(playlistSongs, playlistSongs.tempo);
         }
       },
     );
@@ -320,6 +338,21 @@ class AppDatabase extends _$AppDatabase {
         .toList();
   }
 
+  /// Rozparsuje jeden řádek CSV slovníku – respektuje čárky i středníky (český Excel)
+  /// uvnitř uvozovek. Zkouší čárku, pak středník.
+  static List<String> _parseDiacriticCsvLine(String line) {
+    var parts = _parseCsvLine(line);
+    if (parts.length >= 2) return parts;
+    if (line.contains(';')) {
+      final semiPattern = RegExp(r';(?=(?:(?:[^"]*"){2})*[^"]*$)');
+      parts = line
+          .split(semiPattern)
+          .map((p) => p.trim().replaceAll(RegExp(r'^"|"$'), '').replaceAll('""', '"').trim())
+          .toList();
+    }
+    return parts;
+  }
+
   /// Normalizuje cestu pro porovnání (oddělovače a velikost písmen).
   static String _normalizePath(String path) =>
       path.replaceAll('\\', '/').trim().toLowerCase();
@@ -436,13 +469,14 @@ class AppDatabase extends _$AppDatabase {
     return preview;
   }
 
-  /// Export setlistu včetně časů pro sdílení (v2). Vrací mapu připravenou pro jsonEncode.
+  /// Export setlistu včetně časů a temp pro sdílení (v2 – tempo volitelné, zpětně kompatibilní). Vrací mapu připravenou pro jsonEncode.
   Future<Map<String, dynamic>> exportPlaylistToJson(int playlistId, {bool includeContents = false}) async {
     final playlist = await (select(playlists)..where((t) => t.id.equals(playlistId))).getSingle();
-    final songsInPlaylist = await watchSongsInPlaylist(playlistId).first;
+    final items = await getPlaylistSongsWithTempo(playlistId);
     int totalDuration = 0;
     int unknownCount = 0;
-    for (final s in songsInPlaylist) {
+    for (final w in items) {
+      final s = w.song;
       if (s.duration != null && s.duration! > 0) {
         totalDuration += s.duration!;
       } else {
@@ -450,12 +484,17 @@ class AppDatabase extends _$AppDatabase {
       }
     }
     final songsJson = <Map<String, dynamic>>[];
-    for (final s in songsInPlaylist) {
+    for (final w in items) {
+      final s = w.song;
       final entry = <String, dynamic>{
         'title': s.title,
         'artist': s.artist,
         'duration': s.duration,
+        if (w.playlistTempo != null) 'tempo': w.playlistTempo,
+        if (w.playlistTempo == null && s.tempo != null) 'tempo': s.tempo,
       };
+      // Pokud obě tempa null, tempo neuvádíme (zůstane null na importu)
+      if (entry['tempo'] == null) entry.remove('tempo');
       if (includeContents) {
         try {
           final file = File(s.filePath);
@@ -509,7 +548,13 @@ class AppDatabase extends _$AppDatabase {
         if (title.isEmpty) continue;
         final artist = (m['artist'] ?? '').toString().trim();
         final duration = m['duration'] is int ? m['duration'] as int : int.tryParse(m['duration']?.toString() ?? '');
-        parsedSongs.add({'title': title, 'artist': artist, 'duration': duration, 'content': m['content']});
+        double? tempo;
+        if (m.containsKey('tempo') && m['tempo'] != null) {
+          if (m['tempo'] is num) tempo = (m['tempo'] as num).toDouble();
+          else tempo = double.tryParse(m['tempo'].toString());
+          if (tempo != null && (tempo < 30 || tempo > 300)) tempo = null;
+        }
+        parsedSongs.add({'title': title, 'artist': artist, 'duration': duration, 'tempo': tempo, 'content': m['content']});
         if (duration != null && duration > 0) {
           if (totalDurationShared == 0) totalDurationShared += duration;
         } else {
@@ -518,7 +563,7 @@ class AppDatabase extends _$AppDatabase {
       } else {
         final title = raw.toString().trim();
         if (title.isEmpty) continue;
-        parsedSongs.add({'title': title, 'artist': '', 'duration': null});
+        parsedSongs.add({'title': title, 'artist': '', 'duration': null, 'tempo': null});
         unknownShared++;
       }
     }
@@ -562,6 +607,7 @@ class AppDatabase extends _$AppDatabase {
         final title = entry['title'] as String;
         final artist = entry['artist'] as String? ?? '';
         final duration = entry['duration'] as int?;
+        final tempo = entry['tempo'] as double?;
         final fullKey = artist.isNotEmpty ? _normForMatch('$artist|$title') : '';
         final titleKey = _normForMatch(title);
         SongEntry? song = fullKey.isNotEmpty ? byNormFull[fullKey] : null;
@@ -589,6 +635,7 @@ class AppDatabase extends _$AppDatabase {
               playlistId: playlistId,
               songId: song.id,
               orderIndex: Value(order++),
+              tempo: Value(tempo),
             ),
             mode: InsertMode.insertOrIgnore,
           );
@@ -607,13 +654,14 @@ class AppDatabase extends _$AppDatabase {
           final artist = (entry['artist'] as String).isNotEmpty ? entry['artist'] as String : 'Neznámý interpret';
           final content = entry['content'] as String;
           final duration = entry['duration'] as int?;
+          final tempo = entry['tempo'] as double?;
           // Zkusit vytvořit píseň přes importSongPackage logiku (bez duplikace)
-          final created = await _importSongWithContent(title: title, artist: artist, content: content, duration: duration);
+          final created = await _importSongWithContent(title: title, artist: artist, content: content, duration: duration, tempo: tempo);
           if (created != null) {
             // Najít playlistId znovu
             final pl = await (select(playlists)..where((t) => t.name.equals(playlistName))).getSingle();
             await into(playlistSongs).insert(
-              PlaylistSongsCompanion.insert(playlistId: pl.id, songId: created.id, orderIndex: Value(matchedCount++)),
+              PlaylistSongsCompanion.insert(playlistId: pl.id, songId: created.id, orderIndex: Value(matchedCount++), tempo: Value(tempo)),
               mode: InsertMode.insertOrIgnore,
             );
             notFound.remove(label);
@@ -660,7 +708,7 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  Future<SongEntry?> _importSongWithContent({required String title, required String artist, required String content, int? duration}) async {
+  Future<SongEntry?> _importSongWithContent({required String title, required String artist, required String content, int? duration, double? tempo}) async {
     final existing = await (select(songs)..where((t) => t.title.equals(title) & t.artist.equals(artist))).getSingleOrNull();
     if (existing != null) return null;
     final appDir = await getApplicationDocumentsDirectory();
@@ -682,6 +730,7 @@ class AppDatabase extends _$AppDatabase {
       artist: artist,
       title: title,
       duration: Value(duration != null && duration > 0 ? duration : null),
+      tempo: Value(tempo),
     ));
     return (select(songs)..where((t) => t.id.equals(id))).getSingleOrNull();
   }
@@ -710,7 +759,7 @@ class AppDatabase extends _$AppDatabase {
   Future<void> learnDiacritic(String raw, String corrected) async {
     final key = _normForMatch(raw);
     final value = corrected.trim();
-    if (key.isEmpty || value.isEmpty || key == _normForMatch(value)) return;
+    if (key.isEmpty || value.isEmpty || key == value.toLowerCase().trim()) return;
     await into(diacriticMappings).insert(
       DiacriticMappingsCompanion.insert(normKey: key, corrected: value),
       mode: InsertMode.insertOrReplace,
@@ -789,11 +838,11 @@ class AppDatabase extends _$AppDatabase {
       for (var i = 1; i < lines.length; i++) {
         final line = lines[i].trim();
         if (line.isEmpty) continue;
-        final parts = _parseCsvLine(line);
+        final parts = _parseDiacriticCsvLine(line);
         if (parts.length < 2) continue;
         final key = _normForMatch(parts[0]);
         final value = parts[1].trim();
-        if (key.isEmpty || value.isEmpty || key == _normForMatch(value)) continue;
+        if (key.isEmpty || value.isEmpty || key == value.toLowerCase().trim()) continue;
         await into(diacriticMappings).insert(
           DiacriticMappingsCompanion.insert(normKey: key, corrected: value),
           mode: InsertMode.insertOrReplace,
@@ -905,6 +954,44 @@ class AppDatabase extends _$AppDatabase {
       ..orderBy([OrderingTerm.asc(playlistSongs.orderIndex)]);
     return query.watch().map((rows) => rows.map((row) => row.readTable(songs)).toList());
   }
+
+  /// Stream pro setlist včetně per-song tempa (null = globální).
+  Stream<List<PlaylistSongWithTempo>> watchSongsWithTempoInPlaylist(int playlistId) {
+    final query = select(songs).join([innerJoin(playlistSongs, playlistSongs.songId.equalsExp(songs.id))])
+      ..where(playlistSongs.playlistId.equals(playlistId))
+      ..orderBy([OrderingTerm.asc(playlistSongs.orderIndex)]);
+    return query.watch().map((rows) => rows.map((row) {
+          final song = row.readTable(songs);
+          final ps = row.readTable(playlistSongs);
+          return PlaylistSongWithTempo(song: song, playlistTempo: ps.tempo, orderIndex: ps.orderIndex);
+        }).toList());
+  }
+
+  Future<List<PlaylistSongWithTempo>> getPlaylistSongsWithTempo(int playlistId) async {
+    final query = select(songs).join([innerJoin(playlistSongs, playlistSongs.songId.equalsExp(songs.id))])
+      ..where(playlistSongs.playlistId.equals(playlistId))
+      ..orderBy([OrderingTerm.asc(playlistSongs.orderIndex)]);
+    final rows = await query.get();
+    return rows.map((row) {
+      final song = row.readTable(songs);
+      final ps = row.readTable(playlistSongs);
+      return PlaylistSongWithTempo(song: song, playlistTempo: ps.tempo, orderIndex: ps.orderIndex);
+    }).toList();
+  }
+
+  Future<double?> getPlaylistSongTempo(int playlistId, int songId) async {
+    final row = await (select(playlistSongs)..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId))).getSingleOrNull();
+    return row?.tempo;
+  }
+
+  Future<Map<int, double?>> getPlaylistTemposMap(int playlistId) async {
+    final rows = await (select(playlistSongs)..where((t) => t.playlistId.equals(playlistId))).get();
+    return {for (final r in rows) r.songId: r.tempo};
+  }
+
+  Future<int> updatePlaylistSongTempo(int playlistId, int songId, double? tempo) =>
+      (update(playlistSongs)..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId)))
+          .write(PlaylistSongsCompanion(tempo: Value(tempo)));
 
   // --- ZÁLOHA A OBNOVENÍ ---
   Future<Map<String, dynamic>> exportToJson() async {

@@ -168,19 +168,20 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
 
   Future<void> _sharePlaylist(Playlist playlist) async {
     try {
-      final songs = await widget.db.watchSongsInPlaylist(playlist.id).first;
-      if (songs.isEmpty) {
+      final items = await widget.db.getPlaylistSongsWithTempo(playlist.id);
+      if (items.isEmpty) {
         _tts.speak(AppStrings.playlistExportEmpty);
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.playlistExportEmpty)));
         return;
       }
       int totalDuration = 0;
       int unknown = 0;
-      for (final s in songs) {
+      for (final w in items) {
+        final s = w.song;
         if (s.duration != null && s.duration! > 0) totalDuration += s.duration!;
         else unknown++;
       }
-      final songsPayload = songs.map((s) => {'title': s.title, 'artist': s.artist, 'duration': s.duration, 'filePath': s.filePath}).toList();
+      final songsPayload = items.map((w) => {'title': w.song.title, 'artist': w.song.artist, 'duration': w.song.duration, 'tempo': w.playlistTempo ?? w.song.tempo, 'filePath': w.song.filePath}).toList();
       if (!mounted) return;
       await showPlaylistShareDialog(context, playlistName: playlist.name, songs: songsPayload, totalDuration: totalDuration, unknownCount: unknown);
     } catch (e) {
@@ -612,6 +613,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
           songId: ids.first,
           db: widget.db,
           setlistIds: ids,
+          playlistId: widget.playlist.id,
         ),
       ),
     );
@@ -645,6 +647,96 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     );
   }
 
+  Future<void> _showTempoDialog(PlaylistSongWithTempo item) async {
+    final hasOverride = item.playlistTempo != null;
+    final initial = (item.playlistTempo ?? item.song.tempo)?.round().toString() ?? "";
+    final controller = TextEditingController(text: initial);
+    // Tap-tempo uvnitř dialogu setlistu – malé, bez duplikace celé logiky
+    List<DateTime> tapTimes = [];
+    String? error;
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setD) => AlertDialog(
+          title: Semantics(header: true, child: Text("Tempo pro ${item.song.title}")),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("Interpret: ${item.song.artist}", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              const SizedBox(height: 8),
+              if (hasOverride)
+                Text("V setlistu: ${item.playlistTempo!.round()} BPM", style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text(item.song.tempo != null ? "Globálně: ${item.song.tempo!.round()} BPM" : "Globálně: nenastaveno", style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: "BPM v setlistu",
+                  suffixText: "BPM",
+                  helperText: "30 až 300, prázdné = použije globální",
+                  errorText: error,
+                  border: const OutlineInputBorder(),
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(minimumSize: const Size(double.maxFinite, 44), backgroundColor: Colors.blue.withOpacity(0.1)),
+                onPressed: () {
+                  final now = DateTime.now();
+                  tapTimes.add(now);
+                  if (tapTimes.length > 8) tapTimes.removeAt(0);
+                  if (tapTimes.length >= 2) {
+                    final intervals = <int>[];
+                    for (int i = 1; i < tapTimes.length; i++) intervals.add(tapTimes[i].difference(tapTimes[i-1]).inMilliseconds);
+                    final avg = intervals.reduce((a,b)=>a+b)/intervals.length;
+                    final bpm = (60000/avg).round().clamp(30, 300);
+                    setD(() { controller.text = bpm.toString(); error = null; });
+                  }
+                },
+                icon: const Icon(Icons.touch_app),
+                label: Text(AppStrings.tapTempoButton),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Zrušit")),
+            if (hasOverride)
+              TextButton(
+                onPressed: () async {
+                  await widget.db.updatePlaylistSongTempo(widget.playlist.id, item.song.id, null);
+                  tts.speak("Tempo pro ${item.song.title} nastaveno na globální");
+                  if (mounted) Navigator.pop(context);
+                },
+                child: const Text("Použít globální", style: TextStyle(color: Colors.orange)),
+              ),
+            FilledButton(
+              onPressed: () async {
+                final txt = controller.text.trim();
+                if (txt.isEmpty) {
+                  await widget.db.updatePlaylistSongTempo(widget.playlist.id, item.song.id, null);
+                  tts.speak("Tempo pro ${item.song.title} nastaveno na globální");
+                  if (mounted) Navigator.pop(context);
+                  return;
+                }
+                final v = double.tryParse(txt);
+                if (v == null || v < 30 || v > 300) {
+                  setD(() => error = "Zadejte 30 až 300");
+                  return;
+                }
+                await widget.db.updatePlaylistSongTempo(widget.playlist.id, item.song.id, v);
+                tts.speak(AppStrings.bpmSetMessage(v.round()));
+                if (mounted) Navigator.pop(context);
+              },
+              child: const Text("Uložit"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _shareCurrentPlaylist(List<SongEntry> songs) async {
     if (songs.isEmpty) {
       tts.speak(AppStrings.playlistExportEmpty);
@@ -658,6 +750,29 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
       else unknown++;
     }
     final payload = songs.map((s) => {'title': s.title, 'artist': s.artist, 'duration': s.duration, 'filePath': s.filePath}).toList();
+    await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown);
+  }
+
+  Future<void> _shareCurrentPlaylistWithTempo(List<PlaylistSongWithTempo> items) async {
+    if (items.isEmpty) {
+      tts.speak(AppStrings.playlistExportEmpty);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.playlistExportEmpty)));
+      return;
+    }
+    int totalDuration = 0;
+    int unknown = 0;
+    for (final w in items) {
+      final s = w.song;
+      if (s.duration != null && s.duration! > 0) totalDuration += s.duration!;
+      else unknown++;
+    }
+    final payload = items.map((w) => {
+          'title': w.song.title,
+          'artist': w.song.artist,
+          'duration': w.song.duration,
+          'tempo': w.playlistTempo ?? w.song.tempo,
+          'filePath': w.song.filePath,
+        }).toList();
     await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown);
   }
 
@@ -694,11 +809,12 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
         ),
         actions: [
           // Hybrid 2) samostatné tlačítko Přečíst pořadí
-          StreamBuilder<List<SongEntry>>(
-            stream: widget.db.watchSongsInPlaylist(widget.playlist.id),
+          StreamBuilder<List<PlaylistSongWithTempo>>(
+            stream: widget.db.watchSongsWithTempoInPlaylist(widget.playlist.id),
             builder: (context, snapshot) {
-              final songs = snapshot.data ?? const [];
-              if (songs.isEmpty) return const SizedBox();
+              final items = snapshot.data ?? const [];
+              if (items.isEmpty) return const SizedBox();
+              final songs = items.map((e) => e.song).toList();
               return Semantics(
                 label: AppStrings.setlistReadOrderTooltip,
                 button: true,
@@ -720,21 +836,21 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
               onPressed: _toggleReorderLock,
             ),
           ),
-          StreamBuilder<List<SongEntry>>(
-            stream: widget.db.watchSongsInPlaylist(widget.playlist.id),
+          StreamBuilder<List<PlaylistSongWithTempo>>(
+            stream: widget.db.watchSongsWithTempoInPlaylist(widget.playlist.id),
             builder: (context, snapshot) {
-              final songs = snapshot.data ?? const [];
-              if (songs.isEmpty) return const SizedBox();
-              final totalSec = songs.fold<int>(0, (sum, s) => sum + (s.duration ?? 0));
-              final unknown = songs.where((s) => s.duration == null || s.duration == 0).length;
+              final items = snapshot.data ?? const [];
+              if (items.isEmpty) return const SizedBox();
+              final totalSec = items.fold<int>(0, (sum, w) => sum + (w.song.duration ?? 0));
+              final unknown = items.where((w) => w.song.duration == null || w.song.duration == 0).length;
               final timeText = _formatTotalTimeWithUnknown(totalSec, unknown);
               return Semantics(
-                label: "Sdílet setlist ${widget.playlist.name}, ${songs.length} písní, $timeText",
+                label: "Sdílet setlist ${widget.playlist.name}, ${items.length} písní, $timeText",
                 button: true,
                 child: IconButton(
                   icon: const Icon(Icons.ios_share),
                   tooltip: "Sdílet setlist",
-                  onPressed: () => _shareCurrentPlaylist(songs),
+                  onPressed: () => _shareCurrentPlaylistWithTempo(items),
                 ),
               );
             },
@@ -744,34 +860,36 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
             tooltip: "Přidat více písní do setlistu",
             onPressed: () => _showBulkAddDialog(context),
           ),
-          StreamBuilder<List<SongEntry>>(
-            stream: widget.db.watchSongsInPlaylist(widget.playlist.id),
+          StreamBuilder<List<PlaylistSongWithTempo>>(
+            stream: widget.db.watchSongsWithTempoInPlaylist(widget.playlist.id),
             builder: (context, snapshot) {
-              if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox();
-              final count = snapshot.data!.length;
-              final totalSec = snapshot.data!.fold<int>(0, (sum, s) => sum + (s.duration ?? 0));
-              final unknown = snapshot.data!.where((s) => s.duration == null || s.duration == 0).length;
+              final items = snapshot.data ?? const [];
+              if (!snapshot.hasData || items.isEmpty) return const SizedBox();
+              final count = items.length;
+              final totalSec = items.fold<int>(0, (sum, w) => sum + (w.song.duration ?? 0));
+              final unknown = items.where((w) => w.song.duration == null || w.song.duration == 0).length;
               final timeText = _formatTotalTimeWithUnknown(totalSec, unknown);
+              final songs = items.map((e) => e.song).toList();
               return Semantics(
                 label: "Spustit setlist ${widget.playlist.name}, $count písní, $timeText",
                 button: true,
                 child: IconButton(
                   icon: const Icon(Icons.play_circle_fill, color: Colors.green),
                   tooltip: "Spustit setlist",
-                  onPressed: () => _confirmStartSetlist(snapshot.data!),
+                  onPressed: () => _confirmStartSetlist(songs),
                 ),
               );
             },
           ),
         ],
       ),
-      body: StreamBuilder<List<SongEntry>>(
-        stream: widget.db.watchSongsInPlaylist(widget.playlist.id),
+      body: StreamBuilder<List<PlaylistSongWithTempo>>(
+        stream: widget.db.watchSongsWithTempoInPlaylist(widget.playlist.id),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(semanticsLabel: "Načítám písně setlistu"));
-          final songs = snapshot.data!;
+          final items = snapshot.data!;
 
-          if (songs.isEmpty) {
+          if (items.isEmpty) {
             return Semantics(
               liveRegion: true,
               label: "V tomto setlistu nejsou žádné písně. Přidejte je tlačítkem vpravo nahoře.",
@@ -780,9 +898,12 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
           }
 
           return ListView.builder(
-            itemCount: songs.length,
+            itemCount: items.length,
             itemBuilder: (context, i) {
-              final song = songs[i];
+              final item = items[i];
+              final song = item.song;
+              final effectiveTempo = item.playlistTempo ?? song.tempo;
+              final hasOverride = item.playlistTempo != null;
               String durationText = "";
               String durationSemantics = "";
               bool isUnknown = song.duration == null || song.duration == 0;
@@ -795,21 +916,61 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
                 durationText = " [?]";
                 durationSemantics = ". ${AppStrings.songDurationUnknownSemantics(song.title)}. ${AppStrings.songDurationEstimateHint(3)}.";
               }
+              String tempoText = "";
+              String tempoSemantics = "";
+              if (effectiveTempo != null) {
+                tempoText = " • ${effectiveTempo.round()} BPM${hasOverride ? "" : " (glob.)"}";
+                tempoSemantics = ". Tempo ${effectiveTempo.round()} BPM${hasOverride ? " nastaveno pro setlist" : " globální"}";
+              } else {
+                tempoText = " • bez tempa";
+                tempoSemantics = ". Tempo nenastaveno, klepněte na tempo pro nastavení";
+              }
 
               return Semantics(
-                label: "Píseň ${i + 1} z ${songs.length}: ${song.artist}, ${song.title}$durationSemantics. Poklepáním přehrajete, menu vpravo pro možnosti.",
+                label: "Píseň ${i + 1} z ${items.length}: ${song.artist}, ${song.title}$durationSemantics$tempoSemantics. Poklepáním přehrajete, menu vpravo pro možnosti.",
                 button: true,
                 child: ListTile(
                   leading: isUnknown ? const Icon(Icons.timer_off, size: 20, color: Colors.orange) : null,
                   title: Text("${song.artist}$durationText"),
-                  subtitle: Text(song.title + (isUnknown ? " • ${AppStrings.songDurationUnknown} • ${AppStrings.songDurationEstimateHint(3)}" : "")),
+                  subtitle: InkWell(
+                    onTap: () => _showTempoDialog(item),
+                    child: Text(
+                      song.title + (isUnknown ? " • ${AppStrings.songDurationUnknown} • ${AppStrings.songDurationEstimateHint(3)}" : "") + tempoText,
+                      style: TextStyle(color: hasOverride ? Theme.of(context).colorScheme.primary : null, fontWeight: hasOverride ? FontWeight.w600 : null),
+                    ),
+                  ),
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db)),
+                    MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db, playlistId: widget.playlist.id)),
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Tempo rychlá akce
+                      Semantics(
+                        label: effectiveTempo != null ? "Tempo ${effectiveTempo.round()} BPM, klepnutím upravit" : "Nastavit tempo pro ${song.title}",
+                        button: true,
+                        child: InkWell(
+                          onTap: () => _showTempoDialog(item),
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: hasOverride ? Theme.of(context).colorScheme.primaryContainer : Colors.grey.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: hasOverride ? Theme.of(context).colorScheme.primary : Colors.grey.withOpacity(0.3)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.speed, size: 16, color: hasOverride ? Theme.of(context).colorScheme.onPrimaryContainer : Colors.grey[700]),
+                                const SizedBox(width: 4),
+                                Text(effectiveTempo != null ? "${effectiveTempo.round()}" : "—", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: hasOverride ? Theme.of(context).colorScheme.onPrimaryContainer : null)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                       // Hybrid 3) šipky jen když odemknuto, jinak jen menu (bezpečné na pódiu)
                       if (_reorderUnlocked && i > 0)
                         Semantics(
@@ -824,7 +985,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
                             },
                           ),
                         ),
-                      if (_reorderUnlocked && i < songs.length - 1)
+                      if (_reorderUnlocked && i < items.length - 1)
                         Semantics(
                           label: "Přesunout ${song.title} o jedno níže",
                           button: true,
@@ -840,16 +1001,19 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
                       PopupMenuButton<String>(
                         tooltip: "Možnosti písně ${song.title}",
                         onSelected: (v) {
-                          if (v == 'remove') {
+                          if (v == 'tempo') {
+                            _showTempoDialog(item);
+                          } else if (v == 'remove') {
                             widget.db.removeSongFromPlaylist(widget.playlist.id, song.id);
                             tts.speak(AppStrings.songRemovedFromPlaylist(song.title));
                           } else if (v == 'move') {
-                            _showMoveDialog(song, i, songs.length);
+                            _showMoveDialog(song, i, items.length);
                           } else if (v == 'options') {
-                            _showSongOptions(song, i, songs.length);
+                            _showSongOptions(song, i, items.length);
                           }
                         },
                         itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'tempo', child: Text("Nastavit tempo...")),
                           PopupMenuItem(value: 'move', child: Text("Přesunout na pozici...")),
                           PopupMenuItem(value: 'remove', child: Text("Odebrat ze setlistu")),
                         ],
