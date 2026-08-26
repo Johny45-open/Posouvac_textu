@@ -202,7 +202,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase._testing() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration {
@@ -241,6 +241,31 @@ class AppDatabase extends _$AppDatabase {
         if (from < 11) {
           await m.addColumn(playlistSongs, playlistSongs.tempo);
         }
+        if (from < 12) {
+          // vyčisti otrávené záznamy typu Mladek->Mladdek, ponech jen čistě diakritiku
+          final existing = await customSelect('SELECT norm_key, corrected FROM diacritic_mappings', readsFrom: {diacriticMappings}).get();
+          for (final row in existing) {
+            final normKey = row.read<String>('norm_key');
+            final corrected = row.read<String>('corrected');
+            if (_normForMatch(corrected) != normKey) {
+              await customStatement('DELETE FROM diacritic_mappings WHERE norm_key = ?', [normKey]);
+            }
+          }
+        }
+      },
+      beforeOpen: (details) async {
+        // pojistka i bez migrace (např. už verze 12 ale starý poisoned obsah) – tiché vyčištění při každém startu
+        if (details.wasCreated) return;
+        try {
+          final existing = await customSelect('SELECT norm_key, corrected FROM diacritic_mappings', readsFrom: {diacriticMappings}).get();
+          for (final row in existing) {
+            final normKey = row.read<String>('norm_key');
+            final corrected = row.read<String>('corrected');
+            if (_normForMatch(corrected) != normKey) {
+              await customStatement('DELETE FROM diacritic_mappings WHERE norm_key = ?', [normKey]);
+            }
+          }
+        } catch (_) {}
       },
     );
   }
@@ -416,6 +441,12 @@ class AppDatabase extends _$AppDatabase {
 
   static String _normForMatch(String input) =>
       _stripDiacritics(input.trim().toLowerCase()).replaceAll(RegExp(r'\s+'), ' ');
+
+  /// Povolena je pouze změna diakritiky – po strip musí být řetězce shodné.
+  /// Odmítá překlepy typu "Mladek" -> "Mladdek" (vložení písmene).
+  static bool _isDiacriticOnly(String raw, String corrected) {
+    return _normForMatch(raw) == _normForMatch(corrected);
+  }
 
   /// Výsledek hromadného importu metadat z CSV.
   /// [skipped] obsahuje řádky, které se nepodařilo bezpečně spárovat
@@ -829,8 +860,13 @@ class AppDatabase extends _$AppDatabase {
   static String? _lookupSingle(String part, Map<String, String> map) {
     final trimmed = part.trim();
     if (trimmed.isEmpty) return null;
-    final corrected = map[_normForMatch(trimmed)];
-    if (corrected != null && corrected != trimmed) return corrected;
+    final key = _normForMatch(trimmed);
+    final corrected = map[key];
+    if (corrected != null && corrected != trimmed) {
+      // obrana proti otrávenému záznamu: např. "Ivan Mladek" -> "Ivan Mladdek"
+      if (_normForMatch(corrected) != key) return null;
+      return corrected;
+    }
     return null;
   }
 
@@ -839,9 +875,12 @@ class AppDatabase extends _$AppDatabase {
   /// Podporuje i "feat." varianty: "Ivan Mladek (feat. Ludek Sobota)" -> "Ivan Mládek (feat. Luděk Sobota)"
   static String? _resolveComposite(String raw, Map<String, String> map) {
     if (raw.trim().isEmpty) return null;
-    // rychlá cesta – celý řetězec přímo v mapě
+    // rychlá cesta – celý řetězec přímo v mapě (s validací diakritiky)
     final direct = map[_normForMatch(raw)];
-    if (direct != null && direct != raw) return direct;
+    if (direct != null && direct != raw) {
+      if (_normForMatch(direct) == _normForMatch(raw)) return direct;
+      // otrávený záznam – nebrat v úvahu, pokračovat kompozitní logikou
+    }
 
     // 1) Závorková feat verze: "Hlavní (feat. Host)" – oprav obě části i když host je kompozitní
     final parenMatch = _featParenPattern.firstMatch(raw);
@@ -895,7 +934,10 @@ class AppDatabase extends _$AppDatabase {
         final subFeat = _resolveComposite(part.trim(), map);
         if (subFeat != null) return subFeat;
         final corrected = map[_normForMatch(part)];
-        if (corrected != null && corrected != part) return corrected;
+        if (corrected != null && corrected != part) {
+          if (_normForMatch(corrected) != _normForMatch(part)) return part;
+          return corrected;
+        }
         return part;
       },
     );
@@ -912,7 +954,10 @@ class AppDatabase extends _$AppDatabase {
       onNonMatch: (part) {
         if (part.trim().isEmpty) return part;
         final corrected = map[_normForMatch(part)];
-        if (corrected != null && corrected != part) return corrected;
+        if (corrected != null && corrected != part) {
+          if (_normForMatch(corrected) != _normForMatch(part)) return part;
+          return corrected;
+        }
         return part;
       },
     );
@@ -925,7 +970,10 @@ class AppDatabase extends _$AppDatabase {
     final key = _normForMatch(rawText);
     if (key.isEmpty) return null;
     final row = await (select(diacriticMappings)..where((t) => t.normKey.equals(key))).getSingleOrNull();
-    if (row != null) return row.corrected;
+    if (row != null) {
+      if (_normForMatch(row.corrected) != key) return null;
+      return row.corrected;
+    }
     // kompozit: "Hana Hegerova, Karel Gott a Waldemar Matuska" nebo "Ivan Mladek (feat. Ludek Sobota)"
     final isComposite = _artistDelimiter.hasMatch(rawText) ||
         _featParenPattern.hasMatch(rawText) ||
@@ -939,7 +987,20 @@ class AppDatabase extends _$AppDatabase {
 
   /// Naučí slovník dvojici [raw] -> [corrected] (např. z ruční opravy písně).
   /// Pro kompozitní interprety ("A, B a C") učí po částech, včetně "feat.".
+  /// Odmítá páry, kde se liší i písmena (překlep), nejen diakritika – např. Mladek -> Mladdek.
   Future<void> learnDiacritic(String raw, String corrected) async {
+    if (!_isDiacriticOnly(raw, corrected) && !_artistDelimiter.hasMatch(raw) && !_featParenPattern.hasMatch(raw) && !_featBarePattern.hasMatch(raw)) {
+      // rychlá validace pro jednoduchý případ – pokud mění i písmena, odmítnout
+      // kompozitní případy se validují po rozdělení níže
+      final simpleKey = _normForMatch(raw);
+      final simpleValNorm = _normForMatch(corrected);
+      if (simpleKey.isNotEmpty && simpleValNorm.isNotEmpty && simpleKey != simpleValNorm) {
+        // může to být kompozit s různými oddělovači – nech projít k další logice, která rozseká
+        if (!_artistDelimiter.hasMatch(corrected) && !_featParenPattern.hasMatch(corrected) && !_featBarePattern.hasMatch(corrected)) {
+          return;
+        }
+      }
+    }
     // Speciálně pro feat závorkovou verzi: uč hlavní a hosta zvlášť
     final rawFeatParen = _featParenPattern.firstMatch(raw);
     final corrFeatParen = _featParenPattern.firstMatch(corrected);
@@ -986,6 +1047,7 @@ class AppDatabase extends _$AppDatabase {
           final r = rawParts[i].trim();
           final c = corrParts[i].trim();
           if (r.isEmpty || c.isEmpty) continue;
+          if (!_isDiacriticOnly(r, c)) continue;
           final k = _normForMatch(r);
           if (k.isEmpty || k == c.toLowerCase().trim()) continue;
           // přeskočit "Karel Gott" -> "Karel Gott" beze změny
@@ -1001,6 +1063,7 @@ class AppDatabase extends _$AppDatabase {
     final key = _normForMatch(raw);
     final value = corrected.trim();
     if (key.isEmpty || value.isEmpty || key == value.toLowerCase().trim()) return;
+    if (!_isDiacriticOnly(raw, value)) return;
     if (raw.trim() == value) return;
     await into(diacriticMappings).insert(
       DiacriticMappingsCompanion.insert(normKey: key, corrected: value),
@@ -1015,21 +1078,46 @@ class AppDatabase extends _$AppDatabase {
     return row.read(countExp) ?? 0;
   }
 
+  /// Smaže otrávené záznamy, kde se liší i písmena (ne jen diakritika).
+  /// Vrací počet smazaných.
+  Future<int> purgeInvalidDiacriticMappings() async {
+    final all = await select(diacriticMappings).get();
+    var deleted = 0;
+    for (final m in all) {
+      if (_normForMatch(m.corrected) != m.normKey) {
+        await (delete(diacriticMappings)..where((t) => t.normKey.equals(m.normKey))).go();
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
   /// Najde písně, jejichž název/interpret má ve slovníku opravenou verzi.
   /// Podporuje kompozitní interprety (",", " a ", " & ", ";", "/") pouze pro interpreta.
   Future<List<DiacriticRepairCandidate>> findDiacriticRepairs() async {
     final all = await select(songs).get();
     final mappings = await select(diacriticMappings).get();
-    final map = {for (final m in mappings) m.normKey: m.corrected};
+    // filtruj otrávené záznamy, aby se nikdy nenavrhla oprava typu Mladek->Mladdek
+    final map = <String, String>{};
+    for (final m in mappings) {
+      if (_normForMatch(m.corrected) != m.normKey) continue;
+      map[m.normKey] = m.corrected;
+    }
     if (map.isEmpty) return const [];
     final result = <DiacriticRepairCandidate>[];
     for (final s in all) {
-      final directTitle = map[_normForMatch(s.title)];
+      final directTitleRaw = map[_normForMatch(s.title)];
       final compositeArtist = _resolveComposite(s.artist, map);
-      final directArtist = map[_normForMatch(s.artist)];
+      final directArtistRaw = map[_normForMatch(s.artist)];
       // tituly se opravují pouze přímou shodou; kompozitní logika jen pro interpreta
-      final resolvedTitle = directTitle;
-      final resolvedArtist = compositeArtist ?? directArtist;
+      // validace: navržená oprava musí být diakriticky shodná
+      final resolvedTitle = (directTitleRaw != null && _normForMatch(directTitleRaw) == _normForMatch(s.title)) ? directTitleRaw : null;
+      String? resolvedArtist;
+      if (compositeArtist != null && _normForMatch(compositeArtist) == _normForMatch(s.artist)) {
+        resolvedArtist = compositeArtist;
+      } else if (directArtistRaw != null && _normForMatch(directArtistRaw) == _normForMatch(s.artist)) {
+        resolvedArtist = directArtistRaw;
+      }
       final changedTitle = resolvedTitle != null && resolvedTitle != s.title;
       final changedArtist = resolvedArtist != null && resolvedArtist != s.artist;
       if (!changedTitle && !changedArtist) continue;
@@ -1215,6 +1303,11 @@ class AppDatabase extends _$AppDatabase {
         final value = rawValue;
         if (key.isEmpty || value.isEmpty || key == value.toLowerCase().trim()) {
           skipped++;
+          continue;
+        }
+        if (_normForMatch(value) != key) {
+          skipped++;
+          errors.add('ř.${i + 1}: odmítnuto (překlep, liší se písmena) $key -> $value');
           continue;
         }
         await into(diacriticMappings).insert(

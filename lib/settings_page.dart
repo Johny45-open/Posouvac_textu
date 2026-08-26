@@ -300,6 +300,9 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadDiacriticCount() async {
+    try {
+      await widget.db.purgeInvalidDiacriticMappings();
+    } catch (_) {}
     final count = await widget.db.getDiacriticCount();
     if (mounted) setState(() => _diacriticCount = count);
   }
