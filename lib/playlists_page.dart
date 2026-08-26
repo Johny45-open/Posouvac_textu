@@ -277,7 +277,28 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
         if (s.duration != null && s.duration! > 0) totalDuration += s.duration!;
         else unknown++;
       }
-      final songsPayload = items.map((w) => {'title': w.song.title, 'artist': w.song.artist, 'duration': w.song.duration, 'tempo': w.playlistTempo ?? w.song.tempo, 'filePath': w.song.filePath}).toList();
+      final songsPayload = <Map<String, dynamic>>[];
+      for (final w in items) {
+        final marks = await widget.db.getStopMarksForSong(w.song.id);
+        final entry = <String, dynamic>{
+          'title': w.song.title,
+          'artist': w.song.artist,
+          'duration': w.song.duration,
+          'tempo': w.playlistTempo ?? w.song.tempo,
+          'filePath': w.song.filePath,
+        };
+        if (marks.isNotEmpty) {
+          entry['stopMarks'] = [
+            for (final m in marks)
+              {
+                if (m.lineText != null && m.lineText!.isNotEmpty) 'lineText': m.lineText,
+                if (m.lineIndex != null) 'lineIndex': m.lineIndex,
+                'bars': m.durationBars,
+              }
+          ];
+        }
+        songsPayload.add(entry);
+      }
       if (!mounted) return;
       await showPlaylistShareDialog(context, playlistName: playlist.name, songs: songsPayload, totalDuration: totalDuration, unknownCount: unknown);
     } catch (e) {
@@ -863,13 +884,28 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
       if (s.duration != null && s.duration! > 0) totalDuration += s.duration!;
       else unknown++;
     }
-    final payload = items.map((w) => {
-          'title': w.song.title,
-          'artist': w.song.artist,
-          'duration': w.song.duration,
-          'tempo': w.playlistTempo ?? w.song.tempo,
-          'filePath': w.song.filePath,
-        }).toList();
+    final payload = <Map<String, dynamic>>[];
+    for (final w in items) {
+      final marks = await widget.db.getStopMarksForSong(w.song.id);
+      final entry = <String, dynamic>{
+        'title': w.song.title,
+        'artist': w.song.artist,
+        'duration': w.song.duration,
+        'tempo': w.playlistTempo ?? w.song.tempo,
+        'filePath': w.song.filePath,
+      };
+      if (marks.isNotEmpty) {
+        entry['stopMarks'] = [
+          for (final m in marks)
+            {
+              if (m.lineText != null && m.lineText!.isNotEmpty) 'lineText': m.lineText,
+              if (m.lineIndex != null) 'lineIndex': m.lineIndex,
+              'bars': m.durationBars,
+            }
+        ];
+      }
+      payload.add(entry);
+    }
     await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown);
   }
 

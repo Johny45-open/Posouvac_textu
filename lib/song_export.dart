@@ -96,7 +96,7 @@ String buildSongPackageJson({
   });
 }
 
-/// Balíček setlistu – názvy, interpreti, časy, volitelně texty.
+/// Balíček setlistu – názvy, interpreti, časy, volitelně texty a zarážky (v3).
 String buildPlaylistPackageJson({
   required String name,
   required List<Map<String, dynamic>> songs,
@@ -106,7 +106,7 @@ String buildPlaylistPackageJson({
 }) {
   return jsonEncode({
     'type': 'playlist',
-    'version': 2,
+    'version': 3,
     'name': name,
     'exportedAt': exportedAt ?? DateTime.now().toIso8601String(),
     'totalDuration': totalDuration,

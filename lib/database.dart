@@ -538,7 +538,7 @@ class AppDatabase extends _$AppDatabase {
     return preview;
   }
 
-  /// Export setlistu včetně časů a temp pro sdílení (v2 – tempo volitelné, zpětně kompatibilní). Vrací mapu připravenou pro jsonEncode.
+  /// Export setlistu včetně časů, tempa a zarážek pro sdílení (v3 – stopMarks volitelné, zpětně kompatibilní s v2). Vrací mapu připravenou pro jsonEncode.
   Future<Map<String, dynamic>> exportPlaylistToJson(int playlistId, {bool includeContents = false}) async {
     final playlist = await (select(playlists)..where((t) => t.id.equals(playlistId))).getSingle();
     final items = await getPlaylistSongsWithTempo(playlistId);
@@ -564,6 +564,20 @@ class AppDatabase extends _$AppDatabase {
       };
       // Pokud obě tempa null, tempo neuvádíme (zůstane null na importu)
       if (entry['tempo'] == null) entry.remove('tempo');
+      // Zarážky – DB kotvy + direktivy v content se přenesou s obsahem, ale pro DB sync posíláme i stopMarks
+      try {
+        final marks = await getStopMarksForSong(s.id);
+        if (marks.isNotEmpty) {
+          entry['stopMarks'] = [
+            for (final m in marks)
+              {
+                if (m.lineText != null && m.lineText!.isNotEmpty) 'lineText': m.lineText,
+                if (m.lineIndex != null) 'lineIndex': m.lineIndex,
+                'bars': m.durationBars,
+              }
+          ];
+        }
+      } catch (_) {}
       if (includeContents) {
         try {
           final file = File(s.filePath);
@@ -583,7 +597,7 @@ class AppDatabase extends _$AppDatabase {
     }
     return {
       'type': 'playlist',
-      'version': 2,
+      'version': 3,
       'name': playlist.name,
       'exportedAt': DateTime.now().toIso8601String(),
       'totalDuration': totalDuration,
@@ -623,7 +637,25 @@ class AppDatabase extends _$AppDatabase {
           else tempo = double.tryParse(m['tempo'].toString());
           if (tempo != null && (tempo < 30 || tempo > 300)) tempo = null;
         }
-        parsedSongs.add({'title': title, 'artist': artist, 'duration': duration, 'tempo': tempo, 'content': m['content']});
+        // v3: stopMarks volitelné [{lineText,lineIndex,bars}]
+        List<Map<String, dynamic>> stopMarks = [];
+        bool hasStopMarksKey = m.containsKey('stopMarks');
+        if (m['stopMarks'] is List) {
+          for (final sm in (m['stopMarks'] as List)) {
+            if (sm is! Map) continue;
+            final mm = Map<String, dynamic>.from(sm as Map);
+            int? bars = mm['bars'] is int ? mm['bars'] as int : int.tryParse(mm['bars']?.toString() ?? '');
+            if (bars == null || bars <= 0) continue;
+            bars = bars.clamp(1, 16).toInt();
+            final lt = (mm['lineText'] ?? mm['line_text'] ?? mm['line'] ?? '').toString().trim();
+            int? li;
+            if (mm.containsKey('lineIndex') && mm['lineIndex'] != null) {
+              li = mm['lineIndex'] is int ? mm['lineIndex'] as int : int.tryParse(mm['lineIndex'].toString());
+            }
+            stopMarks.add({'lineText': lt, 'lineIndex': li, 'bars': bars});
+          }
+        }
+        parsedSongs.add({'title': title, 'artist': artist, 'duration': duration, 'tempo': tempo, 'content': m['content'], 'stopMarks': stopMarks, 'hasStopMarksKey': hasStopMarksKey});
         if (duration != null && duration > 0) {
           if (totalDurationShared == 0) totalDurationShared += duration;
         } else {
@@ -655,7 +687,7 @@ class AppDatabase extends _$AppDatabase {
             }
           }
         }
-        parsedSongs.add({'title': title, 'artist': artist, 'duration': null, 'tempo': null});
+        parsedSongs.add({'title': title, 'artist': artist, 'duration': null, 'tempo': null, 'stopMarks': <Map<String, dynamic>>[], 'hasStopMarksKey': false});
         unknownShared++;
       }
     }
@@ -682,6 +714,7 @@ class AppDatabase extends _$AppDatabase {
     // Kandidáti na doplnění budou spočítáni až po transakci, kdy máme matchedEntries
     final Map<int, int> sharedDurationBySongId = {};
     final Map<int, Map<String, String>> sharedDiacriticBySongId = {};
+    final Map<int, List<Map<String, dynamic>>> sharedStopMarksBySongId = {};
 
     var matchedCount = 0;
 
@@ -722,6 +755,12 @@ class AppDatabase extends _$AppDatabase {
           if (needsDiacritic && title.isNotEmpty) {
             sharedDiacriticBySongId[song.id] = {'newTitle': title, 'newArtist': artist.isNotEmpty ? artist : song.artist};
           }
+          // v3: zarážky – uložit pro pozdější zápis do DB (pouze pokud klíč existoval v JSON)
+          final hasKey = (entry['hasStopMarksKey'] as bool?) ?? false;
+          if (hasKey) {
+            final marks = (entry['stopMarks'] as List<Map<String, dynamic>>?) ?? const [];
+            sharedStopMarksBySongId[song.id] = List<Map<String, dynamic>>.from(marks);
+          }
           await into(playlistSongs).insert(
             PlaylistSongsCompanion.insert(
               playlistId: playlistId,
@@ -759,10 +798,44 @@ class AppDatabase extends _$AppDatabase {
             notFound.remove(label);
             matchedIds.add(created.id);
             matchedEntries.add(created);
+            // v3: zarážky pro nově vytvořenou píseň
+            final hasKey = (entry['hasStopMarksKey'] as bool?) ?? false;
+            if (hasKey) {
+              final marks = (entry['stopMarks'] as List<Map<String, dynamic>>?) ?? const [];
+              for (final m in marks) {
+                final lt = (m['lineText'] ?? '').toString();
+                final li = m['lineIndex'] as int?;
+                final bars = (m['bars'] as int?) ?? 2;
+                if (li != null) {
+                  await into(stopMarks).insert(StopMarksCompanion.insert(songId: created.id, positionRatio: 0, durationBars: bars, lineIndex: Value(li), lineText: Value(lt.isEmpty ? null : lt)));
+                } else if (lt.isNotEmpty) {
+                  await into(stopMarks).insert(StopMarksCompanion.insert(songId: created.id, positionRatio: 0, durationBars: bars, lineText: Value(lt)));
+                }
+              }
+            }
           }
         }
       }
     });
+
+    // v3: zapsat zarážky pro již existující písně (přepsat – pokud PC poslal stopMarks, považuje se za zdroj pravdy)
+    for (final e in sharedStopMarksBySongId.entries) {
+      final songId = e.key;
+      final marks = e.value;
+      await (delete(stopMarks)..where((t) => t.songId.equals(songId))).go();
+      for (final m in marks) {
+        final lt = (m['lineText'] ?? '').toString();
+        final li = m['lineIndex'] as int?;
+        final bars = (m['bars'] as int?) ?? 2;
+        if (li != null) {
+          await into(stopMarks).insert(StopMarksCompanion.insert(songId: songId, positionRatio: 0, durationBars: bars.clamp(1, 16).toInt(), lineIndex: Value(li), lineText: Value(lt.isEmpty ? null : lt)));
+        } else if (lt.isNotEmpty) {
+          await into(stopMarks).insert(StopMarksCompanion.insert(songId: songId, positionRatio: 0, durationBars: bars.clamp(1, 16).toInt(), lineText: Value(lt)));
+        } else if (marks.isNotEmpty) {
+          await into(stopMarks).insert(StopMarksCompanion.insert(songId: songId, positionRatio: 0, durationBars: bars.clamp(1, 16).toInt()));
+        }
+      }
+    }
 
     // Sestavit kandidáty na doplnění
     final durationCandidates = <DurationFixCandidate>[];
