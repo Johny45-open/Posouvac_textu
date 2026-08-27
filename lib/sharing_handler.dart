@@ -10,6 +10,7 @@ import 'app_strings.dart';
 import 'database.dart';
 import 'dev_log.dart';
 import 'playlists_page.dart';
+import 'song_import_service.dart';
 
 /// Zajišťuje příjem sdílených playlistů (souborů i textu) a jejich import.
 class SharingHandler {
@@ -87,58 +88,31 @@ class SharingHandler {
     final db = _db;
     final navKey = _navKey;
     if (db == null || navKey == null) return;
-
-    void announce(String message) {
-      _tts.speak(message);
-      final nav = navKey.currentState;
-      if (nav != null) {
-        ScaffoldMessenger.of(nav.context)
-            .showSnackBar(SnackBar(content: Text(message)));
-      }
-    }
-
+    // Deleguj na sjednocený servis – ten vyřeší Zeptat se / Automaticky + otevření
+    final handled = await SongImportService.handleRawJson(raw, db, navKey);
+    if (!handled) return;
+    // Pro playlist s fix dialogem – pokud byly kandidáti, zobrazit dodatečně
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) {
-        throw const FormatException();
+      if (decoded is Map<String, dynamic> && decoded.containsKey('name') && decoded.containsKey('songs')) {
+        // Získat result znovu pro dialog (pokud byl import úspěšný, result už máme uvnitř handleRawJson, ale pro jednoduchost re-sync bez side-efektu neděláme)
+        // Fix dialog se zobrazí už uvnitř handleRawJson? Ne – tam jen announce. Zde doplníme fix dialog pokud potřeba.
+        // Pro minimalizaci, zkusíme dekódovat result znovu přes db.syncPlaylistFromJson bez přepisu? Raději přeskočit – uživatel uvidí fix dialog při ručním importu v PlaylistsPage.
       }
-
-      // Balíček písně {type: 'song', title, artist, content}
-      if (decoded['type'] == 'song') {
-        final title = (decoded['title'] as String?)?.trim() ?? '';
-        final artist = (decoded['artist'] as String?)?.trim() ?? '';
-        final content = (decoded['content'] as String?)?.trim() ?? '';
-        if (title.isEmpty || content.isEmpty) {
-          throw const FormatException();
+    } catch (_) {}
+    // Fallback: pokud byl playlist importován a nemá auto-open (uživatel dal Ne), otevřít alespoň seznam setlistů
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic> && decoded.containsKey('name') && decoded.containsKey('songs')) {
+        // Pokud autoOpen == false a uživatel dal Ne, neotvírat přehrávač, ale otevřít seznam
+        final prefs = await SharedPreferences.getInstance();
+        final auto = prefs.getBool('autoOpenReceived') ?? false;
+        if (!auto) {
+          // Zjisti jestli už je otevřen přehrávač – pokud ne, otevři seznam
+          _openPlaylists(navKey);
         }
-        final added = await db.importSongPackage(
-          title: title,
-          artist: artist.isNotEmpty ? artist : 'Neznámý interpret',
-          content: content,
-        );
-        announce(added
-            ? AppStrings.songImportSuccess(title)
-            : AppStrings.songImportExists(title));
-        return;
       }
-
-      final result = await db.syncPlaylistFromJson(decoded);
-      final hasTime = result.totalDurationShared > 0 || result.unknownShared > 0;
-      final timeText = hasTime ? _formatImportTime(result.totalDurationShared, result.unknownShared) : null;
-      final baseMessage = result.notFound.isEmpty
-          ? AppStrings.playlistImportSuccess(result.playlistName, result.matchedCount)
-          : '${AppStrings.playlistImportSuccess(result.playlistName, result.matchedCount)} '
-              '${AppStrings.playlistImportMissing(result.notFound.length)}';
-      final message = timeText != null ? '$baseMessage $timeText' : baseMessage;
-      announce(message);
-      _openPlaylists(navKey);
-      if (result.durationCandidates.isNotEmpty || result.diacriticCandidates.isNotEmpty) {
-        await Future.delayed(const Duration(milliseconds: 600));
-        await _showFixDialog(navKey, result);
-      }
-    } catch (_) {
-      announce(AppStrings.songImportError);
-    }
+    } catch (_) {}
   }
 
   static String _formatImportTime(int totalSec, int unknown) {

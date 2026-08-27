@@ -300,7 +300,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
         songsPayload.add(entry);
       }
       if (!mounted) return;
-      await showPlaylistShareDialog(context, playlistName: playlist.name, songs: songsPayload, totalDuration: totalDuration, unknownCount: unknown);
+      await showPlaylistShareDialog(context, playlistName: playlist.name, songs: songsPayload, totalDuration: totalDuration, unknownCount: unknown, db: widget.db, playlistId: playlist.id);
     } catch (e) {
       _tts.speak(AppStrings.shareError);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.shareError)));
@@ -868,7 +868,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
       else unknown++;
     }
     final payload = songs.map((s) => {'title': s.title, 'artist': s.artist, 'duration': s.duration, 'filePath': s.filePath}).toList();
-    await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown);
+    await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown, db: widget.db, playlistId: widget.playlist.id);
   }
 
   Future<void> _shareCurrentPlaylistWithTempo(List<PlaylistSongWithTempo> items) async {
@@ -906,7 +906,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
       }
       payload.add(entry);
     }
-    await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown);
+    await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown, db: widget.db, playlistId: widget.playlist.id);
   }
 
   @override

@@ -334,6 +334,150 @@ class AppDatabase extends _$AppDatabase {
 
   Future<int> deleteSong(int id) => (delete(songs)..where((t) => t.id.equals(id))).go();
 
+  /// Vrátí seřazené IDs písní v setlistu podle orderIndex.
+  Future<List<int>> getPlaylistSongIds(int playlistId) async {
+    final rows = await (select(playlistSongs)..where((t) => t.playlistId.equals(playlistId))..orderBy([(t) => OrderingTerm(expression: t.orderIndex)])).get();
+    return rows.map((r) => r.songId).toList();
+  }
+
+  /// Upsert písně s parametry – v2 balíček. Vrací songId (nové nebo aktualizované).
+  /// Pokud píseň existuje (norm match title+artist), přepíše soubor + aktualizuje DB.
+  Future<int?> importOrUpdateSongPackage({
+    required String title,
+    required String artist,
+    required String content,
+    double? tempo,
+    double? scrollSpeed,
+    double? fontSize,
+    double? introDuration,
+    int? duration,
+    int? transpose,
+    List<Map<String, dynamic>>? stopMarksParam,
+  }) async {
+    // Zkusit najít existující via přesná shoda nebo norm shoda (diakritika-insensitive)
+    SongEntry? existing;
+    final exact = await (select(songs)..where((t) => t.title.equals(title) & t.artist.equals(artist))).getSingleOrNull();
+    if (exact != null) {
+      existing = exact;
+    } else {
+      // fallback norm match
+      final all = await select(songs).get();
+      final normWanted = _normForMatch('$artist|$title');
+      final normTitleWanted = _normForMatch(title);
+      for (final s in all) {
+        final normFull = _normForMatch('${s.artist}|${s.title}');
+        final normTitle = _normForMatch(s.title);
+        if (normFull == normWanted && normWanted.isNotEmpty) { existing = s; break; }
+        if (existing == null && normTitle == normTitleWanted && normTitleWanted.isNotEmpty) {
+          // only fallback if artist empty or single match – pick first title match
+          existing = s;
+        }
+      }
+      // pokud našlo více titulů se stejným normTitle, exact už by selhal – bereme první
+    }
+
+    if (existing != null) {
+      // Aktualizovat soubor
+      try {
+        final file = File(existing.filePath);
+        await file.writeAsString(content, encoding: utf8);
+      } catch (_) {
+        // pokud soubor chybí, vytvořit nový v imported_songs
+        try {
+          final appDir = await getApplicationDocumentsDirectory();
+          final songsDir = Directory(p.join(appDir.path, 'imported_songs'));
+          if (!await songsDir.exists()) await songsDir.create(recursive: true);
+          final safeArtist = artist.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+          final safeTitle = title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+          var fileName = '${safeArtist.isNotEmpty ? '$safeArtist - ' : ''}$safeTitle.txt';
+          var filePath = p.join(songsDir.path, fileName);
+          await File(filePath).writeAsString(content, encoding: utf8);
+          await updateSongPath(existing.id, filePath);
+        } catch (_) {}
+      }
+      // Aktualizovat DB parametry (null = ponechat původní, ale pokud přijde hodnota, přepsat)
+      final upd = SongsCompanion(
+        artist: Value(artist),
+        title: Value(title),
+        tempo: tempo != null ? Value(tempo) : const Value.absent(),
+        customScrollSpeed: scrollSpeed != null ? Value(scrollSpeed) : const Value.absent(),
+        customFontSize: fontSize != null ? Value(fontSize) : const Value.absent(),
+        introDuration: introDuration != null ? Value(introDuration) : const Value.absent(),
+        duration: duration != null ? Value(duration) : const Value.absent(),
+      );
+      if (upd.tempo.present || upd.customScrollSpeed.present || upd.customFontSize.present || upd.introDuration.present || upd.duration.present) {
+        await (update(songs)..where((t) => t.id.equals(existing!.id))).write(upd);
+      } else {
+        // alespoň title/artist
+        await updateSong(existing!.id, artist, title);
+        if (duration != null) await updateSongDuration(existing!.id, duration);
+      }
+      // Zarážky – přepsat pokud přišly (včetně prázdného = smazat)
+      if (stopMarksParam != null) {
+        await (delete(stopMarks)..where((t) => t.songId.equals(existing!.id))).go();
+        for (final m in stopMarksParam) {
+          final bars = (m['bars'] is int) ? m['bars'] as int : int.tryParse(m['bars']?.toString() ?? '2') ?? 2;
+          final clamped = bars.clamp(1, 16).toInt();
+          final lt = (m['lineText'] ?? '').toString();
+          final li = m['lineIndex'] is int ? m['lineIndex'] as int : int.tryParse(m['lineIndex']?.toString() ?? '');
+          if (li != null) {
+            await into(stopMarks).insert(StopMarksCompanion.insert(songId: existing!.id, positionRatio: 0, durationBars: clamped, lineIndex: Value(li), lineText: Value(lt.isEmpty ? null : lt)));
+          } else if (lt.isNotEmpty) {
+            await into(stopMarks).insert(StopMarksCompanion.insert(songId: existing!.id, positionRatio: 0, durationBars: clamped, lineText: Value(lt)));
+          } else if (stopMarksParam.isNotEmpty) {
+            await into(stopMarks).insert(StopMarksCompanion.insert(songId: existing!.id, positionRatio: 0, durationBars: clamped));
+          }
+        }
+      }
+      // transpose se neukládá do DB per-song globálně – ignorujeme (přehrávač si ho vezme z balíčku při otevření)
+      return existing!.id;
+    }
+
+    // Nová píseň
+    final appDir = await getApplicationDocumentsDirectory();
+    final songsDir = Directory(p.join(appDir.path, 'imported_songs'));
+    if (!await songsDir.exists()) {
+      await songsDir.create(recursive: true);
+    }
+    final safeArtist = artist.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    final safeTitle = title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    var fileName = '${safeArtist.isNotEmpty ? '$safeArtist - ' : ''}$safeTitle.txt';
+    var filePath = p.join(songsDir.path, fileName);
+    var counter = 1;
+    while (await File(filePath).exists()) {
+      final base = fileName.replaceAll('.txt', '');
+      filePath = p.join(songsDir.path, '${base}_$counter.txt');
+      counter++;
+    }
+    await File(filePath).writeAsString(content, encoding: utf8);
+    final id = await into(songs).insert(SongsCompanion.insert(
+      filePath: filePath,
+      artist: artist,
+      title: title,
+      tempo: Value(tempo),
+      customScrollSpeed: Value(scrollSpeed),
+      customFontSize: Value(fontSize),
+      introDuration: Value(introDuration),
+      duration: Value(duration),
+    ));
+    if (stopMarksParam != null && stopMarksParam.isNotEmpty) {
+      for (final m in stopMarksParam) {
+        final bars = (m['bars'] is int) ? m['bars'] as int : int.tryParse(m['bars']?.toString() ?? '2') ?? 2;
+        final clamped = bars.clamp(1, 16).toInt();
+        final lt = (m['lineText'] ?? '').toString();
+        final li = m['lineIndex'] is int ? m['lineIndex'] as int : int.tryParse(m['lineIndex']?.toString() ?? '');
+        if (li != null) {
+          await into(stopMarks).insert(StopMarksCompanion.insert(songId: id, positionRatio: 0, durationBars: clamped, lineIndex: Value(li), lineText: Value(lt.isEmpty ? null : lt)));
+        } else if (lt.isNotEmpty) {
+          await into(stopMarks).insert(StopMarksCompanion.insert(songId: id, positionRatio: 0, durationBars: clamped, lineText: Value(lt)));
+        } else {
+          await into(stopMarks).insert(StopMarksCompanion.insert(songId: id, positionRatio: 0, durationBars: clamped));
+        }
+      }
+    }
+    return id;
+  }
+
   /// Naimportuje přijatý balíček písně (text + metadata) do knihovny.
   /// Obsah zapíše do nového souboru v aplikačním adresáři a vloží záznam.
   /// Vrací true, pokud byla píseň nově přidána, false pokud už existuje.
@@ -538,7 +682,7 @@ class AppDatabase extends _$AppDatabase {
     return preview;
   }
 
-  /// Export setlistu včetně časů, tempa a zarážek pro sdílení (v3 – stopMarks volitelné, zpětně kompatibilní s v2). Vrací mapu připravenou pro jsonEncode.
+  /// Export setlistu včetně časů, tempa a zarážek pro sdílení (v4 – přidává scrollSpeed/fontSize/introDuration). Vrací mapu připravenou pro jsonEncode.
   Future<Map<String, dynamic>> exportPlaylistToJson(int playlistId, {bool includeContents = false}) async {
     final playlist = await (select(playlists)..where((t) => t.id.equals(playlistId))).getSingle();
     final items = await getPlaylistSongsWithTempo(playlistId);
@@ -561,9 +705,15 @@ class AppDatabase extends _$AppDatabase {
         'duration': s.duration,
         if (w.playlistTempo != null) 'tempo': w.playlistTempo,
         if (w.playlistTempo == null && s.tempo != null) 'tempo': s.tempo,
+        if (s.customScrollSpeed != null) 'scrollSpeed': s.customScrollSpeed,
+        if (s.customFontSize != null) 'fontSize': s.customFontSize,
+        if (s.introDuration != null) 'introDuration': s.introDuration,
       };
       // Pokud obě tempa null, tempo neuvádíme (zůstane null na importu)
       if (entry['tempo'] == null) entry.remove('tempo');
+      if (entry['scrollSpeed'] == null) entry.remove('scrollSpeed');
+      if (entry['fontSize'] == null) entry.remove('fontSize');
+      if (entry['introDuration'] == null) entry.remove('introDuration');
       // Zarážky – DB kotvy + direktivy v content se přenesou s obsahem, ale pro DB sync posíláme i stopMarks
       try {
         final marks = await getStopMarksForSong(s.id);
@@ -597,7 +747,7 @@ class AppDatabase extends _$AppDatabase {
     }
     return {
       'type': 'playlist',
-      'version': 3,
+      'version': 4,
       'name': playlist.name,
       'exportedAt': DateTime.now().toIso8601String(),
       'totalDuration': totalDuration,
@@ -637,6 +787,23 @@ class AppDatabase extends _$AppDatabase {
           else tempo = double.tryParse(m['tempo'].toString());
           if (tempo != null && (tempo < 30 || tempo > 300)) tempo = null;
         }
+        double? scrollSpeed;
+        if (m.containsKey('scrollSpeed') && m['scrollSpeed'] != null) {
+          if (m['scrollSpeed'] is num) scrollSpeed = (m['scrollSpeed'] as num).toDouble();
+          else scrollSpeed = double.tryParse(m['scrollSpeed'].toString());
+          if (scrollSpeed != null) scrollSpeed = scrollSpeed.clamp(0.1, 5.0).toDouble();
+        }
+        double? fontSize;
+        if (m.containsKey('fontSize') && m['fontSize'] != null) {
+          if (m['fontSize'] is num) fontSize = (m['fontSize'] as num).toDouble();
+          else fontSize = double.tryParse(m['fontSize'].toString());
+          if (fontSize != null) fontSize = fontSize.clamp(10, 100).toDouble();
+        }
+        double? introDuration;
+        if (m.containsKey('introDuration') && m['introDuration'] != null) {
+          if (m['introDuration'] is num) introDuration = (m['introDuration'] as num).toDouble();
+          else introDuration = double.tryParse(m['introDuration'].toString());
+        }
         // v3: stopMarks volitelné [{lineText,lineIndex,bars}]
         List<Map<String, dynamic>> stopMarks = [];
         bool hasStopMarksKey = m.containsKey('stopMarks');
@@ -655,7 +822,7 @@ class AppDatabase extends _$AppDatabase {
             stopMarks.add({'lineText': lt, 'lineIndex': li, 'bars': bars});
           }
         }
-        parsedSongs.add({'title': title, 'artist': artist, 'duration': duration, 'tempo': tempo, 'content': m['content'], 'stopMarks': stopMarks, 'hasStopMarksKey': hasStopMarksKey});
+        parsedSongs.add({'title': title, 'artist': artist, 'duration': duration, 'tempo': tempo, 'scrollSpeed': scrollSpeed, 'fontSize': fontSize, 'introDuration': introDuration, 'content': m['content'], 'stopMarks': stopMarks, 'hasStopMarksKey': hasStopMarksKey});
         if (duration != null && duration > 0) {
           if (totalDurationShared == 0) totalDurationShared += duration;
         } else {
@@ -715,6 +882,11 @@ class AppDatabase extends _$AppDatabase {
     final Map<int, int> sharedDurationBySongId = {};
     final Map<int, Map<String, String>> sharedDiacriticBySongId = {};
     final Map<int, List<Map<String, dynamic>>> sharedStopMarksBySongId = {};
+    final Map<int, double?> sharedTempoBySongId = {};
+    final Map<int, double?> sharedScrollSpeedBySongId = {};
+    final Map<int, double?> sharedFontSizeBySongId = {};
+    final Map<int, double?> sharedIntroBySongId = {};
+    final Map<int, String> sharedContentBySongId = {};
 
     var matchedCount = 0;
 
@@ -733,6 +905,10 @@ class AppDatabase extends _$AppDatabase {
         final artist = entry['artist'] as String? ?? '';
         final duration = entry['duration'] as int?;
         final tempo = entry['tempo'] as double?;
+        final scrollSpeed = entry['scrollSpeed'] as double?;
+        final fontSize = entry['fontSize'] as double?;
+        final introDuration = entry['introDuration'] as double?;
+        final content = entry['content'] as String?;
         final fullKey = artist.isNotEmpty ? _normForMatch('$artist|$title') : '';
         final titleKey = _normForMatch(title);
         SongEntry? song = fullKey.isNotEmpty ? byNormFull[fullKey] : null;
@@ -745,6 +921,11 @@ class AppDatabase extends _$AppDatabase {
           if (duration != null && duration > 0) {
             sharedDurationBySongId[song.id] = duration;
           }
+          if (tempo != null) sharedTempoBySongId[song.id] = tempo;
+          if (scrollSpeed != null) sharedScrollSpeedBySongId[song.id] = scrollSpeed;
+          if (fontSize != null) sharedFontSizeBySongId[song.id] = fontSize;
+          if (introDuration != null) sharedIntroBySongId[song.id] = introDuration;
+          if (content != null && content.trim().isNotEmpty) sharedContentBySongId[song.id] = content;
           // Kandidát na diakritiku: norm shodný ale přesný string se liší
           final normLocalTitle = _normForMatch(song.title);
           final normSharedTitle = _normForMatch(title);
@@ -770,8 +951,7 @@ class AppDatabase extends _$AppDatabase {
             ),
             mode: InsertMode.insertOrIgnore,
           );
-          // Pokud byl v exportu i content a píseň lokálně neexistovala by, řeší se jinde;
-          // zde content ignorujeme, protože match už proběhl – text se nesdílí pro existující píseň
+          // content pro existující aktualizujeme po transakci (aktualizovat case 2)
         } else {
           notFound.add(label);
           notFoundLabels.add(label);
@@ -786,8 +966,11 @@ class AppDatabase extends _$AppDatabase {
           final content = entry['content'] as String;
           final duration = entry['duration'] as int?;
           final tempo = entry['tempo'] as double?;
+          final scrollSpeed = entry['scrollSpeed'] as double?;
+          final fontSize = entry['fontSize'] as double?;
+          final introDuration = entry['introDuration'] as double?;
           // Zkusit vytvořit píseň přes importSongPackage logiku (bez duplikace)
-          final created = await _importSongWithContent(title: title, artist: artist, content: content, duration: duration, tempo: tempo);
+          final created = await _importSongWithContent(title: title, artist: artist, content: content, duration: duration, tempo: tempo, scrollSpeed: scrollSpeed, fontSize: fontSize, introDuration: introDuration);
           if (created != null) {
             // Najít playlistId znovu
             final pl = await (select(playlists)..where((t) => t.name.equals(playlistName))).getSingle();
@@ -837,6 +1020,38 @@ class AppDatabase extends _$AppDatabase {
       }
     }
 
+    // Aktualizovat: přepsat obsah + parametry u existujících písní pokud sdílený balíček obsahuje content/parametry (case 2)
+    for (final e in sharedContentBySongId.entries) {
+      final songId = e.key;
+      final content = e.value;
+      try {
+        final song = await (select(songs)..where((t) => t.id.equals(songId))).getSingleOrNull();
+        if (song != null) {
+          await File(song.filePath).writeAsString(content, encoding: utf8);
+        }
+      } catch (_) {}
+    }
+    for (final s in matchedEntries) {
+      final tempo = sharedTempoBySongId[s.id];
+      final ss = sharedScrollSpeedBySongId[s.id];
+      final fs = sharedFontSizeBySongId[s.id];
+      final intro = sharedIntroBySongId[s.id];
+      final dur = sharedDurationBySongId[s.id];
+      // tempo zde je playlistTempo – ale pokud byl per-song tempo sdílen a není to override, chceme ho uložit do Songs.tempo pokud dosud null
+      // pro aktualizovat chování: pokud sdílené tempo existuje a lokální tempo == null, uložit; pokud už existuje, nepřepisovat tempo pokud byl playlist override?
+      // Zjednodušeně: pokud sdílené tempo != null a lokální song.tempo == null, uložit do song.tempo; playlist tempo už je v playlistSongs
+      final needSongUpdate = (tempo != null && s.tempo == null) || ss != null || fs != null || intro != null || dur != null;
+      if (needSongUpdate) {
+        await (update(songs)..where((t) => t.id.equals(s.id))).write(SongsCompanion(
+          tempo: tempo != null && s.tempo == null ? Value(tempo) : const Value.absent(),
+          customScrollSpeed: ss != null ? Value(ss) : const Value.absent(),
+          customFontSize: fs != null ? Value(fs) : const Value.absent(),
+          introDuration: intro != null ? Value(intro) : const Value.absent(),
+          duration: dur != null ? Value(dur) : const Value.absent(),
+        ));
+      }
+    }
+
     // Sestavit kandidáty na doplnění
     final durationCandidates = <DurationFixCandidate>[];
     final diacriticCandidates = <DiacriticRepairCandidate>[];
@@ -873,7 +1088,7 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  Future<SongEntry?> _importSongWithContent({required String title, required String artist, required String content, int? duration, double? tempo}) async {
+  Future<SongEntry?> _importSongWithContent({required String title, required String artist, required String content, int? duration, double? tempo, double? scrollSpeed, double? fontSize, double? introDuration}) async {
     final existing = await (select(songs)..where((t) => t.title.equals(title) & t.artist.equals(artist))).getSingleOrNull();
     if (existing != null) return null;
     final appDir = await getApplicationDocumentsDirectory();
@@ -896,6 +1111,9 @@ class AppDatabase extends _$AppDatabase {
       title: title,
       duration: Value(duration != null && duration > 0 ? duration : null),
       tempo: Value(tempo),
+      customScrollSpeed: Value(scrollSpeed),
+      customFontSize: Value(fontSize),
+      introDuration: Value(introDuration),
     ));
     return (select(songs)..where((t) => t.id.equals(id))).getSingleOrNull();
   }

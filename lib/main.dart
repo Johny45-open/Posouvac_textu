@@ -15,6 +15,7 @@ import 'chord_display_widget.dart';
 import 'manual_page.dart';
 import 'app_strings.dart';
 import 'sharing_handler.dart';
+import 'nearby_service.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -23,6 +24,7 @@ void main() async {
   final db = AppDatabase();
   final prefs = await SharedPreferences.getInstance();
   SharingHandler.init(db: db, navigatorKey: navigatorKey);
+  NearbyService.instance.init(db: db, navKey: navigatorKey);
   runApp(LyricScrollerApp(db: db, prefs: prefs));
 }
 
@@ -158,6 +160,8 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   late int _previewLineCount; // 2/3
   late bool _filterSectionLabels;
   late bool _enableMetronome;
+  late bool _autoOpenReceived;
+  late bool _nearbyAutoReceive;
   Locale? _locale;
   bool _showManual = false;
 
@@ -180,6 +184,8 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     _previewLineCount = widget.prefs.getInt('previewLineCount') ?? 2;
     _filterSectionLabels = widget.prefs.getBool('filterSectionLabels') ?? true;
     _enableMetronome = widget.prefs.getBool('enableMetronome') ?? true;
+    _autoOpenReceived = widget.prefs.getBool('autoOpenReceived') ?? false;
+    _nearbyAutoReceive = widget.prefs.getBool('nearbyAutoReceive') ?? true;
     
     final langCode = widget.prefs.getString('languageCode');
     if (langCode != null) _locale = Locale(langCode);
@@ -282,6 +288,21 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     await widget.prefs.setBool('enableMetronome', v);
   }
 
+  Future<void> _updateAutoOpenReceived(bool v) async {
+    setState(() => _autoOpenReceived = v);
+    await widget.prefs.setBool('autoOpenReceived', v);
+  }
+
+  Future<void> _updateNearbyAutoReceive(bool v) async {
+    setState(() => _nearbyAutoReceive = v);
+    await widget.prefs.setBool('nearbyAutoReceive', v);
+    if (v) {
+      NearbyService.instance.startAdvertising();
+    } else {
+      NearbyService.instance.stopAdvertising();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -330,6 +351,10 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
               onFilterSectionLabelsChanged: _updateFilterSectionLabels,
               enableMetronome: _enableMetronome,
               onEnableMetronomeChanged: _updateEnableMetronome,
+              autoOpenReceived: _autoOpenReceived,
+              onAutoOpenReceivedChanged: _updateAutoOpenReceived,
+              nearbyAutoReceive: _nearbyAutoReceive,
+              onNearbyAutoReceiveChanged: _updateNearbyAutoReceive,
             ),
     );
   }

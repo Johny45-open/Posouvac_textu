@@ -25,6 +25,7 @@ import 'song_export.dart';
 import 'qr_scan_page.dart';
 import 'update_checker.dart';
 import 'update_dialogs.dart';
+import 'nearby_service.dart';
 
 class LibraryPage extends StatefulWidget {
   final ThemeMode themeMode;
@@ -49,6 +50,10 @@ class LibraryPage extends StatefulWidget {
   final ValueChanged<bool> onFilterSectionLabelsChanged;
   final bool enableMetronome;
   final ValueChanged<bool> onEnableMetronomeChanged;
+  final bool autoOpenReceived;
+  final ValueChanged<bool> onAutoOpenReceivedChanged;
+  final bool nearbyAutoReceive;
+  final ValueChanged<bool> onNearbyAutoReceiveChanged;
 
   const LibraryPage({
     super.key,
@@ -74,6 +79,10 @@ class LibraryPage extends StatefulWidget {
     required this.onFilterSectionLabelsChanged,
     required this.enableMetronome,
     required this.onEnableMetronomeChanged,
+    required this.autoOpenReceived,
+    required this.onAutoOpenReceivedChanged,
+    required this.nearbyAutoReceive,
+    required this.onNearbyAutoReceiveChanged,
   });
 
   @override
@@ -103,6 +112,18 @@ class _LibraryPageState extends State<LibraryPage> {
     _initVersion();
     _loadDevMode();
     _initAppVersion();
+    _maybeStartNearbyAdvertising();
+  }
+
+  Future<void> _maybeStartNearbyAdvertising() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool('nearbyAutoReceive') ?? true;
+      if (enabled && (Platform.isAndroid || Platform.isIOS)) {
+        // Nečekat na výsledek
+        NearbyService.instance.startAdvertising();
+      }
+    } catch (_) {}
   }
 
   Future<void> _initAppVersion() async {
@@ -174,6 +195,13 @@ class _LibraryPageState extends State<LibraryPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isInformalMode != widget.isInformalMode) {
       AppStrings.isInformal = widget.isInformalMode;
+    }
+    if (widget.nearbyAutoReceive != oldWidget.nearbyAutoReceive) {
+      if (widget.nearbyAutoReceive) {
+        NearbyService.instance.startAdvertising();
+      } else {
+        NearbyService.instance.stopAdvertising();
+      }
     }
   }
 
@@ -540,11 +568,21 @@ class _LibraryPageState extends State<LibraryPage> {
       } catch (_) {
         content = latin1.decode(bytes);
       }
+      final stopMarks = await widget.db.getStopMarksForSong(song.id);
+      final stopMaps = stopMarks.map((m) => {'lineText': m.lineText, 'lineIndex': m.lineIndex, 'bars': m.durationBars}).toList();
       await showSongShareDialog(
         context,
         title: song.title,
         artist: song.artist,
         content: content,
+        tempo: song.tempo,
+        scrollSpeed: song.customScrollSpeed,
+        fontSize: song.customFontSize,
+        introDuration: song.introDuration,
+        duration: song.duration,
+        transpose: 0,
+        stopMarks: stopMaps,
+        db: widget.db,
       );
     } catch (_) {
       _tts.speak(AppStrings.shareFileMissing);
@@ -718,6 +756,10 @@ class _LibraryPageState extends State<LibraryPage> {
                       onFilterSectionLabelsChanged: widget.onFilterSectionLabelsChanged,
                       enableMetronome: widget.enableMetronome,
                       onEnableMetronomeChanged: widget.onEnableMetronomeChanged,
+                      autoOpenReceived: widget.autoOpenReceived,
+                      onAutoOpenReceivedChanged: widget.onAutoOpenReceivedChanged,
+                      nearbyAutoReceive: widget.nearbyAutoReceive,
+                      onNearbyAutoReceiveChanged: widget.onNearbyAutoReceiveChanged,
                       devModeUnlocked: _devModeUnlocked,
                       onDevModeChanged: (v) => setState(() => _devModeUnlocked = v),
                     ),

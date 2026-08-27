@@ -41,6 +41,10 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<bool> onFilterSectionLabelsChanged;
   final bool enableMetronome;
   final ValueChanged<bool> onEnableMetronomeChanged;
+  final bool autoOpenReceived;
+  final ValueChanged<bool> onAutoOpenReceivedChanged;
+  final bool nearbyAutoReceive;
+  final ValueChanged<bool> onNearbyAutoReceiveChanged;
   final bool devModeUnlocked;
   final ValueChanged<bool> onDevModeChanged;
 
@@ -67,6 +71,10 @@ class SettingsPage extends StatefulWidget {
     required this.onFilterSectionLabelsChanged,
     required this.enableMetronome,
     required this.onEnableMetronomeChanged,
+    required this.autoOpenReceived,
+    required this.onAutoOpenReceivedChanged,
+    required this.nearbyAutoReceive,
+    required this.onNearbyAutoReceiveChanged,
     required this.devModeUnlocked,
     required this.onDevModeChanged,
   });
@@ -81,6 +89,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   late bool _devModeUnlocked;
   int _diacriticCount = 0;
+  bool _enableVoiceConfirmations = true;
+  bool _detailedSubtitles = true;
+  double _globalFontSize = 24.0;
 
   @override
   void initState() {
@@ -89,6 +100,37 @@ class _SettingsPageState extends State<SettingsPage> {
     _devModeUnlocked = widget.devModeUnlocked;
     _pinService = DevPinService(db: widget.db);
     _loadDiacriticCount();
+    _loadA11yPrefs();
+  }
+
+  Future<void> _loadA11yPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _enableVoiceConfirmations = prefs.getBool('enableVoiceConfirmations') ?? true;
+      _detailedSubtitles = prefs.getBool('detailedSubtitles') ?? true;
+      _globalFontSize = prefs.getDouble('fontSize') ?? 24.0;
+    });
+  }
+
+  /// Centrální brána pro hlasová potvrzení.
+  /// Respektuje uživatelský přepínač (bod 3) a potlačí TTS když běží TalkBack/čtečka (bod 2).
+  Future<void> _speak(String message) async {
+    if (message.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final voiceEnabled = prefs.getBool('enableVoiceConfirmations') ?? _enableVoiceConfirmations;
+      if (!voiceEnabled) return;
+      // Detekce čtečky obrazovky - potlačení duplicity
+      final a11y = WidgetsBinding.instance.accessibilityFeatures;
+      final mqA11y = MediaQuery.maybeOf(context)?.accessibleNavigation ?? false;
+      final isScreenReaderOn = a11y.accessibleNavigation || mqA11y;
+      if (isScreenReaderOn) return; // spolehnout se na Semantics/liveRegion
+      await _tts.speak(message);
+    } catch (_) {
+      // Fallback - zkusit přímo
+      try { await _tts.speak(message); } catch (_) {}
+    }
   }
 
   /// Hlasové zprávy - PIN už byl ověřen při vstupu do vývojářského režimu.
@@ -127,7 +169,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (newPin == null) return;
     if (newPin.isEmpty) {
       if (!mounted) return;
-      _tts.speak(AppStrings.pinEmpty);
+      await _speak(AppStrings.pinEmpty);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppStrings.pinEmpty)),
       );
@@ -135,7 +177,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     if (newPin.length < 4) {
       if (!mounted) return;
-      _tts.speak(AppStrings.pinTooShort);
+      _speak(AppStrings.pinTooShort);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppStrings.pinTooShort)),
       );
@@ -146,7 +188,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (confirmPin == null) return;
     if (newPin != confirmPin) {
       if (!mounted) return;
-      _tts.speak(AppStrings.pinMismatch);
+      _speak(AppStrings.pinMismatch);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppStrings.pinMismatch)),
       );
@@ -154,7 +196,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     await _pinService.saveNewPin(newPin);
-    _tts.speak("Vývojářský PIN změněn");
+    _speak("Vývojářský PIN změněn");
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Vývojářský PIN byl změněn")),
@@ -169,7 +211,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) {
       setState(() => _devModeUnlocked = false);
       widget.onDevModeChanged(false);
-      _tts.speak("Vývojářský režim vypnut");
+      _speak("Vývojářský režim vypnut");
     }
   }
 
@@ -229,7 +271,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final target = File('${tempDir.path}/posouvac_databaze.sqlite');
       await source.copy(target.path);
       await Share.shareXFiles([XFile(target.path)], text: 'Databáze aplikace Posouvač textu');
-      _tts.speak("Databáze exportována");
+      _speak("Databáze exportována");
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při exportu databáze: $e")));
@@ -247,7 +289,7 @@ class _SettingsPageState extends State<SettingsPage> {
       await file.writeAsString(jsonString);
 
       await Share.shareXFiles([XFile(file.path)], text: 'Záloha aplikace Posouvač textu');
-      _tts.speak(AppStrings.backupExportSuccess);
+      _speak(AppStrings.backupExportSuccess);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při exportu: $e")));
@@ -283,7 +325,7 @@ class _SettingsPageState extends State<SettingsPage> {
         final data = jsonDecode(jsonString) as Map<String, dynamic>;
         
         await widget.db.importFromJson(data);
-        _tts.speak(AppStrings.backupImportSuccess);
+        _speak(AppStrings.backupImportSuccess);
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.backupImportSuccess)));
@@ -300,7 +342,8 @@ class _SettingsPageState extends State<SettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble('fontSize', size);
     if (mounted) {
-      _tts.speak("Globální velikost písma nastavena na ${size.round()}");
+      setState(() => _globalFontSize = size);
+      await _speak("Globální velikost písma nastavena na ${size.round()}");
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Globální velikost písma nastavena na ${size.round()}")),
       );
@@ -320,7 +363,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _runDiacriticRepair() async {
-    _tts.speak("Prohledávám knihovnu, čekejte.");
+    _speak("Prohledávám knihovnu, čekejte.");
 
     unawaited(showDialog<void>(
       context: context,
@@ -336,7 +379,7 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (_) {
       if (!mounted) return;
       Navigator.of(context).pop();
-      _tts.speak("Opravu se nepodařilo dokončit.");
+      _speak("Opravu se nepodařilo dokončit.");
       return;
     }
     if (!mounted) return;
@@ -353,7 +396,7 @@ class _SettingsPageState extends State<SettingsPage> {
         }
       } catch (_) {}
       final totalEarly = unrepairedEarly.length;
-      _tts.speak(totalEarly > 0
+      _speak(totalEarly > 0
           ? "Žádné názvy k opravě nebyly nalezeny. V knihovně $totalEarly písní, všechny už správně nebo bez položky ve slovníku. Zkontrolujte výpis."
           : "Žádné názvy k opravě nebyly nalezeny.");
       await showDialog<void>(
@@ -417,7 +460,7 @@ class _SettingsPageState extends State<SettingsPage> {
       DevLog.log("Chyba výpisu neopravených: $e");
     }
     final totalSongs = candidates.length + unrepaired.length;
-    _tts.speak("Nalezeno ${candidates.length} návrhů na opravu z $totalSongs. ${unrepaired.isNotEmpty ? 'Bez návrhu ${unrepaired.length}. ' : ''}Zkontrolujte seznam.");
+    _speak("Nalezeno ${candidates.length} návrhů na opravu z $totalSongs. ${unrepaired.isNotEmpty ? 'Bez návrhu ${unrepaired.length}. ' : ''}Zkontrolujte seznam.");
 
     final prefs = await SharedPreferences.getInstance();
     bool renameFiles = prefs.getBool('diacriticRenameFiles') ?? false;
@@ -520,7 +563,7 @@ class _SettingsPageState extends State<SettingsPage> {
         : result.filesRenamed > 0
             ? "Bylo opraveno ${result.dbUpdated} názvů a přejmenováno ${result.filesRenamed} souborů."
             : "Bylo opraveno ${result.dbUpdated} názvů.";
-    _tts.speak(msg);
+    _speak(msg);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
@@ -536,7 +579,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final file = File('${tempDir.path}/slovnik_diakritiky.csv');
       await file.writeAsString(csvString, encoding: utf8);
       await Share.shareXFiles([XFile(file.path)], text: 'Slovník diakritiky aplikace Posouvač textu');
-      _tts.speak("Slovník exportován");
+      _speak("Slovník exportován");
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při exportu slovníku: $e")));
@@ -559,7 +602,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final msg = result.skipped > 0
           ? "Do slovníku přidáno ${result.imported}, přeskočeno ${result.skipped}. ${result.errors.isNotEmpty ? result.errors.take(3).join(', ') : ''}"
           : "Do slovníku bylo přidáno ${result.imported} záznamů";
-      _tts.speak(msg);
+      _speak(msg);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
@@ -634,7 +677,7 @@ class _SettingsPageState extends State<SettingsPage> {
           "4. Upravujte pouze sloupce 'artist', 'title' a 'duration'.\n"
           "5. Po úpravě uložte jako CSV (UTF-8) a importujte zpět.";
     
-    _tts.speak("Návod pro úpravu CSV: " + helpText);
+    _speak("Návod pro úpravu CSV: " + helpText);
 
     await showDialog(
       context: context,
@@ -656,7 +699,7 @@ class _SettingsPageState extends State<SettingsPage> {
       await file.writeAsString(csvString, encoding: utf8);
 
       await Share.shareXFiles([XFile(file.path)], text: 'Metadata písní z aplikace Posouvač textu');
-      _tts.speak("Metadata exportována do CSV");
+      _speak("Metadata exportována do CSV");
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při exportu: $e")));
@@ -735,7 +778,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (confirm == true) {
         DevLog.log("Potvrzen import, spouštím zápis do databáze");
         final result = await widget.db.importSongsFromCsv(csvString);
-        _tts.speak("Importováno ${result.updated} písní");
+        _speak("Importováno ${result.updated} písní");
         if (mounted) {
           final message = result.skipped > 0
               ? "Aktualizováno ${result.updated} písní, přeskočeno ${result.skipped} (nesedí soubor)."
@@ -753,7 +796,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _checkLibrary() async {
-    _tts.speak(AppStrings.libraryCheckRunning);
+    _speak(AppStrings.libraryCheckRunning);
 
     unawaited(showDialog<void>(
       context: context,
@@ -769,7 +812,7 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (_) {
       if (!mounted) return;
       Navigator.of(context).pop();
-      _tts.speak(AppStrings.libraryCheckRepairFailed);
+      _speak(AppStrings.libraryCheckRepairFailed);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Kontrolu knihovny se nepodařilo dokončit.")),
       );
@@ -779,7 +822,7 @@ class _SettingsPageState extends State<SettingsPage> {
     Navigator.of(context).pop();
 
     if (issues.isEmpty) {
-      _tts.speak(AppStrings.libraryCheckOk);
+      _speak(AppStrings.libraryCheckOk);
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -796,7 +839,7 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    _tts.speak(AppStrings.libraryCheckFound(issues.length));
+    _speak(AppStrings.libraryCheckFound(issues.length));
 
     final bool? repair = await showDialog<bool>(
       context: context,
@@ -845,14 +888,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
     try {
       final repaired = await LibraryChecker.repairAll(widget.db, issues);
-      _tts.speak(AppStrings.libraryCheckRepaired(repaired));
+      _speak(AppStrings.libraryCheckRepaired(repaired));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(AppStrings.libraryCheckRepaired(repaired))),
         );
       }
     } catch (_) {
-      _tts.speak(AppStrings.libraryCheckRepairFailed);
+      _speak(AppStrings.libraryCheckRepairFailed);
     }
   }
 
@@ -976,7 +1019,7 @@ class _SettingsPageState extends State<SettingsPage> {
               );
               if (confirm != true) return;
               await widget.db.resetAllPlayed();
-              _tts.speak(AppStrings.resetPlayed);
+              await _speak(AppStrings.resetPlayed);
             },
           ),
           SwitchListTile(
@@ -986,7 +1029,7 @@ class _SettingsPageState extends State<SettingsPage> {
             value: widget.concertMode,
             onChanged: (v) async {
               widget.onConcertModeChanged(v);
-              _tts.speak(v ? AppStrings.concertModeAnnouncementOn : AppStrings.concertModeAnnouncementOff);
+              await _speak(v ? AppStrings.concertModeAnnouncementOn : AppStrings.concertModeAnnouncementOff);
               try {
                 await const MethodChannel('concert_volume_channel').invokeMethod('setConcertMode', {'enabled': v});
               } catch (_) {}
@@ -1011,10 +1054,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     ButtonSegment(value: 2, label: Text(AppStrings.concertPreviewAuto), icon: Icon(Icons.auto_awesome)),
                   ],
                   selected: {widget.concertPreviewMode},
-                  onSelectionChanged: (s) {
+                  onSelectionChanged: (s) async {
                     final mode = s.first;
                     widget.onConcertPreviewModeChanged(mode);
-                    _tts.speak(_previewModeAnnouncement(mode));
+                    await _speak(_previewModeAnnouncement(mode));
                   },
                 ),
                 const SizedBox(height: 4),
@@ -1034,10 +1077,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     ButtonSegment(value: 3, label: Text(AppStrings.previewLineCount3)),
                   ],
                   selected: {widget.previewLineCount},
-                  onSelectionChanged: (s) {
+                  onSelectionChanged: (s) async {
                     final c = s.first;
                     widget.onPreviewLineCountChanged(c);
-                    _tts.speak(AppStrings.previewCountAnnouncement(c));
+                    await _speak(AppStrings.previewCountAnnouncement(c));
                   },
                 ),
                 const SizedBox(height: 4),
@@ -1056,19 +1099,81 @@ class _SettingsPageState extends State<SettingsPage> {
             title: Text(AppStrings.filterSectionTitle),
             subtitle: Text(AppStrings.filterSectionSubtitle),
             value: widget.filterSectionLabels,
-            onChanged: (v) {
+            onChanged: (v) async {
               widget.onFilterSectionLabelsChanged(v);
-              _tts.speak(AppStrings.filterSectionAnnouncement(v));
+              await _speak(AppStrings.filterSectionAnnouncement(v));
             },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                AppStrings.filterSectionAnnouncement(widget.filterSectionLabels),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ),
           ),
           SwitchListTile(
             title: Text(AppStrings.metronomeTitle),
             subtitle: Text(AppStrings.metronomeSubtitle),
             value: widget.enableMetronome,
-            onChanged: (v) {
+            onChanged: (v) async {
               widget.onEnableMetronomeChanged(v);
-              _tts.speak(AppStrings.metronomeAnnouncement(v));
+              await _speak(AppStrings.metronomeAnnouncement(v));
             },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                AppStrings.metronomeAnnouncement(widget.enableMetronome),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ),
+          ),
+          const Divider(height: 24),
+          // Nearby sdílení – pro nevidomé: auto-příjem a Zeptat se/Automaticky
+          SwitchListTile(
+            title: const Text("Viditelnost pro Nearby"),
+            subtitle: Text(widget.nearbyAutoReceive ? "Zapnuto – jste viditelní pro odesílatele v sále" : "Vypnuto – nebudete viditelní"),
+            secondary: Icon(widget.nearbyAutoReceive ? Icons.sensors : Icons.sensors_off, color: widget.nearbyAutoReceive ? Colors.green : null),
+            value: widget.nearbyAutoReceive,
+            onChanged: (v) async {
+              widget.onNearbyAutoReceiveChanged(v);
+              await _speak(v ? "Viditelnost pro Nearby zapnuta" : "Viditelnost pro Nearby vypnuta");
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                widget.nearbyAutoReceive ? "Zapnuto – jste viditelní pro odesílatele v sále" : "Vypnuto – nebudete viditelní",
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ),
+          ),
+          SwitchListTile(
+            title: const Text("Otevření po přijetí"),
+            subtitle: Text(widget.autoOpenReceived ? "Automaticky – rovnou otevře přehrávač" : "Zeptat se – zobrazí dialog Ano/Ne (default)"),
+            secondary: Icon(widget.autoOpenReceived ? Icons.open_in_new : Icons.help_outline),
+            value: widget.autoOpenReceived,
+            onChanged: (v) async {
+              widget.onAutoOpenReceivedChanged(v);
+              await _speak(v ? "Po přijetí se rovnou otevře přehrávač" : "Po přijetí se zeptá, zda otevřít");
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                widget.autoOpenReceived ? "Automaticky otevře přehrávač" : "Zeptá se: Otevřít? Ano/Ne",
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ),
           ),
           const Divider(height: 24),
           if (widget.concertMode) ...[
@@ -1085,10 +1190,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       ButtonSegment(value: 1, label: Text(AppStrings.concertZonesOnDemand), icon: Icon(Icons.pan_tool)),
                     ],
                     selected: {widget.concertZonesMode},
-                    onSelectionChanged: (s) {
+                    onSelectionChanged: (s) async {
                       final mode = s.first;
                       widget.onConcertZonesModeChanged(mode);
-                      _tts.speak(_zonesModeAnnouncement(mode));
+                      await _speak(_zonesModeAnnouncement(mode));
                     },
                   ),
                   const SizedBox(height: 4),
@@ -1104,10 +1209,23 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const Divider(height: 24),
             SwitchListTile(
-              title: const Text("Tréninkový režim zón"),
-              subtitle: const Text("Při dotyku ohlásí funkci zóny"),
+              title: Text(AppStrings.trainingModeTitle),
+              subtitle: Text(AppStrings.trainingModeSubtitle),
               value: widget.concertTrainingMode,
-              onChanged: widget.onConcertTrainingModeChanged,
+              onChanged: (v) async {
+                widget.onConcertTrainingModeChanged(v);
+                await _speak(AppStrings.trainingModeAnnouncement(v));
+              },
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Semantics(
+                liveRegion: true,
+                child: Text(
+                  AppStrings.trainingModeAnnouncement(widget.concertTrainingMode),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ),
             ),
             const Divider(height: 24),
             Padding(
@@ -1127,10 +1245,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       ButtonSegment(value: -1, label: Text(AppStrings.setlistDelayWait), icon: Icon(Icons.touch_app)),
                     ],
                     selected: {widget.setlistDelay},
-                    onSelectionChanged: (s) {
+                    onSelectionChanged: (s) async {
                       final d = s.first;
                       widget.onSetlistDelayChanged(d);
-                      _tts.speak(AppStrings.setlistDelayAnnouncement(d));
+                      await _speak(AppStrings.setlistDelayAnnouncement(d));
                     },
                   ),
                   const SizedBox(height: 4),
@@ -1147,21 +1265,38 @@ class _SettingsPageState extends State<SettingsPage> {
             const Divider(height: 24),
           ],
           SwitchListTile(
-            title: const Text("Neformální režim"),
-            subtitle: Text(widget.isInformalMode ? "Zapnuto" : "Vypnuto"),
+            title: Text(AppStrings.informalModeTitle),
+            subtitle: Text(_detailedSubtitles
+                ? AppStrings.informalModeSubtitle(widget.isInformalMode)
+                : (widget.isInformalMode ? AppStrings.informalModeSubtitleShortOn : AppStrings.informalModeSubtitleShortOff)),
+            secondary: Icon(widget.isInformalMode ? Icons.chat_bubble : Icons.chat_bubble_outline),
             value: widget.isInformalMode,
-            onChanged: widget.onInformalModeChanged,
+            onChanged: (v) async {
+              widget.onInformalModeChanged(v);
+              await _speak(AppStrings.informalModeAnnouncement(v));
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                AppStrings.informalModeAnnouncement(widget.isInformalMode),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ),
           ),
           ListTile(
             leading: const Icon(Icons.text_format),
-            title: const Text("Globální velikost písma"),
+            title: Text(AppStrings.globalFontSizeTitle),
+            subtitle: Text(AppStrings.globalFontSizeSubtitle(_globalFontSize.round())),
             onTap: _showGlobalFontSizeDialog,
           ),
           ListTile(
             leading: const Icon(Icons.palette),
-            title: const Text("Motiv aplikace"),
-            subtitle: Text("Aktuálně: ${widget.themeMode.name}"),
-            onTap: () {
+            title: Text(AppStrings.themeTitle),
+            subtitle: Text(AppStrings.themeSubtitle(widget.themeMode)),
+            onTap: () async {
               final nextMode = ThemeMode.values[(widget.themeMode.index + 1) % ThemeMode.values.length];
               widget.onThemeModeChanged(nextMode);
               
@@ -1174,12 +1309,66 @@ class _SettingsPageState extends State<SettingsPage> {
                   message = AppStrings.themeDark;
                   break;
                 case ThemeMode.system:
-                default:
                   message = AppStrings.themeSystem;
                   break;
               }
-              _tts.speak(message);
+              await _speak(message);
             },
+          ),
+          const Divider(height: 40),
+          ListTile(
+            leading: const Icon(Icons.accessibility_new),
+            title: Text(AppStrings.a11ySectionTitle),
+            subtitle: Text(AppStrings.a11ySectionSubtitle),
+          ),
+          SwitchListTile(
+            title: Text(AppStrings.enableVoiceTitle),
+            subtitle: Text(AppStrings.enableVoiceSubtitle),
+            secondary: Icon(_enableVoiceConfirmations ? Icons.record_voice_over : Icons.voice_over_off),
+            value: _enableVoiceConfirmations,
+            onChanged: (v) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('enableVoiceConfirmations', v);
+              if (mounted) setState(() => _enableVoiceConfirmations = v);
+              final a11y = WidgetsBinding.instance.accessibilityFeatures;
+              final mqA11y = MediaQuery.maybeOf(context)?.accessibleNavigation ?? false;
+              final isScreenReaderOn = a11y.accessibleNavigation || mqA11y;
+              if (isScreenReaderOn) return; // spolehnout se na liveRegion
+              // Přímé _tts aby bylo slyšet i při vypnutí (kdy _speak by už byl potlačen)
+              await _tts.speak(AppStrings.enableVoiceAnnouncement(v));
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                AppStrings.enableVoiceAnnouncement(_enableVoiceConfirmations),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ),
+          ),
+          SwitchListTile(
+            title: Text(AppStrings.detailedSubtitlesTitle),
+            subtitle: Text(AppStrings.detailedSubtitlesSubtitle),
+            secondary: Icon(_detailedSubtitles ? Icons.subject : Icons.short_text),
+            value: _detailedSubtitles,
+            onChanged: (v) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('detailedSubtitles', v);
+              if (mounted) setState(() => _detailedSubtitles = v);
+              await _speak(AppStrings.detailedSubtitlesAnnouncement(v));
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                AppStrings.detailedSubtitlesAnnouncement(_detailedSubtitles),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ),
           ),
           const Divider(height: 40),
           ListTile(

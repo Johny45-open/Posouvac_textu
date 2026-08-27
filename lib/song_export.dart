@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 
 import 'app_strings.dart';
 import 'chord_pro_parser.dart';
+import 'nearby_share_page.dart';
 
 /// Maximální délka textu, který se ještě spolehlivě vejde do QR kódu.
 const int maxQrContentLength = 1500;
@@ -82,31 +83,50 @@ String buildSongHtml({
 /// Balíček písně pro jinou instalaci aplikace Posouvač textu.
 /// Obsahuje název, interpreta a samotný text, takže ho příjemce
 /// (i bez internetu) naimportuje přímo do knihovny.
+/// v2 přidává tempo/scrollSpeed/fontSize/intro/duration/transpose/stopMarks.
 String buildSongPackageJson({
   required String title,
   required String artist,
   required String content,
+  double? tempo,
+  double? scrollSpeed,
+  double? fontSize,
+  double? introDuration,
+  int? duration,
+  int? transpose,
+  List<Map<String, dynamic>>? stopMarks,
+  int version = 2,
 }) {
-  return jsonEncode({
+  final map = <String, dynamic>{
     'type': 'song',
-    'version': 1,
+    'version': version,
     'title': title,
     'artist': artist,
     'content': content,
-  });
+  };
+  if (tempo != null) map['tempo'] = tempo;
+  if (scrollSpeed != null) map['scrollSpeed'] = scrollSpeed;
+  if (fontSize != null) map['fontSize'] = fontSize;
+  if (introDuration != null) map['introDuration'] = introDuration;
+  if (duration != null) map['duration'] = duration;
+  if (transpose != null) map['transpose'] = transpose;
+  if (stopMarks != null && stopMarks.isNotEmpty) map['stopMarks'] = stopMarks;
+  return jsonEncode(map);
 }
 
-/// Balíček setlistu – názvy, interpreti, časy, volitelně texty a zarážky (v3).
+/// Balíček setlistu – názvy, interpreti, časy, volitelně texty a zarážky (v4).
+/// v4 přidává per-song scrollSpeed/fontSize/introDuration/transpose/duration.
 String buildPlaylistPackageJson({
   required String name,
   required List<Map<String, dynamic>> songs,
   required int totalDuration,
   required int unknownCount,
   String? exportedAt,
+  int version = 4,
 }) {
   return jsonEncode({
     'type': 'playlist',
-    'version': 3,
+    'version': version,
     'name': name,
     'exportedAt': exportedAt ?? DateTime.now().toIso8601String(),
     'totalDuration': totalDuration,
@@ -187,6 +207,15 @@ Future<void> showSongShareDialog(
   required String title,
   required String artist,
   required String content,
+  double? tempo,
+  double? scrollSpeed,
+  double? fontSize,
+  double? introDuration,
+  int? duration,
+  int? transpose,
+  List<Map<String, dynamic>>? stopMarks,
+  int? songId,
+  dynamic db,
 }) async {
   final tts = FlutterTts();
   await tts.setLanguage("cs-CZ");
@@ -221,6 +250,14 @@ Future<void> showSongShareDialog(
             icon: Icons.apps,
           ),
         ),
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, 'nearby'),
+          child: _ShareOption(
+            title: AppStrings.shareNearbyLabel,
+            description: AppStrings.shareNearbyDescription,
+            icon: Icons.sensors,
+          ),
+        ),
       ],
     ),
   );
@@ -232,13 +269,29 @@ Future<void> showSongShareDialog(
       await _shareHtml(context, tts, title: title, artist: artist, content: content);
       break;
     case 'qr':
-      await _showQrDialog(context, tts, title: title, artist: artist, content: content);
+      await _showQrDialog(context, tts, title: title, artist: artist, content: content, tempo: tempo, scrollSpeed: scrollSpeed, fontSize: fontSize, introDuration: introDuration, duration: duration, transpose: transpose, stopMarks: stopMarks);
       break;
     case 'package':
-      await _sharePackage(context, tts, title: title, artist: artist, content: content);
+      await _sharePackage(context, tts, title: title, artist: artist, content: content, tempo: tempo, scrollSpeed: scrollSpeed, fontSize: fontSize, introDuration: introDuration, duration: duration, transpose: transpose, stopMarks: stopMarks);
+      break;
+    case 'nearby':
+      if (db != null) {
+        if (context.mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => NearbySharePage(db: db, songTitle: title, songArtist: artist, songContent: content, tempo: tempo, scrollSpeed: scrollSpeed, fontSize: fontSize, introDuration: introDuration, duration: duration, transpose: transpose, stopMarks: stopMarks),
+            ),
+          );
+        }
+      } else {
+        tts.speak(AppStrings.shareError);
+      }
       break;
   }
 }
+
+
 
 Future<void> _shareHtml(
   BuildContext context,
@@ -270,12 +323,19 @@ Future<void> _sharePackage(
   required String title,
   required String artist,
   required String content,
+  double? tempo,
+  double? scrollSpeed,
+  double? fontSize,
+  double? introDuration,
+  int? duration,
+  int? transpose,
+  List<Map<String, dynamic>>? stopMarks,
 }) async {
   try {
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/pisen_${_safeName(title)}.json');
     await file.writeAsString(
-      buildSongPackageJson(title: title, artist: artist, content: content),
+      buildSongPackageJson(title: title, artist: artist, content: content, tempo: tempo, scrollSpeed: scrollSpeed, fontSize: fontSize, introDuration: introDuration, duration: duration, transpose: transpose, stopMarks: stopMarks),
       encoding: utf8,
     );
     await Share.shareXFiles(
@@ -294,9 +354,16 @@ Future<void> _showQrDialog(
   required String title,
   required String artist,
   required String content,
+  double? tempo,
+  double? scrollSpeed,
+  double? fontSize,
+  double? introDuration,
+  int? duration,
+  int? transpose,
+  List<Map<String, dynamic>>? stopMarks,
 }) async {
   final packageJson =
-      buildSongPackageJson(title: title, artist: artist, content: content);
+      buildSongPackageJson(title: title, artist: artist, content: content, tempo: tempo, scrollSpeed: scrollSpeed, fontSize: fontSize, introDuration: introDuration, duration: duration, transpose: transpose, stopMarks: stopMarks);
   if (packageJson.length > maxQrContentLength) {
     tts.speak(AppStrings.shareQrTooLong);
     if (context.mounted) {
@@ -357,6 +424,8 @@ Future<void> showPlaylistShareDialog(
   required List<Map<String, dynamic>> songs,
   required int totalDuration,
   required int unknownCount,
+  dynamic db,
+  int? playlistId,
 }) async {
   final tts = FlutterTts();
   await tts.setLanguage("cs-CZ");
@@ -407,6 +476,14 @@ Future<void> showPlaylistShareDialog(
             icon: Icons.qr_code,
           ),
         ),
+        SimpleDialogOption(
+          onPressed: () => Navigator.pop(context, 'nearby'),
+          child: _ShareOption(
+            title: AppStrings.shareNearbyLabel,
+            description: AppStrings.shareNearbyDescription,
+            icon: Icons.sensors,
+          ),
+        ),
       ],
     ),
   );
@@ -429,6 +506,30 @@ Future<void> showPlaylistShareDialog(
     case 'qr':
       await _showPlaylistQrDialog(context, tts,
           playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount);
+      break;
+    case 'nearby':
+      if (db != null) {
+        if (context.mounted) {
+          // Ensure playlistId available – if not, try to resolve by name
+          int? resolvedId = playlistId;
+          if (resolvedId == null) {
+            try {
+              final pl = await db.getAllPlaylists();
+              for (final p in pl) {
+                if (p.name == playlistName) { resolvedId = p.id; break; }
+              }
+            } catch (_) {}
+          }
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => NearbySharePage(db: db, playlistId: resolvedId, playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount),
+            ),
+          );
+        }
+      } else {
+        tts.speak(AppStrings.shareError);
+      }
       break;
   }
 }

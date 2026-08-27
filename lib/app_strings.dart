@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 class AppStrings {
   static bool isInformal = false;
   static Map<String, String> _customStrings = {};
@@ -354,11 +356,28 @@ class AppStrings {
       ? "Balíček je připraven, vyber, kam ho pošleš."
       : "Balíček písně je připraven. Vyberte, kam jej chcete odeslat.";
 
+  static String get shareNearbyLabel => isInformal ? "Na zařízení v sále" : "Na zařízení v sále (Nearby)";
+  static String get shareNearbyDescription => isInformal
+      ? "Bez internetu, rovnou do aplikace. Příjemce potvrdí otevření."
+      : "Offline přenos přímo do aplikace. Příjemce potvrdí otevření (default Zeptat se).";
+
   static String get shareFileMissing => isInformal
       ? "Text souboru se nepodařilo načíst."
       : "Text písně se nepodařilo načíst.";
   static String get shareError =>
       isInformal ? "Tohle sdílení se nepovedlo." : "Sdílení se nezdařilo.";
+
+  // Nearby
+  static String get nearbySearching => isInformal ? "Hledám zařízení v sále..." : "Hledám zařízení v okolí...";
+  static String get nearbyInstruction => isInformal ? "Oba telefony mějte s otevřenou aplikací a povoleným Bluetooth." : "Obě zařízení musí mít otevřenou aplikaci a povolené Bluetooth / Wi-Fi.";
+  static String get nearbyNoDevices => isInformal ? "Zatím nikoho nevidím. Zkus hledat znovu." : "Zatím nebylo nalezeno žádné zařízení.";
+  static String get nearbyUnavailable => isInformal ? "Nearby není dostupné, použij Balíček." : "Nearby není dostupné na tomto zařízení. Použijte prosím balíček.";
+  static String get nearbySending => isInformal ? "Posílám..." : "Odesílám...";
+  static String get nearbySent => isInformal ? "Hotovo, odesláno!" : "Odesláno.";
+  static String get nearbySendError => isInformal ? "Odeslání se nepovedlo." : "Odeslání se nezdařilo.";
+  static String get nearbyReceivedTitle => isInformal ? "Přijato" : "Přijato";
+  static String nearbyReceivedSong(String title) => isInformal ? "Přijata píseň $title" : "Přijata píseň $title";
+  static String nearbyReceivedPlaylist(String name, int count) => isInformal ? "Přijat setlist $name, $count písní" : "Přijat setlist $name, $count písní";
 
   static String songImportSuccess(String title) => isInformal
       ? "Píseň $title je v knihovně!"
@@ -584,6 +603,50 @@ class AppStrings {
       ? "Nastaveno $bpm BPM"
       : "Nastaveno $bpm BPM";
   static String get scrollStopped => isInformal ? "Stavím to!" : "Posuv zastaven";
+
+  // --- NASTAVENÍ: INFORMÁLNÍ REŽIM + PŘÍSTUPNOST ---
+  static String get informalModeTitle => "Neformální režim";
+  static String informalModeSubtitle(bool on) => on
+      ? (isInformal ? "Zapnuto – tykáme si. Mění oslovení v celé aplikaci" : "Zapnuto – tykání. Mění oslovení v celé aplikaci")
+      : (isInformal ? "Vypnuto – vykáme si. Mění oslovení v celé aplikaci" : "Vypnuto – vykání. Mění oslovení v celé aplikaci");
+  static String get informalModeSubtitleShortOn => isInformal ? "Zapnuto – tykáme si" : "Zapnuto – tykání";
+  static String get informalModeSubtitleShortOff => isInformal ? "Vypnuto – vykáme si" : "Vypnuto – vykání";
+  static String informalModeAnnouncement(bool v) => v
+      ? (isInformal ? "Neformální režim zapnut, tykáme si" : "Neformální režim zapnut")
+      : (isInformal ? "Neformální režim vypnut, vykáme si" : "Neformální režim vypnut");
+
+  static String get trainingModeTitle => "Tréninkový režim zón";
+  static String get trainingModeSubtitle => isInformal ? "Při dotyku ohlásí funkci zóny" : "Při dotyku ohlásí funkci zóny";
+  static String trainingModeAnnouncement(bool v) => v
+      ? (isInformal ? "Trénink zón zapnut" : "Tréninkový režim zón zapnut")
+      : (isInformal ? "Trénink zón vypnut" : "Tréninkový režim zón vypnut");
+
+  static String get a11ySectionTitle => isInformal ? "Hlas a přístupnost" : "Hlas a přístupnost";
+  static String get a11ySectionSubtitle => isInformal ? "Co se má namlouvat a jak podrobně" : "Nastavení hlasových potvrzení a podrobnosti popisků";
+  static String get enableVoiceTitle => isInformal ? "Hlasové potvrzení změn" : "Hlasová potvrzení změn";
+  static String get enableVoiceSubtitle => isInformal ? "Povídá co se přepnulo, když není TalkBack" : "Namluvené potvrzení při změně nastavení, potlačeno při TalkBacku";
+  static String enableVoiceAnnouncement(bool v) => v
+      ? (isInformal ? "Hlasové potvrzení zapnuto" : "Hlasová potvrzení zapnuta")
+      : (isInformal ? "Hlasové potvrzení vypnuto" : "Hlasová potvrzení vypnuta");
+  static String get detailedSubtitlesTitle => isInformal ? "Podrobné popisky" : "Podrobné popisky";
+  static String get detailedSubtitlesSubtitle => isInformal ? "Pod přepínači ukáže i vysvětlení" : "Pod přepínači zobrazit i vysvětlení funkce";
+  static String detailedSubtitlesAnnouncement(bool v) => v
+      ? (isInformal ? "Podrobné popisky zapnuty" : "Podrobné popisky zapnuty")
+      : (isInformal ? "Podrobné popisky vypnuty" : "Podrobné popisky vypnuty");
+
+  static String get globalFontSizeTitle => "Globální velikost písma";
+  static String globalFontSizeSubtitle(int size) => isInformal ? "$size bodů – klepnutím změnit" : "$size bodů – klepnutím změnit";
+  static String get themeTitle => "Motiv aplikace";
+  static String themeSubtitle(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return isInformal ? "Světlý – budiž světlo" : "Světlý";
+      case ThemeMode.dark:
+        return isInformal ? "Tmavý – tma je tu" : "Tmavý";
+      case ThemeMode.system:
+        return isInformal ? "Podle systému" : "Podle systému";
+    }
+  }
 
   // --- VÝVOJÁŘSKÝ REŽIM ---
   static String get devModeOnAnnouncement => isInformal ? "Vývojářskej režim je vzhůru!" : "Vývojářský režim zapnut";

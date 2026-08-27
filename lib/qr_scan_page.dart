@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app_strings.dart';
 import 'database.dart';
 import 'dev_log.dart';
+import 'player_page.dart';
 
 /// Skener QR kódů pro offline import písní do knihovny.
 /// Rozpozná balíček písně, playlist i obyčejný text a uloží ho do knihovny.
@@ -70,8 +71,6 @@ class _QrScanPageState extends State<QrScanPage> {
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException();
       }
-
-      // Balíček písně {type: 'song', title, artist, content}
       if (decoded['type'] == 'song') {
         final title = (decoded['title'] as String?)?.trim() ?? '';
         final artist = (decoded['artist'] as String?)?.trim() ?? '';
@@ -79,39 +78,113 @@ class _QrScanPageState extends State<QrScanPage> {
         if (title.isEmpty || content.isEmpty) {
           throw const FormatException();
         }
-        final added = await widget.db.importSongPackage(
-          title: title,
-          artist: artist.isNotEmpty ? artist : 'Neznámý interpret',
-          content: content,
-        );
-        _announce(added
-            ? AppStrings.songImportSuccess(title)
-            : AppStrings.songImportExists(title));
+        double? tempo = decoded['tempo'] is num ? (decoded['tempo'] as num).toDouble() : double.tryParse(decoded['tempo']?.toString() ?? '');
+        double? scrollSpeed = decoded['scrollSpeed'] is num ? (decoded['scrollSpeed'] as num).toDouble() : double.tryParse(decoded['scrollSpeed']?.toString() ?? '');
+        double? fontSize = decoded['fontSize'] is num ? (decoded['fontSize'] as num).toDouble() : double.tryParse(decoded['fontSize']?.toString() ?? '');
+        double? introDuration = decoded['introDuration'] is num ? (decoded['introDuration'] as num).toDouble() : double.tryParse(decoded['introDuration']?.toString() ?? '');
+        int? duration = decoded['duration'] is int ? decoded['duration'] as int : int.tryParse(decoded['duration']?.toString() ?? '');
+        List<Map<String,dynamic>>? stopMarks;
+        if (decoded['stopMarks'] is List) {
+          stopMarks = [];
+          for (final m in (decoded['stopMarks'] as List)) {
+            if (m is! Map) continue;
+            final mm = Map<String,dynamic>.from(m as Map);
+            int? bars = mm['bars'] is int ? mm['bars'] as int : int.tryParse(mm['bars']?.toString() ?? '2') ?? 2;
+            stopMarks.add({'bars': bars, 'lineText': mm['lineText']?.toString() ?? '', 'lineIndex': mm['lineIndex']});
+          }
+        }
+        final songId = await widget.db.importOrUpdateSongPackage(title: title, artist: artist.isNotEmpty ? artist : 'Neznámý interpret', content: content, tempo: tempo, scrollSpeed: scrollSpeed, fontSize: fontSize, introDuration: introDuration, duration: duration, stopMarksParam: stopMarks);
+        if (songId != null) {
+          _announce(AppStrings.songImportSuccess(title));
+          final prefs = await SharedPreferences.getInstance();
+          final auto = prefs.getBool('autoOpenReceived') ?? false;
+          if (auto) {
+            await _openSong(songId);
+          } else {
+            final open = await _askOpenSong(title, artist);
+            if (open == true) await _openSong(songId);
+          }
+        } else {
+          _announce(AppStrings.songImportExists(title));
+        }
         return true;
       }
-
-      // Playlist {name, songs} – v2 i starý formát
       if (decoded.containsKey('name') && decoded.containsKey('songs')) {
         final result = await widget.db.syncPlaylistFromJson(decoded);
         final hasTime = result.totalDurationShared > 0 || result.unknownShared > 0;
         final timeText = hasTime ? _formatImportTime(result.totalDurationShared, result.unknownShared) : null;
         final baseMessage = result.notFound.isEmpty
             ? AppStrings.playlistImportSuccess(result.playlistName, result.matchedCount)
-            : '${AppStrings.playlistImportSuccess(result.playlistName, result.matchedCount)} '
-                '${AppStrings.playlistImportMissing(result.notFound.length)}';
+            : '${AppStrings.playlistImportSuccess(result.playlistName, result.matchedCount)} ${AppStrings.playlistImportMissing(result.notFound.length)}';
         final message = timeText != null ? '$baseMessage $timeText' : baseMessage;
         _announce(message);
         if (result.durationCandidates.isNotEmpty || result.diacriticCandidates.isNotEmpty) {
           await _showFixDialog(result);
         }
+        try {
+          final pls = await widget.db.getAllPlaylists();
+          int? pid;
+          for (final p in pls) if (p.name == result.playlistName) { pid = p.id; break; }
+          if (pid != null) {
+            final ids = await widget.db.getPlaylistSongIds(pid);
+            if (ids.isNotEmpty) {
+              final prefs = await SharedPreferences.getInstance();
+              final auto = prefs.getBool('autoOpenReceived') ?? false;
+              if (auto) {
+                await _openPlaylistSong(ids.first, ids, pid);
+              } else {
+                final open = await _askOpenPlaylist(result.playlistName, ids.length);
+                if (open == true) await _openPlaylistSong(ids.first, ids, pid);
+              }
+            }
+          }
+        } catch (_) {}
         return true;
       }
-
       throw const FormatException();
     } catch (_) {
-      // Není to JSON balíček - starší QR kódy obsahují jen samotný text.
       return _confirmPlainTextImport(raw);
     }
+  }
+
+  Future<bool?> _askOpenSong(String title, String artist) async {
+    if (!mounted) return false;
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Semantics(header: true, child: const Text("Přijata píseň")),
+        content: Semantics(liveRegion: true, child: Text("$title ${artist.isNotEmpty ? 'od $artist' : ''}\nOtevřít v přehrávači?")),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Ne")),
+          FilledButton(autofocus: true, onPressed: () => Navigator.pop(context, true), child: const Text("Ano, otevřít")),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _askOpenPlaylist(String name, int count) async {
+    if (!mounted) return false;
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Semantics(header: true, child: Text("Přijat setlist $name")),
+        content: Semantics(liveRegion: true, child: Text("$count písní. Otevřít první píseň?")),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Ne")),
+          FilledButton(autofocus: true, onPressed: () => Navigator.pop(context, true), child: const Text("Ano, otevřít")),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openSong(int songId) async {
+    if (!mounted) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerPage(songId: songId, db: widget.db)));
+  }
+
+  Future<void> _openPlaylistSong(int songId, List<int> ids, int pid) async {
+    if (!mounted) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerPage(songId: songId, db: widget.db, setlistIds: ids, playlistId: pid)));
   }
 
   Future<bool> _confirmPlainTextImport(String rawText) async {

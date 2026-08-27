@@ -1205,15 +1205,25 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           IconButton(
             icon: const Icon(Icons.ios_share),
             tooltip: AppStrings.shareButtonLabel,
-            onPressed: () {
+            onPressed: () async {
               final song = _song;
               final content = _loadedContent;
               if (song == null || content == null) return;
+              final marks = await widget.db.getStopMarksForSong(song.id);
+              final stopMaps = marks.map((m) => {'lineText': m.lineText, 'lineIndex': m.lineIndex, 'bars': m.durationBars}).toList();
               showSongShareDialog(
                 context,
                 title: song.title,
                 artist: song.artist,
                 content: content,
+                tempo: _bpm,
+                scrollSpeed: _scrollMultiplier,
+                fontSize: _fontSize,
+                introDuration: _introDuration,
+                duration: song.duration,
+                transpose: _transpose,
+                stopMarks: stopMaps,
+                db: widget.db,
               );
             },
           ),
