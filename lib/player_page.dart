@@ -54,6 +54,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   int _setlistDelay = 5; // 3,5,10 nebo -1 = čekat na stisk (C2)
   bool _setlistAutoPending = false;
   bool _setlistCancelled = false;
+  int _previewLineCount = 2; // 2 nebo 3, platí i pro automatiku
+  bool _filterSectionLabels = true;
+  bool _enableMetronome = true;
   
   SongEntry? _song;
   bool _isLoading = true;
@@ -219,7 +222,20 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
 
   void _startWithCountdown() async {
     setState(() => _isScrolling = true);
-    HapticFeedback.vibrate(); 
+    HapticFeedback.vibrate();
+
+    if (_enableMetronome && (_bpm ?? 120) > 0) {
+      final bpm = _effectiveBpm();
+      final intervalMs = (60000 / bpm).clamp(200, 1000).round();
+      // Krátký metronom před odpočtem (4 údery) — slyšitelný i bez sluchátek
+      for (int k = 0; k < 4; k++) {
+        if (!mounted || !_isScrolling) break;
+        SystemSound.play(SystemSoundType.click);
+        HapticFeedback.lightImpact();
+        await Future.delayed(Duration(milliseconds: intervalMs));
+      }
+      if (!mounted || !_isScrolling) return;
+    }
     
     if (_introDuration != null && _introDuration! > 0) {
       _tts.speak(AppStrings.introMessage(_introDuration!.round()));
@@ -232,13 +248,15 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       if (!mounted || !_isScrolling) return;
       setState(() => _countdown = i);
       _tts.speak("$i");
-      HapticFeedback.vibrate(); 
+      HapticFeedback.vibrate();
+      if (_enableMetronome) SystemSound.play(SystemSoundType.click);
       await Future.delayed(const Duration(seconds: 1));
     }
 
     if (!mounted || !_isScrolling) return;
     setState(() => _countdown = 0);
-    HapticFeedback.vibrate(); 
+    HapticFeedback.vibrate();
+    if (_enableMetronome) SystemSound.play(SystemSoundType.click);
     
     debugPrint("Countdown finished, calling _startScrolling");
     _startScrolling();
@@ -290,12 +308,18 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       final training = prefs.getBool('concertTrainingMode') ?? false;
       final zonesMode = prefs.getInt('concertZonesMode') ?? 0;
       final delay = prefs.getInt('setlistDelay') ?? 5;
+      final previewCount = prefs.getInt('previewLineCount') ?? 2;
+      final filter = prefs.getBool('filterSectionLabels') ?? true;
+      final metronome = prefs.getBool('enableMetronome') ?? true;
       setState(() {
         _concertMode = mode;
         _concertPreviewMode = preview;
         _concertTrainingMode = training;
         _concertZonesMode = zonesMode;
         _setlistDelay = delay;
+        _previewLineCount = (previewCount == 3) ? 3 : 2;
+        _filterSectionLabels = filter;
+        _enableMetronome = metronome;
         // Zóny "na požádání" začínají při každé písni vypnuté
         _zonesArmed = false;
       });
@@ -306,6 +330,17 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    // Přečíst kde jsem je trvale dostupné i mimo koncertní režim (po akci uživatele)
+    // HW šipka dolů / numpad5 funguje vždy pokud není posuv v odpočtu
+    if (event is KeyDownEvent &&
+        (event.logicalKey == LogicalKeyboardKey.arrowDown ||
+            event.logicalKey == LogicalKeyboardKey.numpad5)) {
+      if (_countdown == 0) {
+        HapticFeedback.vibrate();
+        _announceNextLine(isAutomatic: false);
+        return KeyEventResult.handled;
+      }
+    }
     final handled = _concertService.handleKeyEvent(
       event,
       concertMode: _concertMode,
@@ -319,27 +354,33 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   }
 
   Future<void> _announceNextLine({required bool isAutomatic}) async {
-    if (!_concertMode || _concertPreviewMode == 0) return;
+    // Trvale dostupné po akci uživatele — ne po otevření. Mimo koncertní funguje onDemand vždy.
+    // Vypnuto jen pokud uživatel explicitně zvolil 0.
+    if (_concertPreviewMode == 0 && isAutomatic) return;
     if (isAutomatic && _concertPreviewMode != 2) return;
-    if (!isAutomatic && _concertPreviewMode == 0) return;
     // Nepřekrývat odpočet a pauzu
     if (_countdown > 0) return;
 
     final int? startOverride = isAutomatic ? null : _manualPreviewCursor;
-    final int? announcedIndex = await _concertService.announceNextLine(
+    final int count = _previewLineCount.clamp(2, 3);
+    final int? announcedIndex = await _concertService.announceNextLines(
       loadedContent: _loadedContent,
       topVisibleLineIndex: _topVisibleLineIndex(),
       lineOffsets: _lineOffsets,
       isAutomatic: isAutomatic,
       startIndexOverride: startOverride,
+      count: count,
+      filterSectionLabels: _filterSectionLabels,
+      filterChordsOnly: true,
     );
     if (!mounted || isAutomatic) return;
-    // Ruční režim: kurzor postoupí na další řádek; po konci textu se nuluje
+    // Ruční režim: kurzor postoupí za poslední ohlášený řádek; po konci textu se nuluje
     setState(() => _manualPreviewCursor = announcedIndex == null ? null : announcedIndex + 1);
   }
 
   void _checkAutoNextLine() {
-    if (!_concertMode || _concertPreviewMode != 2 || !_isScrolling) return;
+    // Automatický náhled platí i mimo koncertní pokud je režim Auto (2) a count 2/3
+    if (_concertPreviewMode != 2 || !_isScrolling) return;
     if (_countdown > 0) return;
     final topIdx = _topVisibleLineIndex();
     if (topIdx == null) return;
@@ -1189,12 +1230,11 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
             children: [
               Semantics(
                 label: _concertMode
-                    ? "Koncertní režim: levá zpomalit, střed spustit/zastavit, pravá zrychlit. Dvojitým poklepáním další řádek."
-                    : "Klepnutím spustíte nebo zastavíte automatický posuv textu",
-                button: true,
+                    ? "Koncertní režim: levá zpomalit, střed spustit/zastavit, pravá zrychlit. Dvojitým poklepáním ohlásíte $_previewLineCount řádky."
+                    : "Text písně. Tlačítko Spustit posuv spustí metronom a odpočet. Tlačítko Přečíst kde jsem ohlásí $_previewLineCount řádky bez názvů slok.",
                 child: GestureDetector(
                   onTap: _concertMode ? null : _toggleScrolling,
-                  onDoubleTap: _concertMode ? () => _announceNextLine(isAutomatic: false) : null,
+                  onDoubleTap: () => _announceNextLine(isAutomatic: false),
                   behavior: HitTestBehavior.opaque,
                   child: SingleChildScrollView(
                   controller: _scrollController,
@@ -1376,18 +1416,18 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                 ),
               ),
             ),
-          // Tlačítko náhled dalšího řádku v koncertním režimu
-          if (_concertMode && _concertPreviewMode != 0)
+          // Tlačítko náhled dalšího řádku — trvale po akci uživatele (2-3 řádky, filtrované)
+          if (!_isLoading)
             Padding(
               padding: const EdgeInsets.only(right: 12),
               child: Semantics(
-                label: AppStrings.concertZoneNextLineSemantics,
-                hint: AppStrings.nextLineGestureHint,
+                label: AppStrings.readCurrentPositionLabel,
+                hint: AppStrings.readCurrentPositionHint,
                 button: true,
                 child: FloatingActionButton.small(
                   heroTag: 'nextLineFAB',
                   onPressed: () => _announceNextLine(isAutomatic: false),
-                  tooltip: AppStrings.concertZoneNextLineSemantics,
+                  tooltip: AppStrings.readCurrentPositionLabel,
                   child: const Icon(Icons.hearing),
                 ),
               ),

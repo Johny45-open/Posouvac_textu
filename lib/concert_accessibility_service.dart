@@ -89,6 +89,34 @@ class ConcertAccessibilityService {
     return false;
   }
 
+  static final RegExp _sectionLabelReg = RegExp(
+    r'^\s*(sloka\s*\d*|refr[eé]n|chorus|verse\s*\d*|bridge|s[oó]lo|mezihra|předehra|dohr[áa]vka|intro|outro|capo\s*\d*.*)\s*[:\-]?\s*$',
+    caseSensitive: false,
+  );
+
+  bool _isFilteredLine(List<ChordProElement> line, {required bool filterSectionLabels, required bool filterChordsOnly}) {
+    final raw = ChordProParser.lineText(line);
+    final trimmed = raw.trim();
+    if (filterSectionLabels && _sectionLabelReg.hasMatch(trimmed)) return true;
+    if (line.any((e) => e.type == ElementType.comment)) return true;
+    if (line.any((e) => e.type == ElementType.stopMark)) return true;
+    final hasText = line.any((e) => e.type == ElementType.text && e.content.trim().isNotEmpty);
+    final hasChord = line.any((e) => e.type == ElementType.chord);
+    if (filterChordsOnly && hasChord && !hasText) return true;
+    if (!hasText && trimmed.isEmpty) return true;
+    // Prázdný text po ořezu (např. jen "[C]") už pokryt výše, ale jistota:
+    if (trimmed.isEmpty) return true;
+    return false;
+  }
+
+  String _announcementForLine(List<ChordProElement> line) {
+    final text = ChordProParser.lineText(line);
+    final chords = line.where((e) => e.type == ElementType.chord).map((e) => e.content).join(' ');
+    if (chords.isNotEmpty && text.isNotEmpty) return '$chords, $text';
+    if (chords.isNotEmpty) return chords;
+    return text;
+  }
+
   /// Sestaví text pro TTS náhled dalšího řádku.
   /// Vrací text a skutečný index ohlášeného řádku, null pokud není co hlásit.
   /// [startIndexOverride] umožňuje ručnímu režimu postupovat kurzorem po řádcích.
@@ -97,6 +125,32 @@ class ConcertAccessibilityService {
     required int? topVisibleLineIndex,
     required Map<int, double> lineOffsets,
     int? startIndexOverride,
+    bool filterSectionLabels = true,
+    bool filterChordsOnly = true,
+  }) {
+    final res = buildNextLinesAnnouncement(
+      loadedContent: loadedContent,
+      topVisibleLineIndex: topVisibleLineIndex,
+      lineOffsets: lineOffsets,
+      startIndexOverride: startIndexOverride,
+      count: 1,
+      filterSectionLabels: filterSectionLabels,
+      filterChordsOnly: filterChordsOnly,
+    );
+    if (res == null) return null;
+    return (text: res.texts.first, index: res.indices.first);
+  }
+
+  /// Sestaví 2-3 filtrované řádky pro náhled.
+  /// Vrací null pokud není co hlásit.
+  ({List<String> texts, List<int> indices, int lastIndex})? buildNextLinesAnnouncement({
+    required String? loadedContent,
+    required int? topVisibleLineIndex,
+    required Map<int, double> lineOffsets,
+    int? startIndexOverride,
+    int count = 2,
+    bool filterSectionLabels = true,
+    bool filterChordsOnly = true,
   }) {
     if (loadedContent == null || loadedContent.isEmpty) return null;
     final lines = ChordProParser.orderedLines(loadedContent);
@@ -112,56 +166,28 @@ class ConcertAccessibilityService {
     }
 
     if (nextIndex >= lines.length) return null;
-    // Přeskočit prázdné / stopMark řádky
-    while (nextIndex < lines.length) {
+
+    final texts = <String>[];
+    final indices = <int>[];
+
+    while (nextIndex < lines.length && texts.length < count) {
       final line = lines[nextIndex];
-      final hasRealContent = line.any((e) => e.type == ElementType.text && e.content.trim().isNotEmpty);
-      if (hasRealContent) break;
-      if (line.any((e) => e.type == ElementType.stopMark)) {
+      if (_isFilteredLine(line, filterSectionLabels: filterSectionLabels, filterChordsOnly: filterChordsOnly)) {
         nextIndex++;
         continue;
       }
-      final txt = ChordProParser.lineText(line);
-      if (txt.isNotEmpty) break;
+      final announcement = _announcementForLine(line).trim();
+      if (announcement.isEmpty) {
+        nextIndex++;
+        continue;
+      }
+      texts.add(announcement);
+      indices.add(nextIndex);
       nextIndex++;
     }
-    if (nextIndex >= lines.length) return null;
 
-    final line = lines[nextIndex];
-    final text = ChordProParser.lineText(line);
-    final chords = line.where((e) => e.type == ElementType.chord).map((e) => e.content).join(' ');
-
-    if (text.isEmpty && chords.isEmpty) return null;
-
-    // Sekce (Refrén apod.) - najít sekci obsahující nextIndex
-    String? sectionTitle;
-    final sections = ChordProParser.parse(loadedContent);
-    int cursor = 0;
-    for (final s in sections) {
-      final len = s.lines.length;
-      if (nextIndex >= cursor && nextIndex < cursor + len) {
-        sectionTitle = s.title;
-        break;
-      }
-      cursor += len;
-    }
-
-    String announcement;
-    if (chords.isNotEmpty && text.isNotEmpty) {
-      announcement = '$chords, $text';
-    } else if (chords.isNotEmpty) {
-      announcement = chords;
-    } else {
-      announcement = text;
-    }
-
-    if (sectionTitle != null && sectionTitle.isNotEmpty && sectionTitle != 'Refrén') {
-      // Refrén je implicitní, nezahlcujeme
-    }
-
-    final trimmed = announcement.trim();
-    if (trimmed.isEmpty) return null;
-    return (text: trimmed, index: nextIndex);
+    if (texts.isEmpty) return null;
+    return (texts: texts, indices: indices, lastIndex: indices.last);
   }
 
   /// Zavolá TTS pro další řádek, s haptikou a ochranou proti duplicitám v auto režimu.
@@ -172,12 +198,16 @@ class ConcertAccessibilityService {
     required Map<int, double> lineOffsets,
     required bool isAutomatic,
     int? startIndexOverride,
+    bool filterSectionLabels = true,
+    bool filterChordsOnly = true,
   }) async {
     final result = buildNextLineAnnouncement(
       loadedContent: loadedContent,
       topVisibleLineIndex: topVisibleLineIndex,
       lineOffsets: lineOffsets,
       startIndexOverride: startIndexOverride,
+      filterSectionLabels: filterSectionLabels,
+      filterChordsOnly: filterChordsOnly,
     );
     if (result == null) {
       await tts.stop();
@@ -195,6 +225,43 @@ class ConcertAccessibilityService {
     HapticFeedback.vibrate();
     await tts.speak(AppStrings.nextLineAnnouncement(result.text));
     return result.index;
+  }
+
+  /// Ohlásí 2-3 řádky najednou (ruční i automatický náhled).
+  /// Vrací lastIndex nebo null.
+  Future<int?> announceNextLines({
+    required String? loadedContent,
+    required int? topVisibleLineIndex,
+    required Map<int, double> lineOffsets,
+    required bool isAutomatic,
+    int? startIndexOverride,
+    int count = 2,
+    bool filterSectionLabels = true,
+    bool filterChordsOnly = true,
+  }) async {
+    final result = buildNextLinesAnnouncement(
+      loadedContent: loadedContent,
+      topVisibleLineIndex: topVisibleLineIndex,
+      lineOffsets: lineOffsets,
+      startIndexOverride: startIndexOverride,
+      count: count,
+      filterSectionLabels: filterSectionLabels,
+      filterChordsOnly: filterChordsOnly,
+    );
+    if (result == null) {
+      await tts.stop();
+      await tts.speak(AppStrings.nextLineEmpty);
+      HapticFeedback.mediumImpact();
+      return null;
+    }
+
+    if (isAutomatic && result.lastIndex == _lastAnnouncedIndex) return result.lastIndex;
+    if (isAutomatic) _lastAnnouncedIndex = result.lastIndex;
+
+    await tts.stop();
+    HapticFeedback.vibrate();
+    await tts.speak(AppStrings.nextLinesAnnouncement(result.texts));
+    return result.lastIndex;
   }
 
   /// Pro automatiku: zkontroluj zda se blíží další řádek (časově).

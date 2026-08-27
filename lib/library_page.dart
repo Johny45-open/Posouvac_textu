@@ -43,6 +43,12 @@ class LibraryPage extends StatefulWidget {
   final ValueChanged<int> onConcertZonesModeChanged;
   final int setlistDelay;
   final ValueChanged<int> onSetlistDelayChanged;
+  final int previewLineCount;
+  final ValueChanged<int> onPreviewLineCountChanged;
+  final bool filterSectionLabels;
+  final ValueChanged<bool> onFilterSectionLabelsChanged;
+  final bool enableMetronome;
+  final ValueChanged<bool> onEnableMetronomeChanged;
 
   const LibraryPage({
     super.key,
@@ -62,6 +68,12 @@ class LibraryPage extends StatefulWidget {
     required this.onConcertZonesModeChanged,
     required this.setlistDelay,
     required this.onSetlistDelayChanged,
+    required this.previewLineCount,
+    required this.onPreviewLineCountChanged,
+    required this.filterSectionLabels,
+    required this.onFilterSectionLabelsChanged,
+    required this.enableMetronome,
+    required this.onEnableMetronomeChanged,
   });
 
   @override
@@ -700,6 +712,12 @@ class _LibraryPageState extends State<LibraryPage> {
                       onConcertZonesModeChanged: widget.onConcertZonesModeChanged,
                       setlistDelay: widget.setlistDelay,
                       onSetlistDelayChanged: widget.onSetlistDelayChanged,
+                      previewLineCount: widget.previewLineCount,
+                      onPreviewLineCountChanged: widget.onPreviewLineCountChanged,
+                      filterSectionLabels: widget.filterSectionLabels,
+                      onFilterSectionLabelsChanged: widget.onFilterSectionLabelsChanged,
+                      enableMetronome: widget.enableMetronome,
+                      onEnableMetronomeChanged: widget.onEnableMetronomeChanged,
                       devModeUnlocked: _devModeUnlocked,
                       onDevModeChanged: (v) => setState(() => _devModeUnlocked = v),
                     ),

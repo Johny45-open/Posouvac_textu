@@ -155,6 +155,9 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   late bool _concertTrainingMode;
   late int _concertZonesMode; // 0=vždy aktivní, 1=na požádání
   late int _setlistDelay; // 3,5,10,-1
+  late int _previewLineCount; // 2/3
+  late bool _filterSectionLabels;
+  late bool _enableMetronome;
   Locale? _locale;
   bool _showManual = false;
 
@@ -174,6 +177,9 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     _concertTrainingMode = widget.prefs.getBool('concertTrainingMode') ?? false;
     _concertZonesMode = widget.prefs.getInt('concertZonesMode') ?? 0;
     _setlistDelay = widget.prefs.getInt('setlistDelay') ?? 5;
+    _previewLineCount = widget.prefs.getInt('previewLineCount') ?? 2;
+    _filterSectionLabels = widget.prefs.getBool('filterSectionLabels') ?? true;
+    _enableMetronome = widget.prefs.getBool('enableMetronome') ?? true;
     
     final langCode = widget.prefs.getString('languageCode');
     if (langCode != null) _locale = Locale(langCode);
@@ -260,6 +266,22 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     await widget.prefs.setInt('setlistDelay', delay);
   }
 
+  Future<void> _updatePreviewLineCount(int count) async {
+    final v = (count == 3) ? 3 : 2;
+    setState(() => _previewLineCount = v);
+    await widget.prefs.setInt('previewLineCount', v);
+  }
+
+  Future<void> _updateFilterSectionLabels(bool v) async {
+    setState(() => _filterSectionLabels = v);
+    await widget.prefs.setBool('filterSectionLabels', v);
+  }
+
+  Future<void> _updateEnableMetronome(bool v) async {
+    setState(() => _enableMetronome = v);
+    await widget.prefs.setBool('enableMetronome', v);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -302,6 +324,12 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
               onConcertZonesModeChanged: _updateConcertZonesMode,
               setlistDelay: _setlistDelay,
               onSetlistDelayChanged: _updateSetlistDelay,
+              previewLineCount: _previewLineCount,
+              onPreviewLineCountChanged: _updatePreviewLineCount,
+              filterSectionLabels: _filterSectionLabels,
+              onFilterSectionLabelsChanged: _updateFilterSectionLabels,
+              enableMetronome: _enableMetronome,
+              onEnableMetronomeChanged: _updateEnableMetronome,
             ),
     );
   }

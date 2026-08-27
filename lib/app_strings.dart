@@ -531,6 +531,9 @@ class AppStrings {
 
   // --- NÁHLED DALŠÍHO ŘÁDKU ---
   static String nextLineAnnouncement(String text) => isInformal ? "Další: $text" : "Další: $text";
+  static String nextLinesAnnouncement(List<String> lines) => isInformal
+      ? "Další: ${lines.join(", ")}"
+      : "Další: ${lines.join(", ")}";
   static String nextLineWithChords(String chords, String text) => isInformal
       ? "Další: $chords, $text"
       : "Další: $chords, $text";
@@ -543,6 +546,34 @@ class AppStrings {
   static String get concertZoneCenterSemantics => isInformal ? "Spustit nebo zastavit posuv, střed" : "Spustit nebo zastavit posuv";
   static String get concertZoneRightSemantics => isInformal ? "Zrychlit o 5 BPM, pravá třetina" : "Zrychlit o 5 BPM";
   static String get concertZoneNextLineSemantics => isInformal ? "Ohlásit další řádek" : "Ohlásit další řádek";
+  static String get readCurrentPositionLabel => isInformal ? "Přečíst kde jsem" : "Přečíst kde jsem";
+  static String get readCurrentPositionHint => isInformal
+      ? "Ohlásí následující 2 až 3 řádky bez názvů slok"
+      : "Ohlásí následující 2 až 3 řádky bez názvů slok";
+  static String previewCountAnnouncement(int n) => isInformal
+      ? "Náhled $n řádky"
+      : "Náhled $n řádky";
+  static String filterSectionAnnouncement(bool v) => v
+      ? (isInformal ? "Filtrování slok zapnuto" : "Filtrování názvů slok zapnuto")
+      : (isInformal ? "Filtrování slok vypnuto" : "Filtrování názvů slok vypnuto");
+  static String metronomeAnnouncement(bool v) => v
+      ? (isInformal ? "Metronom zapnut" : "Metronom zapnut")
+      : (isInformal ? "Metronom vypnut" : "Metronom vypnut");
+  static String get previewSectionTitle => isInformal ? "Orientace a náhled" : "Orientace a náhled";
+  static String get previewSectionSubtitle => isInformal
+      ? "Kolik řádků ohlásit a co přeskočit"
+      : "Kolik řádků ohlásit a co přeskočit";
+  static String get previewLineCountTitle => isInformal ? "Počet ohlašovaných řádků" : "Počet ohlašovaných řádků";
+  static String get previewLineCount2 => "2 řádky";
+  static String get previewLineCount3 => "3 řádky";
+  static String get filterSectionTitle => isInformal ? "Filtrovat Sloka / Refrén / Capo" : "Filtrovat Sloka / Refrén / Capo";
+  static String get filterSectionSubtitle => isInformal
+      ? "Přeskočí Refrén, Sloka 1, Capo 2, Intro apod. a čistě akordové řádky"
+      : "Přeskočí Refrén, Sloka 1, Capo 2, Intro apod. a čistě akordové řádky";
+  static String get metronomeTitle => isInformal ? "Metronom před startem" : "Metronom před startem";
+  static String get metronomeSubtitle => isInformal
+      ? "Klik v tempu BPM před odpočtem 3-2-1"
+      : "Klik v tempu BPM před odpočtem 3-2-1";
 
   // --- HLASOVÁ OHLÁŠENÍ PŘEHRÁVAČE ---
   static String fontSizeChanged(int size) => isInformal ? "Písmo $size" : "Písmo $size";

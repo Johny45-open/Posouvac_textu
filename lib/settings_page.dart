@@ -35,6 +35,12 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<int> onConcertZonesModeChanged;
   final int setlistDelay;
   final ValueChanged<int> onSetlistDelayChanged;
+  final int previewLineCount;
+  final ValueChanged<int> onPreviewLineCountChanged;
+  final bool filterSectionLabels;
+  final ValueChanged<bool> onFilterSectionLabelsChanged;
+  final bool enableMetronome;
+  final ValueChanged<bool> onEnableMetronomeChanged;
   final bool devModeUnlocked;
   final ValueChanged<bool> onDevModeChanged;
 
@@ -55,6 +61,12 @@ class SettingsPage extends StatefulWidget {
     required this.onConcertZonesModeChanged,
     required this.setlistDelay,
     required this.onSetlistDelayChanged,
+    required this.previewLineCount,
+    required this.onPreviewLineCountChanged,
+    required this.filterSectionLabels,
+    required this.onFilterSectionLabelsChanged,
+    required this.enableMetronome,
+    required this.onEnableMetronomeChanged,
     required this.devModeUnlocked,
     required this.onDevModeChanged,
   });
@@ -980,39 +992,86 @@ class _SettingsPageState extends State<SettingsPage> {
               } catch (_) {}
             },
           ),
-          if (widget.concertMode) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(AppStrings.concertPreviewModeTitle, style: Theme.of(context).textTheme.titleSmall),
-                  const SizedBox(height: 8),
-                  SegmentedButton<int>(
-                    segments: [
-                      ButtonSegment(value: 0, label: Text(AppStrings.concertPreviewOff), icon: Icon(Icons.notifications_off)),
-                      ButtonSegment(value: 1, label: Text(AppStrings.concertPreviewOnDemand), icon: Icon(Icons.touch_app)),
-                      ButtonSegment(value: 2, label: Text(AppStrings.concertPreviewAuto), icon: Icon(Icons.auto_awesome)),
-                    ],
-                    selected: {widget.concertPreviewMode},
-                    onSelectionChanged: (s) {
-                      final mode = s.first;
-                      widget.onConcertPreviewModeChanged(mode);
-                      _tts.speak(_previewModeAnnouncement(mode));
-                    },
+          // Orientace a náhled — trvale dostupné (po akci uživatele, 2/3 řádky, filtr)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(AppStrings.previewSectionTitle, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Text(AppStrings.previewSectionSubtitle, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                const SizedBox(height: 12),
+                Text(AppStrings.concertPreviewModeTitle, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                SegmentedButton<int>(
+                  segments: [
+                    ButtonSegment(value: 0, label: Text(AppStrings.concertPreviewOff), icon: Icon(Icons.notifications_off)),
+                    ButtonSegment(value: 1, label: Text(AppStrings.concertPreviewOnDemand), icon: Icon(Icons.touch_app)),
+                    ButtonSegment(value: 2, label: Text(AppStrings.concertPreviewAuto), icon: Icon(Icons.auto_awesome)),
+                  ],
+                  selected: {widget.concertPreviewMode},
+                  onSelectionChanged: (s) {
+                    final mode = s.first;
+                    widget.onConcertPreviewModeChanged(mode);
+                    _tts.speak(_previewModeAnnouncement(mode));
+                  },
+                ),
+                const SizedBox(height: 4),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _previewModeAnnouncement(widget.concertPreviewMode),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
-                  const SizedBox(height: 4),
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      _previewModeAnnouncement(widget.concertPreviewMode),
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
+                ),
+                const SizedBox(height: 12),
+                Text(AppStrings.previewLineCountTitle, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                SegmentedButton<int>(
+                  segments: [
+                    ButtonSegment(value: 2, label: Text(AppStrings.previewLineCount2)),
+                    ButtonSegment(value: 3, label: Text(AppStrings.previewLineCount3)),
+                  ],
+                  selected: {widget.previewLineCount},
+                  onSelectionChanged: (s) {
+                    final c = s.first;
+                    widget.onPreviewLineCountChanged(c);
+                    _tts.speak(AppStrings.previewCountAnnouncement(c));
+                  },
+                ),
+                const SizedBox(height: 4),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    AppStrings.previewCountAnnouncement(widget.previewLineCount),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            const Divider(height: 24),
+          ),
+          const Divider(height: 24),
+          SwitchListTile(
+            title: Text(AppStrings.filterSectionTitle),
+            subtitle: Text(AppStrings.filterSectionSubtitle),
+            value: widget.filterSectionLabels,
+            onChanged: (v) {
+              widget.onFilterSectionLabelsChanged(v);
+              _tts.speak(AppStrings.filterSectionAnnouncement(v));
+            },
+          ),
+          SwitchListTile(
+            title: Text(AppStrings.metronomeTitle),
+            subtitle: Text(AppStrings.metronomeSubtitle),
+            value: widget.enableMetronome,
+            onChanged: (v) {
+              widget.onEnableMetronomeChanged(v);
+              _tts.speak(AppStrings.metronomeAnnouncement(v));
+            },
+          ),
+          const Divider(height: 24),
+          if (widget.concertMode) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Column(
