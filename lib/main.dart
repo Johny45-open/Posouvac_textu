@@ -162,6 +162,8 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
   late bool _enableMetronome;
   late bool _autoOpenReceived;
   late bool _nearbyAutoReceive;
+  late bool _searchDiacriticsInsensitive;
+  late bool _searchInContent;
   Locale? _locale;
   bool _showManual = false;
 
@@ -186,6 +188,8 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     _enableMetronome = widget.prefs.getBool('enableMetronome') ?? true;
     _autoOpenReceived = widget.prefs.getBool('autoOpenReceived') ?? false;
     _nearbyAutoReceive = widget.prefs.getBool('nearbyAutoReceive') ?? true;
+    _searchDiacriticsInsensitive = widget.prefs.getBool('searchDiacriticsInsensitive') ?? true;
+    _searchInContent = widget.prefs.getBool('searchInContent') ?? false;
     
     final langCode = widget.prefs.getString('languageCode');
     if (langCode != null) _locale = Locale(langCode);
@@ -303,6 +307,16 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
     }
   }
 
+  Future<void> _updateSearchDiacriticsInsensitive(bool v) async {
+    setState(() => _searchDiacriticsInsensitive = v);
+    await widget.prefs.setBool('searchDiacriticsInsensitive', v);
+  }
+
+  Future<void> _updateSearchInContent(bool v) async {
+    setState(() => _searchInContent = v);
+    await widget.prefs.setBool('searchInContent', v);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -355,6 +369,10 @@ class _LyricScrollerAppState extends State<LyricScrollerApp> {
               onAutoOpenReceivedChanged: _updateAutoOpenReceived,
               nearbyAutoReceive: _nearbyAutoReceive,
               onNearbyAutoReceiveChanged: _updateNearbyAutoReceive,
+              searchDiacriticsInsensitive: _searchDiacriticsInsensitive,
+              onSearchDiacriticsInsensitiveChanged: _updateSearchDiacriticsInsensitive,
+              searchInContent: _searchInContent,
+              onSearchInContentChanged: _updateSearchInContent,
             ),
     );
   }

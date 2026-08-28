@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'dart:convert';
 import 'dart:io';
 import 'song_entry.dart';
+import 'text_normalizer.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 part 'database.g.dart';
@@ -565,32 +566,14 @@ class AppDatabase extends _$AppDatabase {
       path.replaceAll('\\', '/').trim().toLowerCase();
 
   /// Odstraní diakritiku pro porovnání názvů souborů bez háčků/čárek.
-  static String _stripDiacritics(String input) {
-    const map = {
-      'á': 'a', 'č': 'c', 'ď': 'd', 'é': 'e', 'ě': 'e', 'í': 'i', 'ň': 'n',
-      'ó': 'o', 'ř': 'r', 'š': 's', 'ť': 't', 'ú': 'u', 'ů': 'u', 'ý': 'y', 'ž': 'z',
-      'Á': 'A', 'Č': 'C', 'Ď': 'D', 'É': 'E', 'Ě': 'E', 'Í': 'I', 'Ň': 'N',
-      'Ó': 'O', 'Ř': 'R', 'Š': 'S', 'Ť': 'T', 'Ú': 'U', 'Ů': 'U', 'Ý': 'Y', 'Ž': 'Z',
-      'ä': 'a', 'ë': 'e', 'ï': 'i', 'ö': 'o', 'ü': 'u',
-      'Ä': 'A', 'Ë': 'E', 'Ï': 'I', 'Ö': 'O', 'Ü': 'U',
-      'à': 'a', 'è': 'e', 'ì': 'i', 'ò': 'o', 'ù': 'u',
-      'À': 'A', 'È': 'E', 'Ì': 'I', 'Ò': 'O', 'Ù': 'U',
-      'â': 'a', 'ê': 'e', 'î': 'i', 'ô': 'o', 'û': 'u',
-      'Â': 'A', 'Ê': 'E', 'Î': 'I', 'Ô': 'O', 'Û': 'U',
-    };
-    var out = input;
-    map.forEach((k, v) => out = out.replaceAll(k, v));
-    return out;
-  }
+  static String _stripDiacritics(String input) => TextNormalizer.stripDiacritics(input);
 
-  static String _normForMatch(String input) =>
-      _stripDiacritics(input.trim().toLowerCase()).replaceAll(RegExp(r'\s+'), ' ');
+  static String _normForMatch(String input) => TextNormalizer.normForSearch(input);
 
   /// Povolena je pouze změna diakritiky – po strip musí být řetězce shodné.
   /// Odmítá překlepy typu "Mladek" -> "Mladdek" (vložení písmene).
-  static bool _isDiacriticOnly(String raw, String corrected) {
-    return _normForMatch(raw) == _normForMatch(corrected);
-  }
+  static bool _isDiacriticOnly(String raw, String corrected) =>
+      TextNormalizer.isDiacriticOnly(raw, corrected);
 
   /// Výsledek hromadného importu metadat z CSV.
   /// [skipped] obsahuje řádky, které se nepodařilo bezpečně spárovat
@@ -1757,37 +1740,224 @@ class AppDatabase extends _$AppDatabase {
     final allPlaylists = await getAllPlaylists();
     final allStopMarks = await select(stopMarks).get();
     final allPlaylistSongs = await select(playlistSongs).get();
+    final allDiacritic = await select(diacriticMappings).get();
+    final allCustom = await select(customStrings).get();
 
     return {
       'version': schemaVersion,
+      'exportedAt': DateTime.now().toIso8601String(),
       'songs': allSongs.map((s) => s.toJson()).toList(),
       'playlists': allPlaylists.map((p) => p.toJson()).toList(),
       'stopMarks': allStopMarks.map((sm) => sm.toJson()).toList(),
       'playlistSongs': allPlaylistSongs.map((ps) => ps.toJson()).toList(),
+      'diacriticMappings': allDiacritic.map((r) => r.toJson()).toList(),
+      'customStrings': allCustom.map((r) => r.toJson()).toList(),
     };
   }
 
+  /// Export včetně obsahu txt souborů pro úplnou obnovu po vyčištění.
+  Future<Map<String, dynamic>> exportToJsonWithContents() async {
+    final base = await exportToJson();
+    final List songs = base['songs'] as List;
+    for (final s in songs) {
+      if (s is Map<String, dynamic>) {
+        final path = (s['filePath'] ?? '').toString();
+        if (path.isNotEmpty) {
+          try {
+            final file = File(path);
+            if (await file.exists()) {
+              final bytes = await file.readAsBytes();
+              String content;
+              try {
+                content = utf8.decode(bytes);
+              } catch (_) {
+                content = latin1.decode(bytes);
+              }
+              s['content'] = content;
+            }
+          } catch (_) {}
+        }
+      }
+    }
+    return base;
+  }
+
   Future<void> importFromJson(Map<String, dynamic> data) async {
+    // Zachytit cesty pro obnovu souborů před transakcí
+    final List<dynamic> rawSongs = (data['songs'] as List?) ?? const [];
     await transaction(() async {
-      // Vyčistíme stávající data (nebo můžeme inteligentně spojovat, pro začátek čistý import)
       await delete(playlistSongs).go();
       await delete(stopMarks).go();
       await delete(playlists).go();
       await delete(songs).go();
+      try { await delete(diacriticMappings).go(); } catch (_) {}
+      try { await delete(customStrings).go(); } catch (_) {}
 
       for (final s in data['songs']) {
-        await into(songs).insert(SongEntry.fromJson(s));
+        final map = Map<String, dynamic>.from(s as Map);
+        map.remove('content');
+        await into(songs).insert(SongEntry.fromJson(map));
       }
-      for (final p in data['playlists']) {
-        await into(playlists).insert(Playlist.fromJson(p));
+      for (final p in data['playlists'] ?? const []) {
+        await into(playlists).insert(Playlist.fromJson(Map<String, dynamic>.from(p as Map)));
       }
-      for (final sm in data['stopMarks']) {
-        await into(stopMarks).insert(StopMark.fromJson(sm));
+      for (final sm in data['stopMarks'] ?? const []) {
+        await into(stopMarks).insert(StopMark.fromJson(Map<String, dynamic>.from(sm as Map)));
       }
-      for (final ps in data['playlistSongs']) {
-        await into(playlistSongs).insert(PlaylistSong.fromJson(ps));
+      for (final ps in data['playlistSongs'] ?? const []) {
+        await into(playlistSongs).insert(PlaylistSong.fromJson(Map<String, dynamic>.from(ps as Map)));
+      }
+      if (data['diacriticMappings'] is List) {
+        for (final r in data['diacriticMappings'] as List) {
+          try {
+            await into(diacriticMappings).insert(DiacriticMappingEntry.fromJson(Map<String, dynamic>.from(r as Map)), mode: InsertMode.insertOrReplace);
+          } catch (_) {}
+        }
+      }
+      if (data['customStrings'] is List) {
+        for (final r in data['customStrings'] as List) {
+          try {
+            await into(customStrings).insert(CustomString.fromJson(Map<String, dynamic>.from(r as Map)), mode: InsertMode.insertOrReplace);
+          } catch (_) {}
+        }
       }
     });
+    // Obnova souborů mimo transakci - obsah je v původních rawSongs
+    for (final s in rawSongs) {
+      if (s is! Map) continue;
+      final map = Map<String, dynamic>.from(s as Map);
+      final content = map['content'] as String?;
+      final path = (map['filePath'] ?? '').toString();
+      if (content == null || path.isEmpty) continue;
+      try {
+        final file = File(path);
+        await file.parent.create(recursive: true);
+        await file.writeAsString(content, encoding: utf8);
+      } catch (_) {}
+    }
+  }
+
+  /// Vyčistí celou knihovnu (vše dle požadavku). Volitelně smaže i soubory.
+  Future<void> clearLibrary({bool deleteFiles = true}) async {
+    List<String> filePaths = [];
+    if (deleteFiles) {
+      try {
+        final all = await getAllSongs();
+        filePaths = all.map((s) => s.filePath).toList();
+      } catch (_) {}
+    }
+    await transaction(() async {
+      await delete(playlistSongs).go();
+      await delete(stopMarks).go();
+      await delete(playlists).go();
+      await delete(songs).go();
+      try { await delete(diacriticMappings).go(); } catch (_) {}
+      try { await delete(customStrings).go(); } catch (_) {}
+    });
+    if (deleteFiles) {
+      for (final pth in filePaths) {
+        try {
+          final f = File(pth);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  // --- UNDO ZÁLOHA PRO VYČIŠTĚNÍ (7 dní) ---
+  static const _clearBackupDirName = 'backups';
+  static const _clearBackupPrefix = 'undo_clear_';
+  static const _clearBackupRetentionDays = 7;
+
+  Future<Directory> _getClearBackupDir() async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory(p.join(docs.path, _clearBackupDirName));
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  Future<String> createClearUndoBackup(Map<String, dynamic> data) async {
+    final dir = await _getClearBackupDir();
+    final ts = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final stamp = '${ts.year}${two(ts.month)}${two(ts.day)}_${two(ts.hour)}${two(ts.minute)}${two(ts.second)}';
+    final file = File(p.join(dir.path, '$_clearBackupPrefix$stamp.json'));
+    await file.writeAsString(jsonEncode(data), encoding: utf8);
+    await purgeExpiredClearBackups();
+    // rotace: držet max 5 souborů
+    try {
+      final files = (await dir.list().toList()).whereType<File>().where((f) => p.basename(f.path).startsWith(_clearBackupPrefix)).toList();
+      files.sort((a, b) => b.path.compareTo(a.path));
+      for (var i = 5; i < files.length; i++) {
+        try { await files[i].delete(); } catch (_) {}
+      }
+    } catch (_) {}
+    return file.path;
+  }
+
+  Future<Map<String, dynamic>?> loadLastClearBackup() async {
+    try {
+      final dir = await _getClearBackupDir();
+      if (!await dir.exists()) return null;
+      final files = (await dir.list().toList()).whereType<File>().where((f) => p.basename(f.path).startsWith(_clearBackupPrefix)).toList()
+        ..sort((a, b) => b.path.compareTo(a.path));
+      if (files.isEmpty) return null;
+      final latest = files.first;
+      final stat = await latest.stat();
+      final age = DateTime.now().difference(stat.modified);
+      if (age.inDays >= _clearBackupRetentionDays) {
+        await purgeExpiredClearBackups();
+        // po purge zkusit znovu - pokud nejnovější expiroval, je smazán
+        final remaining = (await dir.list().toList()).whereType<File>().where((f) => p.basename(f.path).startsWith(_clearBackupPrefix)).toList()
+          ..sort((a, b) => b.path.compareTo(a.path));
+        if (remaining.isEmpty) return null;
+        // vrátit nový nejnovější (už v limitu)
+        final content = await remaining.first.readAsString(encoding: utf8);
+        return jsonDecode(content) as Map<String, dynamic>;
+      }
+      final content = await latest.readAsString(encoding: utf8);
+      return jsonDecode(content) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<File?> getLastClearBackupFile() async {
+    try {
+      final dir = await _getClearBackupDir();
+      if (!await dir.exists()) return null;
+      final files = (await dir.list().toList()).whereType<File>().where((f) => p.basename(f.path).startsWith(_clearBackupPrefix)).toList()
+        ..sort((a, b) => b.path.compareTo(a.path));
+      if (files.isEmpty) return null;
+      final stat = await files.first.stat();
+      if (DateTime.now().difference(stat.modified).inDays >= _clearBackupRetentionDays) return null;
+      return files.first;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> deleteLastClearBackup() async {
+    try {
+      final f = await getLastClearBackupFile();
+      if (f != null && await f.exists()) await f.delete();
+    } catch (_) {}
+  }
+
+  Future<void> purgeExpiredClearBackups() async {
+    try {
+      final dir = await _getClearBackupDir();
+      if (!await dir.exists()) return;
+      final files = (await dir.list().toList()).whereType<File>().where((f) => p.basename(f.path).startsWith(_clearBackupPrefix)).toList();
+      for (final f in files) {
+        try {
+          final stat = await f.stat();
+          if (DateTime.now().difference(stat.modified).inDays >= _clearBackupRetentionDays) {
+            await f.delete();
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
   }
 }
 

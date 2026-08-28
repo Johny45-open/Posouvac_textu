@@ -26,6 +26,8 @@ import 'qr_scan_page.dart';
 import 'update_checker.dart';
 import 'update_dialogs.dart';
 import 'nearby_service.dart';
+import 'text_normalizer.dart';
+import 'dart:async';
 
 class LibraryPage extends StatefulWidget {
   final ThemeMode themeMode;
@@ -54,6 +56,10 @@ class LibraryPage extends StatefulWidget {
   final ValueChanged<bool> onAutoOpenReceivedChanged;
   final bool nearbyAutoReceive;
   final ValueChanged<bool> onNearbyAutoReceiveChanged;
+  final bool searchDiacriticsInsensitive;
+  final ValueChanged<bool> onSearchDiacriticsInsensitiveChanged;
+  final bool searchInContent;
+  final ValueChanged<bool> onSearchInContentChanged;
 
   const LibraryPage({
     super.key,
@@ -83,6 +89,10 @@ class LibraryPage extends StatefulWidget {
     required this.onAutoOpenReceivedChanged,
     required this.nearbyAutoReceive,
     required this.onNearbyAutoReceiveChanged,
+    required this.searchDiacriticsInsensitive,
+    required this.onSearchDiacriticsInsensitiveChanged,
+    required this.searchInContent,
+    required this.onSearchInContentChanged,
   });
 
   @override
@@ -101,6 +111,13 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _devModeUnlocked = false;
   int _versionTapCount = 0;
   static const int _versionTapTarget = 7;
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  String _searchQuery = "";
+  bool _isSearchVisible = false;
+  Timer? _searchDebounce;
+  final Map<int, String> _contentCache = {};
+  bool _contentCacheLoading = false;
 
   @override
   void initState() {
@@ -109,10 +126,87 @@ class _LibraryPageState extends State<LibraryPage> {
     _tts.setSpeechRate(0.5);
     AppStrings.isInformal = widget.isInformalMode;
     _pinService = DevPinService(db: widget.db);
+    _searchController.addListener(_onSearchChanged);
     _initVersion();
     _loadDevMode();
     _initAppVersion();
     _maybeStartNearbyAdvertising();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      final raw = _searchController.text.trim();
+      if (raw == _searchQuery) return;
+      setState(() => _searchQuery = raw);
+      if (widget.searchInContent && raw.isNotEmpty && _contentCache.isEmpty && !_contentCacheLoading) {
+        _loadContentCache();
+      }
+    });
+  }
+
+  Future<void> _loadContentCache() async {
+    if (_contentCacheLoading) return;
+    _contentCacheLoading = true;
+    try {
+      final songs = await widget.db.getAllSongs();
+      for (final s in songs) {
+        if (_contentCache.containsKey(s.id)) continue;
+        try {
+          final file = File(s.filePath);
+          if (await file.exists()) {
+            final bytes = await file.readAsBytes();
+            String content;
+            try { content = utf8.decode(bytes); } catch (_) { content = latin1.decode(bytes); }
+            _contentCache[s.id] = content;
+          }
+        } catch (_) {}
+      }
+      if (mounted) setState(() {});
+    } finally {
+      _contentCacheLoading = false;
+    }
+  }
+
+  void _toggleSearch() {
+    setState(() => _isSearchVisible = !_isSearchVisible);
+    if (_isSearchVisible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _searchFocusNode.requestFocus(); });
+    } else {
+      _searchDebounce?.cancel();
+      _searchController.clear();
+      if (_searchQuery.isNotEmpty) setState(() => _searchQuery = "");
+      FocusScope.of(context).unfocus();
+    }
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    setState(() => _searchQuery = "");
+    _tts.speak(AppStrings.searchClearedAnnouncement);
+    _searchFocusNode.requestFocus();
+  }
+
+  bool _matchesSearch(SongEntry song) {
+    if (_searchQuery.isEmpty) return true;
+    final insensitive = widget.searchDiacriticsInsensitive;
+    final q = insensitive ? TextNormalizer.normForSearch(_searchQuery) : _searchQuery.toLowerCase().trim();
+    if (q.isEmpty) return true;
+    bool hit(String src) { final n = insensitive ? TextNormalizer.normForSearch(src) : src.toLowerCase(); return n.contains(q); }
+    if (hit(song.title) || hit(song.artist)) return true;
+    if (widget.searchInContent) { final cached = _contentCache[song.id]; if (cached != null && hit(cached)) return true; }
+    return false;
   }
 
   Future<void> _maybeStartNearbyAdvertising() async {
@@ -203,6 +297,31 @@ class _LibraryPageState extends State<LibraryPage> {
         NearbyService.instance.stopAdvertising();
       }
     }
+    if (widget.searchInContent != oldWidget.searchInContent && widget.searchInContent && _searchQuery.isNotEmpty && _contentCache.isEmpty) {
+      _loadContentCache();
+    }
+  }
+
+  Widget _buildSearchField() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+      child: Semantics(
+        label: AppStrings.searchLibrarySemantics,
+        child: TextField(
+          controller: _searchController,
+          focusNode: _searchFocusNode,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            labelText: AppStrings.searchLibraryLabel,
+            hintText: widget.searchInContent ? AppStrings.searchLibraryHintWithContent : AppStrings.searchLibraryHint,
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: _searchQuery.isEmpty ? null : Semantics(label: AppStrings.searchClearSemantics(_searchQuery), button: true, child: IconButton(icon: const Icon(Icons.clear), tooltip: AppStrings.searchClearLabel, onPressed: _clearSearch)),
+            border: const OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => FocusScope.of(context).unfocus(),
+        ),
+      ),
+    );
   }
 
   Future<void> _editSong(SongEntry song) async {
@@ -642,6 +761,7 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
         ),
         actions: [
+          Semantics(label: _isSearchVisible ? AppStrings.searchLibraryTooltipHide : AppStrings.searchLibraryTooltipShow, button: true, child: IconButton(icon: Icon(_isSearchVisible ? Icons.search_off : Icons.search), tooltip: _isSearchVisible ? AppStrings.searchLibraryTooltipHide : AppStrings.searchLibraryTooltipShow, onPressed: _toggleSearch)),
           IconButton(
             icon: Icon(_onlyFavorites ? Icons.favorite : Icons.favorite_border),
             tooltip: _onlyFavorites ? "Zobrazit všechny" : "Pouze oblíbené",
@@ -760,6 +880,10 @@ class _LibraryPageState extends State<LibraryPage> {
                       onAutoOpenReceivedChanged: widget.onAutoOpenReceivedChanged,
                       nearbyAutoReceive: widget.nearbyAutoReceive,
                       onNearbyAutoReceiveChanged: widget.onNearbyAutoReceiveChanged,
+                      searchDiacriticsInsensitive: widget.searchDiacriticsInsensitive,
+                      onSearchDiacriticsInsensitiveChanged: widget.onSearchDiacriticsInsensitiveChanged,
+                      searchInContent: widget.searchInContent,
+                      onSearchInContentChanged: widget.onSearchInContentChanged,
                       devModeUnlocked: _devModeUnlocked,
                       onDevModeChanged: (v) => setState(() => _devModeUnlocked = v),
                     ),
@@ -828,7 +952,7 @@ class _LibraryPageState extends State<LibraryPage> {
           ],
         ),
       ),
-      body: StreamBuilder<List<SongEntry>>(
+      body: Column(children: [AnimatedCrossFade(firstChild: const SizedBox.shrink(), secondChild: _buildSearchField(), crossFadeState: _isSearchVisible ? CrossFadeState.showSecond : CrossFadeState.showFirst, duration: const Duration(milliseconds: 200)), Expanded(child: StreamBuilder<List<SongEntry>>(
         stream: widget.db.watchAllSongs(
           onlyFavorites: _onlyFavorites,
           onlyUnplayed: _onlyUnplayed,
@@ -846,10 +970,13 @@ class _LibraryPageState extends State<LibraryPage> {
             );
           }
 
-          return ListView.builder(
-            itemCount: songs.length,
+          final filtered = _searchQuery.isEmpty ? songs : songs.where(_matchesSearch).toList();
+                if (filtered.isEmpty) { return Semantics(liveRegion: true, label: AppStrings.searchNoResults(_searchQuery), child: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.search_off, size: 48, color: Colors.grey), const SizedBox(height: 12), Text(AppStrings.searchNoResultsLabel, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)), const SizedBox(height: 8), Text(AppStrings.searchNoResults(_searchQuery), textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600])), const SizedBox(height: 16), FilledButton.icon(icon: const Icon(Icons.clear), label: Text(AppStrings.searchClearFilterButton), onPressed: _clearSearch), if (widget.searchInContent && _contentCacheLoading) const Padding(padding: EdgeInsets.only(top: 12), child: AppProgressIndicator(label: "Načítám texty pro hledání..."))]))) ); }
+                final semanticsLabel = AppStrings.searchFoundSemantics(filtered.length, songs.length, _searchQuery);
+                return Semantics(liveRegion: _searchQuery.isNotEmpty, label: semanticsLabel, child: Column(children: [if (_searchQuery.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(12, 4, 12, 4), child: Semantics(liveRegion: true, label: semanticsLabel, child: Text(semanticsLabel, style: TextStyle(fontSize: 12, color: Colors.grey[600])))), Expanded(child: ListView.builder(
+            itemCount: filtered.length,
             itemBuilder: (context, index) {
-              final song = songs[index];
+              final song = filtered[index];
               final bpmText = song.tempo != null ? "${song.tempo!.round()} údery za minutu" : "Tempo nenastaveno";
               final playedText = song.isPlayed ? "Odehraná. " : "";
               
@@ -980,9 +1107,9 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
               );
             },
-          );
-        },
-      ),
+          ),),],),);
+              },
+            ),),],),
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,

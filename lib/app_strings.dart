@@ -648,6 +648,32 @@ class AppStrings {
     }
   }
 
+  // --- VYHLEDÁVÁNÍ V KNIHOVNĚ ---
+  static String get searchLibraryTooltipShow => isInformal ? "Hledat v knihovně" : "Hledat v knihovně";
+  static String get searchLibraryTooltipHide => isInformal ? "Zavřít vyhledávání" : "Zavřít vyhledávání";
+  static String get searchLibraryLabel => isInformal ? "Hledat podle názvu nebo interpreta" : "Hledat podle názvu nebo interpreta";
+  static String get searchLibraryHint => isInformal ? "Např. Kryl nebo Anděl" : "Např. Kryl nebo Anděl";
+  static String get searchLibraryHintWithContent => isInformal ? "Např. Kryl, Anděl nebo slovo z textu" : "Např. Kryl, Anděl nebo slovo z textu";
+  static String get searchLibrarySemantics => isInformal ? "Vyhledávání v knihovně" : "Vyhledávání v knihovně";
+  static String get searchClearLabel => isInformal ? "Vymazat vyhledávání" : "Vymazat vyhledávání";
+  static String searchClearSemantics(String query) => isInformal ? "Vymazat vyhledávání, aktuálně hledáno $query" : "Vymazat vyhledávání, aktuálně hledáno $query";
+  static String get searchClearedAnnouncement => isInformal ? "Vyhledávání vymazáno" : "Vyhledávání vymazáno";
+  static String searchFoundAnnouncement(int found, int total) => isInformal ? "Nalezeno $found z $total písní" : "Nalezeno $found z $total písní";
+  static String searchFoundSemantics(int found, int total, String query) => query.isEmpty ? "Nalezeno $found z $total písní" : "Nalezeno $found z $total písní pro $query";
+  static String searchNoResults(String query) => isInformal ? "Žádné písně nevyhovují vyhledávání $query. Zkuste jiné slovo." : "Žádné písně nevyhovují vyhledávání \"$query\". Zkuste jiné slovo nebo vymažte filtr.";
+  static String get searchNoResultsLabel => isInformal ? "Nic nenalezeno" : "Nic nenalezeno";
+  static String get searchClearFilterButton => isInformal ? "Vymazat filtr" : "Vymazat filtr";
+  static String get searchSettingsTitle => isInformal ? "Vyhledávání v knihovně" : "Vyhledávání v knihovně";
+  static String get searchSettingsSubtitle => isInformal ? "Co se má prohledávat a jak přesně" : "Nastavení rozsahu a přesnosti vyhledávání";
+  static String get searchDiacriticsTitle => isInformal ? "Hledat bez ohledu na diakritiku" : "Hledat bez ohledu na diakritiku";
+  static String get searchDiacriticsSubtitleOn => isInformal ? "Zapnuto – hledání \"caj\" najde \"čaj\"" : "Zapnuto – hledání \"caj\" najde \"čaj\"";
+  static String get searchDiacriticsSubtitleOff => isInformal ? "Vypnuto – rozlišuje čárky a háčky" : "Vypnuto – rozlišuje diakritiku";
+  static String searchDiacriticsAnnouncement(bool v) => v ? (isInformal ? "Hledání bez diakritiky zapnuto" : "Hledání bez diakritiky zapnuto") : (isInformal ? "Hledání bez diakritiky vypnuto" : "Hledání bez diakritiky vypnuto");
+  static String get searchInContentTitle => isInformal ? "Hledat i v textu písně" : "Hledat i v textu písně";
+  static String get searchInContentSubtitleOn => isInformal ? "Zapnuto – prohledá i obsah .txt (pomalejší)" : "Zapnuto – prohledá i obsah souborů (pomalejší)";
+  static String get searchInContentSubtitleOff => isInformal ? "Vypnuto – jen název a interpret" : "Vypnuto – hledá jen v názvu a interpretovi";
+  static String searchInContentAnnouncement(bool v) => v ? (isInformal ? "Hledání v textu zapnuto" : "Hledání v textu zapnuto") : (isInformal ? "Hledání v textu vypnuto" : "Hledání v textu vypnuto");
+
   // --- VÝVOJÁŘSKÝ REŽIM ---
   static String get devModeOnAnnouncement => isInformal ? "Vývojářskej režim je vzhůru!" : "Vývojářský režim zapnut";
   static String pinIncorrect(int remaining) => remaining <= 1
@@ -659,4 +685,38 @@ class AppStrings {
   static String pinLockout(int minutes) => isInformal
       ? "To je moc pokusů. Zkus to za $minutes minuty."
       : "Přístup do vývojářského režimu je na $minutes minut zamčen.";
+
+  // --- VYČIŠTĚNÍ KNIHOVNY S OBNOVOU ---
+  static String get clearLibraryTitle => isInformal ? "Vyčistit knihovnu" : "Vyčistit knihovnu";
+  static String clearLibrarySubtitle(int songs, int playlists) => isInformal
+      ? "$songs písní, $playlists setlistů - smaže vše, ale lze vrátit"
+      : "$songs písní, $playlists setlistů - smaže vše, lze obnovit do 7 dní";
+  static String get clearLibraryEmpty => isInformal ? "Knihovna je prázdná, není co mazat." : "Knihovna je prázdná, není co mazat.";
+  static String get clearLibraryConfirmTitle => isInformal ? "Opravdu vyčistit?" : "Vyčistit knihovnu";
+  static String clearLibraryConfirmContent(int songs, int playlists) => isInformal
+      ? "Smaže se $songs písní a $playlists setlistů včetně souborů. Před smazáním se vytvoří záloha pro obnovu na 7 dní. Pokračovat?"
+      : "Bude smazáno $songs písní a $playlists setlistů včetně souborů na disku. Před smazáním se automaticky vytvoří záloha pro obnovu (platnost 7 dní). Přejete si pokračovat?";
+  static String get clearLibraryTypeLabel => isInformal ? "Pro potvrzení napiš SMAZAT" : "Pro potvrzení napište SMAZAT";
+  static String get clearLibraryTypeHint => "SMAZAT";
+  static String get clearLibraryShareBefore => isInformal ? "Sdílet zálohu před smazáním" : "Sdílet zálohu před smazáním";
+  static String get clearLibraryShareBeforeSubtitle => isInformal ? "Pošle soubor se všemi texty" : "Odešle soubor zálohy se všemi texty";
+  static String get clearLibraryCancel => isInformal ? "Zrušit" : "Zrušit";
+  static String get clearLibraryConfirmButton => isInformal ? "Vyčistit" : "Vyčistit";
+  static String get clearLibraryProgress => isInformal ? "Čistím knihovnu..." : "Čistím knihovnu...";
+  static String clearLibrarySuccess(int songs) => isInformal ? "Knihovna vyčištěna, smazáno $songs písní." : "Knihovna byla vyčištěna, smazáno $songs písní.";
+  static String get clearLibraryUndoLabel => isInformal ? "Zpět" : "Zpět";
+  static String get clearLibraryUndone => isInformal ? "Knihovna obnovena." : "Knihovna byla obnovena.";
+  static String clearLibraryUndoneWithCount(int songs) => isInformal ? "Obnoveno $songs písní." : "Obnoveno $songs písní.";
+  static String get clearLibraryUndoFailed => isInformal ? "Obnovu se nepodařilo dokončit." : "Obnovu se nepodařilo dokončit.";
+  static String get restoreLastClearTitle => isInformal ? "Obnovit poslední vyčištění" : "Obnovit poslední vyčištění";
+  static String restoreLastClearSubtitle(String date, int songs, int daysLeft) => isInformal
+      ? "$date - $songs písní, zbývá $daysLeft dní"
+      : "$date - $songs písní, zbývá $daysLeft dní";
+  static String get restoreLastClearEmpty => isInformal ? "Žádná záloha k obnově" : "Žádná záloha k obnově není k dispozici.";
+  static String get restoreConfirmTitle => isInformal ? "Obnovit knihovnu?" : "Obnovit knihovnu";
+  static String restoreConfirmContent(int songs, String date) => isInformal
+      ? "Obnoví se $songs písní ze zálohy $date. Současná knihovna bude nahrazena."
+      : "Bude obnoveno $songs písní ze zálohy $date. Současný obsah knihovny bude nahrazen obsahem zálohy.";
+  static String get restoreConfirmButton => isInformal ? "Obnovit" : "Obnovit";
+  static String get restoreSuccess => isInformal ? "Knihovna obnovena ze zálohy." : "Knihovna byla obnovena ze zálohy.";
 }

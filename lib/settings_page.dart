@@ -47,6 +47,10 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<bool> onNearbyAutoReceiveChanged;
   final bool devModeUnlocked;
   final ValueChanged<bool> onDevModeChanged;
+  final bool searchDiacriticsInsensitive;
+  final ValueChanged<bool> onSearchDiacriticsInsensitiveChanged;
+  final bool searchInContent;
+  final ValueChanged<bool> onSearchInContentChanged;
 
   const SettingsPage({
     super.key,
@@ -77,6 +81,10 @@ class SettingsPage extends StatefulWidget {
     required this.onNearbyAutoReceiveChanged,
     required this.devModeUnlocked,
     required this.onDevModeChanged,
+    required this.searchDiacriticsInsensitive,
+    required this.onSearchDiacriticsInsensitiveChanged,
+    required this.searchInContent,
+    required this.onSearchInContentChanged,
   });
 
   @override
@@ -92,6 +100,10 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _enableVoiceConfirmations = true;
   bool _detailedSubtitles = true;
   double _globalFontSize = 24.0;
+  int _clearSongCount = 0;
+  int _clearPlaylistCount = 0;
+  File? _lastClearBackupFile;
+  Map<String, dynamic>? _lastClearBackupData;
 
   @override
   void initState() {
@@ -101,6 +113,25 @@ class _SettingsPageState extends State<SettingsPage> {
     _pinService = DevPinService(db: widget.db);
     _loadDiacriticCount();
     _loadA11yPrefs();
+    _loadClearLibraryInfo();
+  }
+
+  Future<void> _loadClearLibraryInfo() async {
+    try {
+      await widget.db.purgeExpiredClearBackups();
+      final file = await widget.db.getLastClearBackupFile();
+      Map<String, dynamic>? data;
+      if (file != null) data = await widget.db.loadLastClearBackup();
+      final songs = await widget.db.getAllSongs();
+      final playlists = await widget.db.getAllPlaylists();
+      if (!mounted) return;
+      setState(() {
+        _clearSongCount = songs.length;
+        _clearPlaylistCount = playlists.length;
+        _lastClearBackupFile = file;
+        _lastClearBackupData = data;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadA11yPrefs() async {
@@ -899,6 +930,212 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _clearLibrary() async {
+    await _loadClearLibraryInfo();
+    final songs = _clearSongCount;
+    final playlists = _clearPlaylistCount;
+    if (songs == 0 && playlists == 0) {
+      _speak(AppStrings.clearLibraryEmpty);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.clearLibraryEmpty)));
+      }
+      return;
+    }
+
+    final controller = TextEditingController();
+    bool shareBefore = false;
+    bool isValid = false;
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Semantics(header: true, child: Text(AppStrings.clearLibraryConfirmTitle)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(AppStrings.clearLibraryConfirmContent(songs, playlists)),
+                const SizedBox(height: 16),
+                Semantics(
+                  label: AppStrings.clearLibraryTypeLabel,
+                  child: TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.clearLibraryTypeLabel,
+                      hintText: AppStrings.clearLibraryTypeHint,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (v) {
+                      setDialogState(() => isValid = v.trim() == AppStrings.clearLibraryTypeHint);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Semantics(
+                  label: shareBefore ? "${AppStrings.clearLibraryShareBefore}, zaškrtnuto" : "${AppStrings.clearLibraryShareBefore}, nezaškrtnuto",
+                  child: CheckboxListTile(
+                    title: Text(AppStrings.clearLibraryShareBefore),
+                    subtitle: Text(AppStrings.clearLibraryShareBeforeSubtitle),
+                    value: shareBefore,
+                    onChanged: (v) => setDialogState(() => shareBefore = v ?? false),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(AppStrings.clearLibraryCancel)),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+              onPressed: isValid ? () => Navigator.pop(dialogContext, true) : null,
+              child: Text(AppStrings.clearLibraryConfirmButton),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true) return;
+    final doShare = shareBefore;
+
+    // Progress dialog
+    if (!mounted) return;
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(content: AppProgressIndicator(label: AppStrings.clearLibraryProgress)),
+    ));
+
+    Map<String, dynamic>? backupData;
+    int deletedSongs = songs;
+    try {
+      backupData = await widget.db.exportToJsonWithContents();
+      deletedSongs = (backupData['songs'] as List).length;
+      if (doShare) {
+        try {
+          final tempDir = await getTemporaryDirectory();
+          final file = File(p.join(tempDir.path, 'posouvac_zaloha_pred_vycistenim.json'));
+          await file.writeAsString(jsonEncode(backupData), encoding: utf8);
+          await Share.shareXFiles([XFile(file.path, mimeType: 'application/json')], text: 'Záloha před vyčištěním knihovny');
+        } catch (_) {}
+      }
+      await widget.db.createClearUndoBackup(backupData);
+      await widget.db.clearLibrary(deleteFiles: true);
+    } catch (e) {
+      if (mounted) Navigator.of(context).pop();
+      _speak(AppStrings.clearLibraryUndoFailed);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při čištění: $e")));
+      }
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    await _loadClearLibraryInfo();
+    final msg = AppStrings.clearLibrarySuccess(deletedSongs);
+    _speak(msg);
+    if (!mounted) return;
+    final savedData = backupData;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 10),
+        action: SnackBarAction(
+          label: AppStrings.clearLibraryUndoLabel,
+          onPressed: () async {
+            try {
+              await widget.db.importFromJson(savedData);
+              await widget.db.deleteLastClearBackup();
+              await _loadClearLibraryInfo();
+              _speak(AppStrings.clearLibraryUndoneWithCount(deletedSongs));
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.clearLibraryUndoneWithCount(deletedSongs))));
+              }
+            } catch (_) {
+              _speak(AppStrings.clearLibraryUndoFailed);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _restoreLastClear() async {
+    final data = _lastClearBackupData ?? await widget.db.loadLastClearBackup();
+    if (data == null) {
+      _speak(AppStrings.restoreLastClearEmpty);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.restoreLastClearEmpty)));
+      return;
+    }
+    final songs = (data['songs'] as List?)?.length ?? 0;
+    String dateStr = '';
+    try {
+      final file = _lastClearBackupFile ?? await widget.db.getLastClearBackupFile();
+      if (file != null) {
+        final stat = await file.stat();
+        dateStr = "${stat.modified.day}.${stat.modified.month}.${stat.modified.year} ${stat.modified.hour.toString().padLeft(2,'0')}:${stat.modified.minute.toString().padLeft(2,'0')}";
+      } else if (data['exportedAt'] != null) {
+        final dt = DateTime.tryParse(data['exportedAt'].toString());
+        if (dt != null) dateStr = "${dt.day}.${dt.month}.${dt.year}";
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Semantics(header: true, child: Text(AppStrings.restoreConfirmTitle)),
+        content: Text(AppStrings.restoreConfirmContent(songs, dateStr.isEmpty ? "zálohy" : dateStr)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(AppStrings.clearLibraryCancel)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(AppStrings.restoreConfirmButton)),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    if (!mounted) return;
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(content: AppProgressIndicator(label: AppStrings.clearLibraryProgress)),
+    ));
+    try {
+      await widget.db.importFromJson(data);
+      await widget.db.deleteLastClearBackup();
+    } catch (e) {
+      if (mounted) Navigator.of(context).pop();
+      _speak(AppStrings.clearLibraryUndoFailed);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Chyba při obnově: $e")));
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    await _loadClearLibraryInfo();
+    _speak(AppStrings.restoreSuccess);
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.restoreSuccess)));
+  }
+
+  String _formatBackupSubtitle() {
+    final data = _lastClearBackupData;
+    final file = _lastClearBackupFile;
+    if (data == null || file == null) return "";
+    try {
+      final songs = (data['songs'] as List?)?.length ?? 0;
+      final stat = file.statSync();
+      final modified = stat.modified;
+      final age = DateTime.now().difference(modified);
+      final daysLeft = (7 - age.inDays).clamp(0, 7).toInt();
+      final dateStr = "${modified.day}.${modified.month}.${modified.year} ${modified.hour.toString().padLeft(2,'0')}:${modified.minute.toString().padLeft(2,'0')}";
+      return AppStrings.restoreLastClearSubtitle(dateStr, songs, daysLeft);
+    } catch (_) {
+      return "";
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -933,6 +1170,24 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ),
           ),
+          const Divider(height: 40),
+          // Nebezpečná zóna - Vyčistit knihovnu
+          ListTile(
+            leading: const Icon(Icons.delete_forever, color: Colors.red),
+            title: Text(AppStrings.clearLibraryTitle),
+            subtitle: Text(_clearSongCount == 0 && _clearPlaylistCount == 0
+                ? AppStrings.clearLibraryEmpty
+                : AppStrings.clearLibrarySubtitle(_clearSongCount, _clearPlaylistCount)),
+            onTap: _clearLibrary,
+          ),
+          if (_lastClearBackupData != null && _lastClearBackupFile != null) ...[
+            ListTile(
+              leading: const Icon(Icons.restore, color: Colors.green),
+              title: Text(AppStrings.restoreLastClearTitle),
+              subtitle: Text(_formatBackupSubtitle()),
+              onTap: _restoreLastClear,
+            ),
+          ],
           const Divider(height: 40),
           // Nová část pro CSV
           ListTile(
@@ -1264,6 +1519,52 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const Divider(height: 24),
           ],
+          ListTile(
+            leading: const Icon(Icons.search),
+            title: Text(AppStrings.searchSettingsTitle),
+            subtitle: Text(AppStrings.searchSettingsSubtitle),
+          ),
+          SwitchListTile(
+            title: Text(AppStrings.searchDiacriticsTitle),
+            subtitle: Text(widget.searchDiacriticsInsensitive ? AppStrings.searchDiacriticsSubtitleOn : AppStrings.searchDiacriticsSubtitleOff),
+            secondary: Icon(widget.searchDiacriticsInsensitive ? Icons.text_fields : Icons.spellcheck),
+            value: widget.searchDiacriticsInsensitive,
+            onChanged: (v) async {
+              widget.onSearchDiacriticsInsensitiveChanged(v);
+              await _speak(AppStrings.searchDiacriticsAnnouncement(v));
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                AppStrings.searchDiacriticsAnnouncement(widget.searchDiacriticsInsensitive),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ),
+          ),
+          SwitchListTile(
+            title: Text(AppStrings.searchInContentTitle),
+            subtitle: Text(widget.searchInContent ? AppStrings.searchInContentSubtitleOn : AppStrings.searchInContentSubtitleOff),
+            secondary: Icon(widget.searchInContent ? Icons.find_in_page : Icons.title),
+            value: widget.searchInContent,
+            onChanged: (v) async {
+              widget.onSearchInContentChanged(v);
+              await _speak(AppStrings.searchInContentAnnouncement(v));
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                AppStrings.searchInContentAnnouncement(widget.searchInContent),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ),
+          ),
+          const Divider(height: 40),
           SwitchListTile(
             title: Text(AppStrings.informalModeTitle),
             subtitle: Text(_detailedSubtitles
