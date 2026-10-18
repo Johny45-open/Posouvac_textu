@@ -604,6 +604,15 @@ class AppStrings {
       : "Nastaveno $bpm BPM";
   static String get scrollStopped => isInformal ? "Stavím to!" : "Posuv zastaven";
 
+  // --- START SEKVENCE: příprava / odpočet / TEĎ (jednoznačný vokální start) ---
+  /// Krátký doprovodný accessibility cue v okamžiku startu posuvu.
+  /// Hudební kotvou je click + haptika + start animace, TTS timing není sample-accurate.
+  static String get startCueNow => "TEĎ";
+  static String get playerCountdownCancelLabel =>
+      isInformal ? "Odpočet běží, klepnutím zrušit" : "Odpočet probíhá, klepnutím zrušit";
+  static String get playerGoAnnouncement =>
+      isInformal ? "TEĎ. Běží!" : "TEĎ. Posuv spuštěn.";
+
   // --- NASTAVENÍ: INFORMÁLNÍ REŽIM + PŘÍSTUPNOST ---
   static String get informalModeTitle => "Neformální režim";
   static String informalModeSubtitle(bool on) => on

@@ -14,17 +14,203 @@ import 'song_export.dart';
 import 'concert_accessibility_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Beat interval v ms odvozený z efektivního BPM (60000 / bpm).
+/// Čistá funkce pro deterministický hudební timing + unit testy.
+/// Clamp 250–1500 ms je jen pojistka pro extrémy; v pásmu 75–180 BPM se neuplatní
+/// (75 → 800 ms, 90 → 667 ms, 120 → 500 ms, 150 → 400 ms, 180 → 333 ms).
+int beatIntervalMsForBpm(double effectiveBpm) {
+  if (effectiveBpm <= 0) return 500;
+  return (60000.0 / effectiveBpm).round().clamp(250, 1500);
+}
+
 /// Konstanta pro horní odsazení textu v SingleChildScrollView (16px).
 const double _kTopPadding = 16.0;
 
 /// Cíl zarážky – kotva na řádek textu (primárně) nebo procento (záložně).
-class _StopMarkTarget {
-  final StopMark? dbMark;
+///
+/// [lineIndex] = spouštěcí řádek, index v prostoru `ChordProParser.orderedLines`
+/// (tj. včetně řádků pauz). [anchorLineIndex] = textový řádek pro vizuální
+/// kotvu (červená ikona); u sloučené zarážky jde o řádek, před kterým pauza
+/// stojí. [fromDirective] = cíl vznikl z direktivy {stop:N} v textu.
+class StopMarkTarget {
+  /// Databázový záznam (null = cíl vznikl jen z direktivy v textu).
+  /// U sloučené zarážky je sem navázán DB záznam, který tutéž pozici
+  /// zastupoval – kv správu pauz a vizuální kotvu.
+  StopMark? dbMark;
   final int bars;
-  int? lineIndex;
-  double? ratio;
+  final int? lineIndex;
+  final int? anchorLineIndex;
+  final double? ratio;
+  final bool fromDirective;
 
-  _StopMarkTarget({this.dbMark, required this.bars, this.lineIndex, this.ratio});
+  StopMarkTarget({
+    this.dbMark,
+    required this.bars,
+    this.lineIndex,
+    this.anchorLineIndex,
+    this.ratio,
+    this.fromDirective = false,
+  });
+
+  /// Řádek pro vizuální kotvu (červená ikona v textu).
+  /// U direktiv je to textový řádek za pauzou; pokud za pauzou text není,
+  /// žádná kotva (řádek pauzy má vlastní ikonu). U databázových zarážek
+  /// je to jejich kotevní řádek.
+  int? get visualAnchor => fromDirective ? anchorLineIndex : lineIndex;
+}
+
+/// Výsledek rozřešení kotevního řádku databázové zarážky.
+enum StopMarkAnchorKind {
+  resolved,            // bezpečně určen řádek
+  byRatio,             // zarážka je ukotvená procentem (bez textové kotvy)
+  unresolvedMissing,   // kotva neodpovídá žádnému řádku – nikam se nepřesouvá
+  unresolvedAmbiguous, // text je nejednoznačný – nevybírá se první shoda (F-08)
+}
+
+/// Rozřeší kotevní řádek databázové zarážky v prostoru `lines`
+/// (prostor `orderedLines`, tj. včetně řádků pauz).
+///
+/// [lineText] slouží jen jako KONTROLA kotvy, nikoli jako způsob výběru:
+/// pokud uložený index neodpovídá očekávanému řádku a text se v písni
+/// vyskytuje vícekrát, kotva se nerozřeší – zarážka se nikam nepřesune
+/// a nevolí se první textově shodný řádek.
+({int? index, StopMarkAnchorKind kind}) resolveStopMarkAnchor({
+  required int? lineIndex,
+  required String? lineText,
+  required List<List<ChordProElement>> lines,
+}) {
+  final text = (lineText ?? '').trim();
+  if (lineIndex == null && text.isEmpty) {
+    // Zarážka bez textové kotvy = procentová pozice (původní chování).
+    return (index: null, kind: StopMarkAnchorKind.byRatio);
+  }
+  if (lineIndex != null && lineIndex >= 0 && lineIndex < lines.length) {
+    if (text.isEmpty || ChordProParser.lineText(lines[lineIndex]) == text) {
+      return (index: lineIndex, kind: StopMarkAnchorKind.resolved);
+    }
+  }
+  if (text.isEmpty) {
+    // Index mimo rozsah a není čím ověřit – kotvu neuhodneme.
+    return (index: null, kind: StopMarkAnchorKind.unresolvedMissing);
+  }
+  var matches = 0;
+  var matchIndex = -1;
+  for (var i = 0; i < lines.length; i++) {
+    if (ChordProParser.lineText(lines[i]) == text) {
+      matches++;
+      matchIndex = i;
+      if (matches > 1) break;
+    }
+  }
+  if (matches == 1) return (index: matchIndex, kind: StopMarkAnchorKind.resolved);
+  if (matches == 0) return (index: null, kind: StopMarkAnchorKind.unresolvedMissing);
+  return (index: null, kind: StopMarkAnchorKind.unresolvedAmbiguous);
+}
+
+/// Index prvního textového řádku (bez pauz) za direktivou na řádku [d],
+/// nebo null pokud za direktivou textový řádek není.
+int? nextContentLineAfterPause(int d, List<List<ChordProElement>> lines) {
+  for (var i = d + 1; i < lines.length; i++) {
+    if (!lines[i].any((e) => e.type == ElementType.stopMark)) return i;
+  }
+  return null;
+}
+
+/// Sestaví cíle pauz z direktiv {stop:N} v textu a z databázových zarážek.
+///
+/// Pravidlo: jedna logická zarážka = právě jeden cíl pauzy.
+///
+/// Direktiva v textu a databázový záznam reprezentují tutéž zarážku, pokud
+/// míří na tutéž pozici – na řádek direktivy nebo na textový řádek
+/// bezprostředně za ní (tak PC obě reprezentace generuje ze svého jednoho
+/// seznamu zarážek; telefon ukládá zarážku na řádek, kde byl při přidání).
+///
+/// Při sloučení má PŘEDNOST DIREKTIVA V TEXTU (pozice i délka pauzy):
+/// obsah souboru je kanonický artefakt, který PC při každém uložení
+/// regeneruje ze svých zarážek a který se sdílí a importuje. Databázový
+/// záznam se nemaže – zůstává kv správu pauz a pro vizuální kotvu.
+/// Databázové záznamy se nikdy nemažou ani nepřesouvají; pokud jejich
+/// kotvu nelze bezpečně rozřešit, nevytvoří se pro ně cíl (varování přes
+/// [onWarning]) a pauza zůstává na direktivě, pokud existuje.
+List<StopMarkTarget> buildStopMarkTargets({
+  required String content,
+  required List<StopMark> dbMarks,
+  void Function(String message)? onWarning,
+}) {
+  final lines = ChordProParser.orderedLines(content);
+  final targets = <StopMarkTarget>[];
+  // pozice (řádek direktivy i textový řádek za ní) -> kandidáti k párování
+  final directiveByPosition = <int, List<StopMarkTarget>>{};
+
+  void register(int? position, StopMarkTarget t) {
+    if (position == null) return;
+    directiveByPosition.putIfAbsent(position, () => []).add(t);
+  }
+
+  // 1) Zarážky z direktiv v textu – spouštěcí řádek je řádek direktivy.
+  for (final mark in ChordProParser.stopMarksInLines(content)) {
+    final d = mark.index;
+    final anchor = nextContentLineAfterPause(d, lines);
+    final t = StopMarkTarget(
+      bars: mark.bars > 0 ? mark.bars : 2,
+      lineIndex: d,
+      anchorLineIndex: anchor,
+      fromDirective: true,
+    );
+    targets.add(t);
+    register(d, t);
+    register(anchor, t);
+  }
+
+  // 2) Zarážky z databáze – párují se s direktivou, jinak vlastní cíl.
+  for (final dbMark in dbMarks) {
+    final res = resolveStopMarkAnchor(
+      lineIndex: dbMark.lineIndex,
+      lineText: dbMark.lineText,
+      lines: lines,
+    );
+    if (res.kind == StopMarkAnchorKind.byRatio) {
+      targets.add(StopMarkTarget(
+        dbMark: dbMark,
+        bars: dbMark.durationBars,
+        ratio: dbMark.positionRatio,
+      ));
+      continue;
+    }
+    final anchorLine = res.index;
+    if (res.kind != StopMarkAnchorKind.resolved || anchorLine == null) {
+      final reason = res.kind == StopMarkAnchorKind.unresolvedAmbiguous
+          ? 'text je v písni nejednoznačný'
+          : 'kotva neodpovídá žádnému řádku';
+      onWarning?.call(
+        'zarážka na ${dbMark.durationBars} takty (lineIndex=${dbMark.lineIndex}, '
+        'text="${dbMark.lineText ?? ''}") přeskočena: $reason – pauza se nikam '
+        'nepřesouvá.',
+      );
+      continue;
+    }
+    final candidates = directiveByPosition[anchorLine] ?? const <StopMarkTarget>[];
+    StopMarkTarget? pair;
+    for (final c in candidates) {
+      if (!c.fromDirective || c.dbMark == null) {
+        pair = c;
+        break;
+      }
+    }
+    if (pair != null) {
+      // Tutéž logickou zarážku už DIRECTIVA spouští – neděláme druhý cíl.
+      // Vítězí direktiva (pozice i takty); DB záznam zůstává navázaný.
+      pair.dbMark = dbMark;
+    } else {
+      targets.add(StopMarkTarget(
+        dbMark: dbMark,
+        bars: dbMark.durationBars,
+        lineIndex: anchorLine,
+        anchorLineIndex: anchorLine,
+      ));
+    }
+  }
+  return targets;
 }
 
 class PlayerPage extends StatefulWidget {
@@ -46,6 +232,15 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   late ConcertAccessibilityService _concertService;
   final FocusNode _focusNode = FocusNode();
   bool _isScrolling = false;
+  // Stav přípravy (intro / metronom / odpočet) je oddělen od běžícího posuvu:
+  // _isScrolling == true znamená POUZE "posuv reálně běží".
+  // _isPreparing == true znamená "odpočet právě probíhá, posuv ještě neběží".
+  bool _isPreparing = false;
+  // Cancellation token start sekvence — stop/dispose ho inkrementují,
+  // každé čekající Future po probuzení ověří generaci a tiše skončí.
+  int _startGeneration = 0;
+  // Krátký vizuální flash "TEĎ" po startu pro vidící uživatele.
+  bool _showGoCue = false;
   bool _concertMode = false;
   int _concertPreviewMode = 1; // 0 off, 1 onDemand, 2 auto
   bool _concertTrainingMode = false;
@@ -69,8 +264,8 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   int _countdown = 0;
   int _transpose = 0;
   List<StopMark> _stopMarks = [];
-  List<_StopMarkTarget> _resolvedStopMarks = [];
-  final Set<_StopMarkTarget> _triggeredMarks = {};
+  List<StopMarkTarget> _resolvedStopMarks = [];
+  final Set<StopMarkTarget> _triggeredMarks = {};
   Map<int, double> _lineOffsets = {};
   Set<int> _anchorLines = {};
 
@@ -89,6 +284,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   }
 
   double _effectiveBpm() => (_bpm ?? 120.0) * _scrollMultiplier;
+
+  /// Beat interval aktuální písně v ms (efektivní BPM = base * multiplier).
+  int _beatIntervalMs() => beatIntervalMsForBpm(_effectiveBpm());
 
   double _calcDurationSeconds(double remainingScroll) {
     final pixelsPerBeat = (_fontSize * 1.5) / 4.0;
@@ -220,46 +418,93 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     );
   }
 
+  /// Start sekvence: intro → metronom → odpočet 3-2-1 → "TEĎ" + start posuvu.
+  ///
+  /// introDuration = instrumentální intro kapely PŘED přípravou (čekání před
+  /// metronomem/odpočtem). Uložené hodnoty v DB se nemění, jen pořadí v sekvenci.
+  ///
+  /// Timing řídí deterministický beat interval (60000 / efektivní BPM), NIKDY
+  /// délka TTS promluvy. Všechna TTS jsou fire-and-forget; hudební kotvou je
+  /// click + haptika + start animace. TTS "TEĎ" je krátký doprovodný cue,
+  /// protože FlutterTts nemá sample-accurate timing.
   void _startWithCountdown() async {
-    setState(() => _isScrolling = true);
+    final int gen = ++_startGeneration;
+    bool cancelled() => gen != _startGeneration || !mounted;
+
+    // Vyprázdnit TTS frontu, aby do count-inu nedoznívala stará hláška.
+    try {
+      await _tts.stop();
+    } catch (_) {}
+    if (cancelled()) return;
+
+    // Začínáme vždy od začátku textu, aby první zpívaný řádek seděl s "TEĎ".
+    // Náhled dalšího řádku ("Přečíst kde jsem") zůstává před startem k dispozici.
+    if (_scrollController.hasClients) {
+      try {
+        _scrollController.jumpTo(0);
+      } catch (_) {}
+    }
+    setState(() {
+      _isPreparing = true;
+      _isScrolling = false;
+      _showGoCue = false;
+      _countdown = 0;
+    });
     HapticFeedback.vibrate();
 
+    // 1. Případné intro kapely — čekání před přípravou.
+    if (_introDuration != null && _introDuration! > 0) {
+      unawaited(_tts.speak(AppStrings.introMessage(_introDuration!.round())));
+      await Future.delayed(Duration(milliseconds: (_introDuration! * 1000).round()));
+      if (cancelled()) return;
+    }
+
+    // 2. Případný hudební metronom — 4 údery v tempu efektivního BPM.
     if (_enableMetronome && (_bpm ?? 120) > 0) {
-      final bpm = _effectiveBpm();
-      final intervalMs = (60000 / bpm).clamp(200, 1000).round();
-      // Krátký metronom před odpočtem (4 údery) — slyšitelný i bez sluchátek
       for (int k = 0; k < 4; k++) {
-        if (!mounted || !_isScrolling) break;
+        if (cancelled()) return;
         SystemSound.play(SystemSoundType.click);
         HapticFeedback.lightImpact();
-        await Future.delayed(Duration(milliseconds: intervalMs));
+        await Future.delayed(Duration(milliseconds: _beatIntervalMs()));
       }
-      if (!mounted || !_isScrolling) return;
-    }
-    
-    if (_introDuration != null && _introDuration! > 0) {
-      _tts.speak(AppStrings.introMessage(_introDuration!.round()));
-      await Future.delayed(Duration(seconds: _introDuration!.round()));
+      if (cancelled()) return;
     }
 
-    if (!mounted || !_isScrolling) return;
-
+    // 3. Přípravný odpočet 3-2-1 v beatu efektivního BPM (ne pevná sekunda).
     for (int i = 3; i > 0; i--) {
-      if (!mounted || !_isScrolling) return;
+      if (cancelled()) return;
       setState(() => _countdown = i);
-      _tts.speak("$i");
+      unawaited(_tts.speak('$i'));
       HapticFeedback.vibrate();
-      if (_enableMetronome) SystemSound.play(SystemSoundType.click);
-      await Future.delayed(const Duration(seconds: 1));
+      SystemSound.play(SystemSoundType.click);
+      await Future.delayed(Duration(milliseconds: _beatIntervalMs()));
     }
+    if (cancelled()) return;
 
-    if (!mounted || !_isScrolling) return;
-    setState(() => _countdown = 0);
+    // 4. Poslední přípravný beat → cue "TEĎ" → start scroll animace
+    // v jednom synchronním bloku, bez mezery. Po zrušení se nic z toho nestane
+    // (guard výše), takže "TEĎ" nikdy nedohraje po stopu.
+    setState(() {
+      _countdown = 0;
+      _showGoCue = true;
+    });
+    SystemSound.play(SystemSoundType.click);
     HapticFeedback.vibrate();
-    if (_enableMetronome) SystemSound.play(SystemSoundType.click);
-    
-    debugPrint("Countdown finished, calling _startScrolling");
+    unawaited(_tts.speak(AppStrings.startCueNow));
+    setState(() {
+      _isPreparing = false;
+      _isScrolling = true;
+    });
+
+    debugPrint('Countdown finished, calling _startScrolling');
     _startScrolling();
+
+    // Vizuální flash "TEĎ" krátce podržet, pak skrýt (jen pokud mezitím
+    // nezačala nová generace / stop).
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (gen == _startGeneration && mounted) {
+      setState(() => _showGoCue = false);
+    }
   }
 
   static const MethodChannel _concertChannel = MethodChannel('concert_volume_channel');
@@ -331,11 +576,11 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     // Přečíst kde jsem je trvale dostupné i mimo koncertní režim (po akci uživatele)
-    // HW šipka dolů / numpad5 funguje vždy pokud není posuv v odpočtu
+    // HW šipka dolů / numpad5 funguje vždy pokud neběží příprava ani posuv v odpočtu
     if (event is KeyDownEvent &&
         (event.logicalKey == LogicalKeyboardKey.arrowDown ||
             event.logicalKey == LogicalKeyboardKey.numpad5)) {
-      if (_countdown == 0) {
+      if (_countdown == 0 && !_isPreparing) {
         HapticFeedback.vibrate();
         _announceNextLine(isAutomatic: false);
         return KeyEventResult.handled;
@@ -354,12 +599,14 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   }
 
   Future<void> _announceNextLine({required bool isAutomatic}) async {
-    // Trvale dostupné po akci uživatele — ne po otevření. Mimo koncertní funguje onDemand vždy.
+    // Ruční náhled ("Kde jsem") je trvale dostupný i mimo koncertní režim — na vyžádání.
+    // Automatický náhled funguje pouze v koncertním režimu (volba 2).
+    if (isAutomatic && !_concertMode) return;
     // Vypnuto jen pokud uživatel explicitně zvolil 0.
     if (_concertPreviewMode == 0 && isAutomatic) return;
     if (isAutomatic && _concertPreviewMode != 2) return;
-    // Nepřekrývat odpočet a pauzu
-    if (_countdown > 0) return;
+    // Nepřekrývat přípravu (intro / metronom / odpočet) ani pauzu
+    if (_isPreparing || _countdown > 0) return;
 
     final int? startOverride = isAutomatic ? null : _manualPreviewCursor;
     final int count = _previewLineCount.clamp(2, 3);
@@ -379,9 +626,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   }
 
   void _checkAutoNextLine() {
-    // Automatický náhled platí i mimo koncertní pokud je režim Auto (2) a count 2/3
-    if (_concertPreviewMode != 2 || !_isScrolling) return;
-    if (_countdown > 0) return;
+    // Automatický náhled pouze v koncertním režimu (volba 2), mimo koncert jen na vyžádání
+    if (!_concertMode || _concertPreviewMode != 2 || !_isScrolling) return;
+    if (_isPreparing || _countdown > 0) return;
     final topIdx = _topVisibleLineIndex();
     if (topIdx == null) return;
     final lines = ChordProParser.orderedLines(_loadedContent ?? '');
@@ -429,7 +676,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     }
   }
 
-  double? _stopMarkTargetOffset(_StopMarkTarget mark, double maxExtent) {
+  double? _stopMarkTargetOffset(StopMarkTarget mark, double maxExtent) {
     final lineIndex = mark.lineIndex;
     final lineOffset = lineIndex != null ? _lineOffsets[lineIndex] : null;
     if (lineOffset != null) {
@@ -442,7 +689,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     return null;
   }
 
-  Future<void> _handleStopMarkTarget(_StopMarkTarget mark) async {
+  Future<void> _handleStopMarkTarget(StopMarkTarget mark) async {
     final bars = mark.bars > 0 ? mark.bars : 2;
     _scrollAnimationController.stop();
     _tts.speak(AppStrings.stopMarkMessage(bars));
@@ -523,53 +770,28 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   }
 
   /// Sestaví cíle zarážek: z direktiv {stop}/{pause} v textu i z databáze.
+  ///
+  /// Logika je v čisté funkci [buildStopMarkTargets] (viz player_page.dart),
+  /// aby byla testovatelná bez widgetů. Jedna logická zarážka (directiva
+  /// i DB záznam pro tutéž pozici) vytváří právě jeden cíl pauzy.
   Future<void> _buildResolvedStopMarks() async {
     final content = _loadedContent ?? '';
-    final lines = ChordProParser.orderedLines(content);
-    final targets = <_StopMarkTarget>[];
-
-    // Zarážky z direktiv v textu
-    for (final mark in ChordProParser.stopMarksInLines(content)) {
-      targets.add(_StopMarkTarget(bars: mark.bars, lineIndex: mark.index));
+    final warnings = <String>[];
+    final targets = buildStopMarkTargets(
+      content: content,
+      dbMarks: _stopMarks,
+      onWarning: warnings.add,
+    );
+    for (final w in warnings) {
+      debugPrint('Správa pauz: $w');
     }
-
-    // Zarážky z databáze (s kotvou na řádek, případně záložně procentem)
-    for (final dbMark in _stopMarks) {
-      final lineIndex = _resolveDbLineIndex(dbMark, lines);
-      targets.add(_StopMarkTarget(
-        dbMark: dbMark,
-        bars: dbMark.durationBars,
-        lineIndex: lineIndex,
-        ratio: lineIndex == null ? dbMark.positionRatio : null,
-      ));
-    }
-
     setState(() {
       _resolvedStopMarks = targets;
       _anchorLines = {
         for (final t in targets)
-          if (t.dbMark != null && t.lineIndex != null) t.lineIndex!,
+          if (t.dbMark != null && t.visualAnchor != null) t.visualAnchor!,
       };
     });
-  }
-
-  /// Najde kotevní řádek databázové zarážky podle uloženého textu/indexu.
-  int? _resolveDbLineIndex(StopMark mark, List<List<ChordProElement>> lines) {
-    final markText = (mark.lineText ?? '').trim();
-    if (mark.lineIndex != null && mark.lineIndex! >= 0 && mark.lineIndex! < lines.length) {
-      final idx = mark.lineIndex!;
-      final matchesText = markText.isEmpty ||
-          ChordProParser.lineText(lines[idx]) == markText;
-      if (matchesText) return idx;
-    }
-    if (markText.isNotEmpty) {
-      for (var i = 0; i < lines.length; i++) {
-        if (ChordProParser.lineText(lines[i]) == markText) return i;
-      }
-    }
-    return mark.lineIndex != null && mark.lineIndex! >= 0 && mark.lineIndex! < lines.length
-        ? mark.lineIndex
-        : null;
   }
 
   Future<void> _reloadStopMarks() async {
@@ -873,10 +1095,19 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   }
 
   void _stopScrolling() {
+    // Zneplatnit jakoukoliv běžící start sekvenci — její čekající Future
+    // po probuzení uvidí jinou generaci a tiše skončí (nespustí scroll,
+    // nepřehrane "TEĎ").
+    _startGeneration++;
     _scrollAnimationController.stop();
+    try {
+      _tts.stop();
+    } catch (_) {}
     setState(() {
       _isScrolling = false;
+      _isPreparing = false;
       _countdown = 0;
+      _showGoCue = false;
     });
 
     // Pokud jsme v režimu Setlist a došli jsme na konec, nabídneme další píseň
@@ -1018,7 +1249,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
         return;
       }
     }
-    if (_isScrolling) {
+    if (_isScrolling || _isPreparing) {
       _stopScrolling();
     } else {
       _startWithCountdown();
@@ -1049,6 +1280,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    _startGeneration++;
     _concertService.reset();
     _concertChannel.setMethodCallHandler(null);
     _focusNode.dispose();
@@ -1280,6 +1512,21 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                     ),
                   ),
                 ),
+              if (_showGoCue)
+                Semantics(
+                  liveRegion: true,
+                  label: AppStrings.playerGoAnnouncement,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.all(40),
+                      decoration: BoxDecoration(color: Colors.green.shade700, shape: BoxShape.circle),
+                      child: Text(
+                        AppStrings.startCueNow,
+                        style: const TextStyle(fontSize: 64, color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ),
               // Trvalý overlay pro rychlé ladění BPM i během posuvu (±5 tap, ±10 long-press)
               if (!_isLoading)
                 Positioned(
@@ -1458,12 +1705,20 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
           ),
           const SizedBox(width: 16),
           Semantics(
-            label: _isScrolling || _countdown > 0 ? "Zastavit posuv" : "Spustit posuv",
+            label: _isScrolling
+                ? "Zastavit posuv"
+                : (_isPreparing || _countdown > 0
+                    ? AppStrings.playerCountdownCancelLabel
+                    : "Spustit posuv"),
             button: true,
             child: FloatingActionButton(
               heroTag: 'playFAB',
               onPressed: _toggleScrolling,
-              child: Icon(_isScrolling || _countdown > 0 ? Icons.pause : Icons.play_arrow),
+              child: Icon(_isScrolling
+                  ? Icons.pause
+                  : (_isPreparing || _countdown > 0
+                      ? Icons.stop
+                      : Icons.play_arrow)),
             ),
           ),
         ],

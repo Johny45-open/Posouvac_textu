@@ -26,10 +26,19 @@ class ConcertAccessibilityService {
     Future<void> Function()? onNextSong,
     Future<void> Function()? onPrevSong,
   }) {
-    if (!concertMode) return false;
     if (event is! KeyDownEvent) return false;
 
     final key = event.logicalKey;
+
+    // Přečíst kde jsem (šipka dolů / numpad5) funguje i mimo koncertní režim — na vyžádání
+    if (key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.numpad5) {
+      HapticFeedback.vibrate();
+      onAnnounceNext();
+      return true;
+    }
+
+    if (!concertMode) return false;
 
     // Setlist: další / předchozí píseň - HW media klávesy (B2)
     if (onNextSong != null &&
@@ -76,13 +85,6 @@ class ConcertAccessibilityService {
         key == LogicalKeyboardKey.numpad1) {
       HapticFeedback.selectionClick();
       onAdjustBpm(-5);
-      return true;
-    }
-    // Šipka dolů - náhled dalšího řádku (pedál long = držení posílá opakovaně)
-    if (key == LogicalKeyboardKey.arrowDown ||
-        key == LogicalKeyboardKey.numpad5) {
-      HapticFeedback.vibrate();
-      onAnnounceNext();
       return true;
     }
 
