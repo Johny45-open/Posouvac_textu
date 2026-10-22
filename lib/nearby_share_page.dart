@@ -31,6 +31,9 @@ class NearbySharePage extends StatefulWidget {
   final int? totalDuration;
   final int? unknownCount;
 
+  /// Přenosová identita setlistu (v5) – propojuje se do fallback exportu.
+  final String? playlistUid;
+
   const NearbySharePage({
     super.key,
     required this.db,
@@ -49,6 +52,7 @@ class NearbySharePage extends StatefulWidget {
     this.songs,
     this.totalDuration,
     this.unknownCount,
+    this.playlistUid,
   });
 
   @override
@@ -177,7 +181,7 @@ class _NearbySharePageState extends State<NearbySharePage> {
     } else {
       songsPayload = songsPayload.map((e) { final m = Map<String, dynamic>.from(e); m.remove('filePath'); return m; }).toList();
     }
-    return buildPlaylistPackageJson(name: name, songs: songsPayload, totalDuration: totalDuration, unknownCount: unknown);
+    return buildPlaylistPackageJson(name: name, songs: songsPayload, totalDuration: totalDuration, unknownCount: unknown, playlistUid: widget.playlistUid);
   }
 
   Future<void> _sendTo(String endpointId, String endpointName) async {

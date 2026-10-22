@@ -125,7 +125,13 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
         }
       }
     } catch (e) {
-      _announceError(AppStrings.playlistImportError);
+      // FormatException nese srozumitelné české hlášení (např. legacy soubor
+      // bez identit k existujícímu setlistu, duplicitní occurrenceId) –
+      // toto hlášení se ukáže uživateli místo obecné chyby.
+      final msg = e is FormatException && e.message.isNotEmpty
+          ? e.message
+          : AppStrings.playlistImportError;
+      _announceError(msg);
     }
   }
 
@@ -281,6 +287,8 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
       for (final w in items) {
         final marks = await widget.db.getStopMarksForSong(w.song.id);
         final entry = <String, dynamic>{
+          // Přenosová identita výskytu (v5) – stabilní při opakovaném exportu.
+          'occurrenceId': w.occurrenceId,
           'title': w.song.title,
           'artist': w.song.artist,
           'duration': w.song.duration,
@@ -300,7 +308,7 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
         songsPayload.add(entry);
       }
       if (!mounted) return;
-      await showPlaylistShareDialog(context, playlistName: playlist.name, songs: songsPayload, totalDuration: totalDuration, unknownCount: unknown, db: widget.db, playlistId: playlist.id);
+      await showPlaylistShareDialog(context, playlistName: playlist.name, songs: songsPayload, totalDuration: totalDuration, unknownCount: unknown, db: widget.db, playlistId: playlist.id, playlistUid: playlist.playlistUid);
     } catch (e) {
       _tts.speak(AppStrings.shareError);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.shareError)));
@@ -888,6 +896,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     for (final w in items) {
       final marks = await widget.db.getStopMarksForSong(w.song.id);
       final entry = <String, dynamic>{
+        'occurrenceId': w.occurrenceId,
         'title': w.song.title,
         'artist': w.song.artist,
         'duration': w.song.duration,
@@ -906,7 +915,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
       }
       payload.add(entry);
     }
-    await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown, db: widget.db, playlistId: widget.playlist.id);
+    await showPlaylistShareDialog(context, playlistName: widget.playlist.name, songs: payload, totalDuration: totalDuration, unknownCount: unknown, db: widget.db, playlistId: widget.playlist.id, playlistUid: widget.playlist.playlistUid);
   }
 
   @override

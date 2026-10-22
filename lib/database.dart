@@ -87,6 +87,21 @@ class PlaylistSyncResult {
   final List<DurationFixCandidate> durationCandidates;
   final List<DiacriticRepairCandidate> diacriticCandidates;
 
+  /// Přenosová identita setlistu po synchronizaci (u souborů v5 převzatá,
+  /// u starších souborů vygenerovaná).
+  final String? playlistUid;
+
+  /// True, pokud import vytvořil NOVÝ setlist (žádný existující nebyl
+  /// přepsán). U starších souborů bez identit je true vždy – setlist
+  /// stejného názvu se totiž nepřepisuje potichu.
+  final bool createdNewPlaylist;
+
+  /// Klíče neznámých polí ze souboru, která aplikace v tomto schématu
+  /// NEUMÍ uložit (v13 nemá extras) a byla tedy při importu vynechána.
+  /// Nejde o tiché zahození – výsledek to hlásí; úplné uložení extras
+  /// vyžaduje samostatně schválenou migraci (viz A1.3, sekce 7).
+  final List<String> droppedExtrasKeys;
+
   PlaylistSyncResult({
     required this.playlistName,
     required this.matchedCount,
@@ -95,6 +110,9 @@ class PlaylistSyncResult {
     this.unknownShared = 0,
     this.durationCandidates = const [],
     this.diacriticCandidates = const [],
+    this.playlistUid,
+    this.createdNewPlaylist = false,
+    this.droppedExtrasKeys = const [],
   });
 }
 
@@ -194,10 +212,28 @@ class PlaylistSongWithTempo {
   final SongEntry song;
   final double? playlistTempo;
   final int orderIndex;
+
+  /// Přenosová identita výskytu (UUID v4, etapa A1.2/A1.3).
+  /// Při přesunu položky ani změně jejího nastavení se nemění.
+  final String occurrenceId;
+
+  /// Per-výskytové rychlosti posuvu (null = zděděné ze skladby/globální).
+  final double? scrollSpeed;
+
+  /// Per-výskytová délka úvodu v sekundách (null = zděděné ze skladby).
+  final double? introDuration;
+
+  /// Tri-stav výskytových zarážek (null = zděděné ze skladby).
+  final bool? stopMarksOverride;
+
   const PlaylistSongWithTempo({
     required this.song,
     this.playlistTempo,
     required this.orderIndex,
+    required this.occurrenceId,
+    this.scrollSpeed,
+    this.introDuration,
+    this.stopMarksOverride,
   });
 
   double? get effectiveTempo => playlistTempo ?? song.tempo;
@@ -986,15 +1022,24 @@ class AppDatabase extends _$AppDatabase {
     final songsJson = <Map<String, dynamic>>[];
     for (final w in items) {
       final s = w.song;
+      // Per-výskytové nastavení má přednost; globální nastavení skladby je
+      // jen fallback, když výskyt vlastní hodnotu nemá. Nikdy se tak
+      // hodnoty nezaměňují mezi úrovněmi.
       final entry = <String, dynamic>{
+        // Přenosová identita výskytu – povinná součást exportu v5.
+        'occurrenceId': w.occurrenceId,
         'title': s.title,
         'artist': s.artist,
         'duration': s.duration,
         if (w.playlistTempo != null) 'tempo': w.playlistTempo,
         if (w.playlistTempo == null && s.tempo != null) 'tempo': s.tempo,
-        if (s.customScrollSpeed != null) 'scrollSpeed': s.customScrollSpeed,
+        if ((w.scrollSpeed ?? s.customScrollSpeed) != null)
+          'scrollSpeed': w.scrollSpeed ?? s.customScrollSpeed,
         if (s.customFontSize != null) 'fontSize': s.customFontSize,
-        if (s.introDuration != null) 'introDuration': s.introDuration,
+        if ((w.introDuration ?? s.introDuration) != null)
+          'introDuration': w.introDuration ?? s.introDuration,
+        if (w.stopMarksOverride != null)
+          'stopMarksOverride': w.stopMarksOverride,
       };
       // Pokud obě tempa null, tempo neuvádíme (zůstane null na importu)
       if (entry['tempo'] == null) entry.remove('tempo');
@@ -1034,7 +1079,8 @@ class AppDatabase extends _$AppDatabase {
     }
     return {
       'type': 'playlist',
-      'version': 4,
+      'version': 5,
+      'playlistUid': playlist.playlistUid,
       'name': playlist.name,
       'exportedAt': DateTime.now().toIso8601String(),
       'totalDuration': totalDuration,
@@ -1047,6 +1093,24 @@ class AppDatabase extends _$AppDatabase {
     final playlistName = (data['name'] as String?)?.trim() ?? '';
     if (playlistName.isEmpty) {
       throw const FormatException('Chybějící název playlistu.');
+    }
+    // Přenosová identita setlistu (v5+). Soubory bez ní jsou starší
+    // formát (v2–v4) a nesmějí potichu přepisovat existující setlisty.
+    final playlistUidRaw = (data['playlistUid'] ?? '').toString().trim();
+    final isIdentifiedFormat = playlistUidRaw.isNotEmpty;
+    // Sběr neznámých horní-úrovňových polí (schéma v13 nemá extras –
+    // neukládáme je, ale NEZAHAZUJEME potichu: viz droppedExtrasKeys).
+    // ttsEngine/ttsVoice jsou sice kanonická pole kontraktu v5, ale app
+    // pro ně nemá sloupec → rovněž se hlásí jako neuložená.
+    const canonicalTopKeys = {
+      'type', 'version', 'name', 'exportedAt', 'totalDuration',
+      'unknownCount', 'songs', 'playlistUid',
+    };
+    final droppedKeys = <String>{};
+    for (final key in data.keys) {
+      if (!canonicalTopKeys.contains(key) && !key.startsWith('_')) {
+        droppedKeys.add(key);
+      }
     }
     final rawSongs = data['songs'] as List<dynamic>? ?? const [];
     // V2: List<Map> s title/artist/duration, zpětně kompatibilní List<String>
@@ -1109,7 +1173,31 @@ class AppDatabase extends _$AppDatabase {
             stopMarks.add({'lineText': lt, 'lineIndex': li, 'bars': bars});
           }
         }
-        parsedSongs.add({'title': title, 'artist': artist, 'duration': duration, 'tempo': tempo, 'scrollSpeed': scrollSpeed, 'fontSize': fontSize, 'introDuration': introDuration, 'content': m['content'], 'stopMarks': stopMarks, 'hasStopMarksKey': hasStopMarksKey});
+        // v5: přenosová identita výskytu; null u starších souborů.
+        final occurrenceIdRaw = (m['occurrenceId'] ?? '').toString().trim();
+        // v5: tri-stav výskytových zarážek (null = zděděné ze skladby).
+        final override = m['stopMarksOverride'] is bool
+            ? (m['stopMarksOverride'] as bool)
+            : null;
+        // Neznámá per-item pole (extras) – schéma v13 je neumí uložit,
+        // proto se jen hlásí (viz droppedExtrasKeys), neukládají se.
+        const canonicalItemKeys = {
+          'title', 'name', 'artist', 'duration', 'tempo', 'scrollSpeed',
+          'fontSize', 'introDuration', 'content', 'stopMarks', 'filePath',
+          'occurrenceId', 'stopMarksOverride', 'extras',
+        };
+        for (final key in m.keys) {
+          if (!canonicalItemKeys.contains(key) && !key.startsWith('_')) {
+            droppedKeys.add(key);
+          }
+        }
+        if (m['extras'] is Map) {
+          for (final key in (m['extras'] as Map).keys) {
+            final k = key.toString();
+            if (!k.startsWith('_')) droppedKeys.add(k);
+          }
+        }
+        parsedSongs.add({'title': title, 'artist': artist, 'duration': duration, 'tempo': tempo, 'scrollSpeed': scrollSpeed, 'fontSize': fontSize, 'introDuration': introDuration, 'content': m['content'], 'stopMarks': stopMarks, 'hasStopMarksKey': hasStopMarksKey, 'occurrenceId': occurrenceIdRaw, 'stopMarksOverride': override});
         if (duration != null && duration > 0) {
           if (totalDurationShared == 0) totalDurationShared += duration;
         } else {
@@ -1141,7 +1229,7 @@ class AppDatabase extends _$AppDatabase {
             }
           }
         }
-        parsedSongs.add({'title': title, 'artist': artist, 'duration': null, 'tempo': null, 'stopMarks': <Map<String, dynamic>>[], 'hasStopMarksKey': false});
+        parsedSongs.add({'title': title, 'artist': artist, 'duration': null, 'tempo': null, 'stopMarks': <Map<String, dynamic>>[], 'hasStopMarksKey': false, 'occurrenceId': '', 'stopMarksOverride': null});
         unknownShared++;
       }
     }
@@ -1151,15 +1239,26 @@ class AppDatabase extends _$AppDatabase {
       unknownShared = parsedSongs.where((e) => (e['duration'] as int?) == null || (e['duration'] as int) == 0).length;
     }
 
-    // Slovníky pro match: norm(artist|title) primárně, norm(title) fallback, vše s diakritikou-insensitive
+    // Slovníky pro match: norm(artist|title) primárně, norm(title) jen pokud
+    // soubor nemá interpreta a shoda je jednoznačná. Nikdy se nevybírá
+    // „první shoda“ – u vícenásobných kandidátů je párování nejednoznačné
+    // a položka se spáruje (T-13H, sekce 6 schválení A1.3).
     final allSongs = await select(songs).get();
-    final byNormFull = <String, SongEntry>{};
-    final byNormTitle = <String, SongEntry>{};
+    final byNormFull = <String, List<SongEntry>>{};
+    final byNormTitle = <String, List<SongEntry>>{};
     for (final song in allSongs) {
       final fullKey = _normForMatch('${song.artist}|${song.title}');
       final titleKey = _normForMatch(song.title);
-      if (fullKey.isNotEmpty && !byNormFull.containsKey(fullKey)) byNormFull[fullKey] = song;
-      if (titleKey.isNotEmpty && !byNormTitle.containsKey(titleKey)) byNormTitle[titleKey] = song;
+      if (fullKey.isNotEmpty) byNormFull.putIfAbsent(fullKey, () => []).add(song);
+      if (titleKey.isNotEmpty) byNormTitle.putIfAbsent(titleKey, () => []).add(song);
+    }
+    // Vrátí shodu jen pokud je právě jedna; 0 i ≥2 kandidátů = neshoda,
+    // aby se nikdy náhodně nevybrala špatná píseň.
+    SongEntry? uniqueMatch(Map<String, List<SongEntry>> index, String key) {
+      if (key.isEmpty) return null;
+      final list = index[key];
+      if (list == null || list.length != 1) return null;
+      return list.first;
     }
 
     final notFound = <String>[];
@@ -1180,16 +1279,76 @@ class AppDatabase extends _$AppDatabase {
 
     var matchedCount = 0;
 
-    await transaction(() async {
-      Playlist? playlist = await (select(playlists)..where((t) => t.name.equals(playlistName))).getSingleOrNull();
-      int playlistId;
-      if (playlist == null) {
-        playlistId = await into(playlists).insert(
-            PlaylistsCompanion.insert(name: playlistName, playlistUid: _newUuidV4()));
-      } else {
-        playlistId = playlist.id;
-        await (delete(playlistSongs)..where((t) => t.playlistId.equals(playlistId))).go();
+    // Výsledek párování setlistu z transakce (pro PlaylistSyncResult).
+    int? syncCreatedPlaylistId;
+    String? syncPlaylistUid;
+
+    // Validace ještě před zápisem: soubor nesmí obsahovat occurrenceId
+    // dvakrát (nejednoznačný import → chyba, žádná data se nezmění).
+    if (isIdentifiedFormat) {
+      final seenOcc = <String>{};
+      for (final entry in parsedSongs) {
+        final occ = (entry['occurrenceId'] as String? ?? '').trim();
+        if (occ.isNotEmpty && !seenOcc.add(occ)) {
+          throw FormatException(
+              'Soubor obsahuje occurrenceId "$occ" dvakrát – '
+              'nejednoznačný import, data nebyla změněna.');
+        }
       }
+    }
+
+    await transaction(() async {
+      // --- Párování setlistu -----------------------------------------------
+      // Identifikovaný soubor (v5): párovat POUZE podle playlistUid, nikdy
+      // podle jména. Setlist stejného jména s jiným uid se nepřepisuje.
+      // Starší soubor bez uid: setlist stejného jména se potichu nepřepisuje
+      // (nelze bezpečně rozlišit aktualizaci od kopie) → srozumitelná chyba.
+      Playlist playlist;
+      bool createdNewPlaylist = false;
+      if (isIdentifiedFormat) {
+        final existingByUid = await (select(playlists)
+              ..where((t) => t.playlistUid.equals(playlistUidRaw)))
+            .getSingleOrNull();
+        if (existingByUid != null) {
+          playlist = existingByUid;
+        } else {
+          final id = await into(playlists).insert(PlaylistsCompanion.insert(
+              name: playlistName, playlistUid: playlistUidRaw));
+          createdNewPlaylist = true;
+          playlist = await (select(playlists)..where((t) => t.id.equals(id)))
+              .getSingle();
+        }
+      } else {
+        final existingByName = await (select(playlists)
+              ..where((t) => t.name.equals(playlistName)))
+            .getSingleOrNull();
+        if (existingByName != null) {
+          throw FormatException(
+              'Setlist "$playlistName" už existuje a soubor neobsahuje '
+              'přenosové ID (playlistUid). Aktualizaci ani bezpečnou kopii '
+              'nerozliším – import zastaven, data zůstala beze změny. '
+              'Pro opakovanou synchronizaci použij soubor formátu v5.');
+        }
+        final id = await into(playlists).insert(PlaylistsCompanion.insert(
+            name: playlistName, playlistUid: _newUuidV4()));
+        createdNewPlaylist = true;
+        playlist = await (select(playlists)..where((t) => t.id.equals(id)))
+            .getSingle();
+      }
+      final int playlistId = playlist.id;
+
+      // --- Párování výskytů (jen identified režim) ------------------------
+      // Výskyty se párují podle occurrenceId, NE podle songId. Žádný řádek
+      // se nemaže – opakovaný import je deterministický (UPDATE/INSERT).
+      final existingRows = await (select(playlistSongs)
+            ..where((t) => t.playlistId.equals(playlistId)))
+          .get();
+      final rowByOccurrence = <String, PlaylistSong>{
+        for (final r in existingRows)
+          if (r.occurrenceId.isNotEmpty) r.occurrenceId: r,
+      };
+      final consumedRowIds = <int>{};
+
       int order = 0;
       for (final entry in parsedSongs) {
         final title = entry['title'] as String;
@@ -1200,10 +1359,17 @@ class AppDatabase extends _$AppDatabase {
         final fontSize = entry['fontSize'] as double?;
         final introDuration = entry['introDuration'] as double?;
         final content = entry['content'] as String?;
+        final occurrenceIdRaw = (entry['occurrenceId'] as String? ?? '').trim();
+        final stopMarksOverride = entry['stopMarksOverride'] as bool?;
         final fullKey = artist.isNotEmpty ? _normForMatch('$artist|$title') : '';
         final titleKey = _normForMatch(title);
-        SongEntry? song = fullKey.isNotEmpty ? byNormFull[fullKey] : null;
-        song ??= byNormTitle[titleKey];
+        // Interpret ve zdroji souhlasí → párovat dle (interpret|název);
+        // bez interpreta ve zdroji → dle názvu. Vždy jen při právě jednom
+        // kandidátu. Shodný název s jiným interpretem se NESPÁRUJE
+        // (žádná potichu přepsaná cizí píseň – T-13H).
+        final SongEntry? song = artist.isNotEmpty
+            ? uniqueMatch(byNormFull, fullKey)
+            : uniqueMatch(byNormTitle, titleKey);
         final label = artist.isNotEmpty ? '$artist - $title' : title;
         if (song != null) {
           matchedCount++;
@@ -1233,19 +1399,74 @@ class AppDatabase extends _$AppDatabase {
             final marks = (entry['stopMarks'] as List<Map<String, dynamic>>?) ?? const [];
             sharedStopMarksBySongId[song.id] = List<Map<String, dynamic>>.from(marks);
           }
-          // vložit jen první výskyt téže písně (staré chování insertOrIgnore)
           final currentOrder = order++;
-          if (insertedSongIds.add(song.id)) {
-            await into(playlistSongs).insert(
-              PlaylistSongsCompanion.insert(
+
+          if (isIdentifiedFormat) {
+            // 1) Párování výskytu dle occurrenceId – UPDATE bez změny identity.
+            PlaylistSong? target;
+            String? occurrenceId;
+            if (occurrenceIdRaw.isNotEmpty) {
+              final existing = rowByOccurrence[occurrenceIdRaw];
+              if (existing != null && !consumedRowIds.contains(existing.id)) {
+                target = existing;
+                occurrenceId = existing.occurrenceId; // identity se NEMĚNÍ
+                consumedRowIds.add(existing.id);
+              }
+            } else {
+              // Fallback pro položky bez uid: první dosud nevyužitý řádek
+              // stejného songId v rámci tohoto setlistu.
+              for (final r in existingRows) {
+                if (r.songId == song.id && !consumedRowIds.contains(r.id)) {
+                  target = r;
+                  occurrenceId = r.occurrenceId;
+                  consumedRowIds.add(r.id);
+                  break;
+                }
+              }
+            }
+            if (target != null) {
+              // id si uložíme předem – uvnitř closure se typ target
+              // nepropaguje (Dart flow analysis).
+              final targetId = target.id;
+              await (update(playlistSongs)..where((t) => t.id.equals(targetId)))
+                  .write(PlaylistSongsCompanion(
+                songId: Value(song.id),
+                orderIndex: Value(currentOrder),
+                tempo: Value(tempo),
+                scrollSpeed: Value(scrollSpeed),
+                introDuration: Value(introDuration),
+                stopMarksOverride: Value(stopMarksOverride),
+              ));
+            } else {
+              final newOcc =
+                  occurrenceIdRaw.isNotEmpty ? occurrenceIdRaw : _newUuidV4();
+              await into(playlistSongs).insert(PlaylistSongsCompanion.insert(
                 playlistId: playlistId,
                 songId: song.id,
                 orderIndex: Value(currentOrder),
                 tempo: Value(tempo),
+                scrollSpeed: Value(scrollSpeed),
+                introDuration: Value(introDuration),
+                stopMarksOverride: Value(stopMarksOverride),
+                occurrenceId: newOcc,
+              ));
+            }
+          } else {
+            // Legacy v3/v4 bez identit: vložit první výskyt téže písně
+            // (staré chování insertOrIgnore – druhý výskyt bez identity
+            // by byl nejednoznačný).
+            if (insertedSongIds.add(song.id)) {
+              await into(playlistSongs).insert(PlaylistSongsCompanion.insert(
+                playlistId: playlistId,
+                songId: song.id,
+                orderIndex: Value(currentOrder),
+                tempo: Value(tempo),
+                scrollSpeed: Value(scrollSpeed),
+                introDuration: Value(introDuration),
+                stopMarksOverride: Value(stopMarksOverride),
                 occurrenceId: _newUuidV4(),
-              ),
-              mode: InsertMode.insertOrIgnore,
-            );
+              ));
+            }
           }
           // content pro existující aktualizujeme po transakci (aktualizovat case 2)
         } else {
@@ -1253,6 +1474,8 @@ class AppDatabase extends _$AppDatabase {
           notFoundLabels.add(label);
         }
       }
+      syncCreatedPlaylistId = createdNewPlaylist ? playlistId : null;
+      syncPlaylistUid = playlist.playlistUid;
       // Pokud export obsahoval nové písně s content a nenašly se, vytvořit je (volitelně)
       for (final entry in parsedSongs) {
         final label = (entry['artist'] as String).isNotEmpty ? "${entry['artist']} - ${entry['title']}" : entry['title'] as String;
@@ -1265,22 +1488,65 @@ class AppDatabase extends _$AppDatabase {
           final scrollSpeed = entry['scrollSpeed'] as double?;
           final fontSize = entry['fontSize'] as double?;
           final introDuration = entry['introDuration'] as double?;
+          final occurrenceIdRaw = (entry['occurrenceId'] as String? ?? '').trim();
+          final stopMarksOverride = entry['stopMarksOverride'] as bool?;
           // Zkusit vytvořit píseň přes importSongPackage logiku (bez duplikace)
           final created = await _importSongWithContent(title: title, artist: artist, content: content, duration: duration, tempo: tempo, scrollSpeed: scrollSpeed, fontSize: fontSize, introDuration: introDuration);
           if (created != null) {
-            // Najít playlistId znovu
-            final pl = await (select(playlists)..where((t) => t.name.equals(playlistName))).getSingle();
-            if (insertedSongIds.add(created.id)) {
-              await into(playlistSongs).insert(
-                  PlaylistSongsCompanion.insert(
-                      playlistId: pl.id,
-                      songId: created.id,
-                      orderIndex: Value(matchedCount++),
-                      tempo: Value(tempo),
-                      occurrenceId: _newUuidV4()),
-                  mode: InsertMode.insertOrIgnore);
+            final currentOrder = order++;
+            if (isIdentifiedFormat) {
+              // Stejné párování výskytu jako v první smyčce: occurrenceId
+              // v souboru → UPDATE existujícího řádku, jinak INSERT.
+              PlaylistSong? target;
+              if (occurrenceIdRaw.isNotEmpty) {
+                final existing = rowByOccurrence[occurrenceIdRaw];
+                if (existing != null && !consumedRowIds.contains(existing.id)) {
+                  target = existing;
+                  consumedRowIds.add(existing.id);
+                }
+              }
+              if (target != null) {
+                final targetId = target.id;
+                await (update(playlistSongs)..where((t) => t.id.equals(targetId)))
+                    .write(PlaylistSongsCompanion(
+                  songId: Value(created.id),
+                  orderIndex: Value(currentOrder),
+                  tempo: Value(tempo),
+                  scrollSpeed: Value(scrollSpeed),
+                  introDuration: Value(introDuration),
+                  stopMarksOverride: Value(stopMarksOverride),
+                ));
+              } else {
+                final newOcc = occurrenceIdRaw.isNotEmpty
+                    ? occurrenceIdRaw
+                    : _newUuidV4();
+                await into(playlistSongs).insert(PlaylistSongsCompanion.insert(
+                  playlistId: playlistId,
+                  songId: created.id,
+                  orderIndex: Value(currentOrder),
+                  tempo: Value(tempo),
+                  scrollSpeed: Value(scrollSpeed),
+                  introDuration: Value(introDuration),
+                  stopMarksOverride: Value(stopMarksOverride),
+                  occurrenceId: newOcc,
+                ));
+              }
+            } else {
+              if (insertedSongIds.add(created.id)) {
+                await into(playlistSongs).insert(PlaylistSongsCompanion.insert(
+                    playlistId: playlistId,
+                    songId: created.id,
+                    orderIndex: Value(currentOrder),
+                    tempo: Value(tempo),
+                    scrollSpeed: Value(scrollSpeed),
+                    introDuration: Value(introDuration),
+                    stopMarksOverride: Value(stopMarksOverride),
+                    occurrenceId: _newUuidV4()),
+                    mode: InsertMode.insertOrIgnore);
+              }
             }
             notFound.remove(label);
+            matchedCount++;
             matchedIds.add(created.id);
             matchedEntries.add(created);
             // v3: zarážky pro nově vytvořenou píseň
@@ -1387,6 +1653,9 @@ class AppDatabase extends _$AppDatabase {
       unknownShared: unknownShared,
       durationCandidates: durationCandidates,
       diacriticCandidates: diacriticCandidates,
+      playlistUid: syncPlaylistUid,
+      createdNewPlaylist: syncCreatedPlaylistId != null,
+      droppedExtrasKeys: droppedKeys.toList()..sort(),
     );
   }
 
@@ -2045,7 +2314,15 @@ class AppDatabase extends _$AppDatabase {
     return query.watch().map((rows) => rows.map((row) {
           final song = row.readTable(songs);
           final ps = row.readTable(playlistSongs);
-          return PlaylistSongWithTempo(song: song, playlistTempo: ps.tempo, orderIndex: ps.orderIndex);
+          return PlaylistSongWithTempo(
+            song: song,
+            playlistTempo: ps.tempo,
+            orderIndex: ps.orderIndex,
+            occurrenceId: ps.occurrenceId,
+            scrollSpeed: ps.scrollSpeed,
+            introDuration: ps.introDuration,
+            stopMarksOverride: ps.stopMarksOverride,
+          );
         }).toList());
   }
 
@@ -2057,7 +2334,15 @@ class AppDatabase extends _$AppDatabase {
     return rows.map((row) {
       final song = row.readTable(songs);
       final ps = row.readTable(playlistSongs);
-      return PlaylistSongWithTempo(song: song, playlistTempo: ps.tempo, orderIndex: ps.orderIndex);
+      return PlaylistSongWithTempo(
+        song: song,
+        playlistTempo: ps.tempo,
+        orderIndex: ps.orderIndex,
+        occurrenceId: ps.occurrenceId,
+        scrollSpeed: ps.scrollSpeed,
+        introDuration: ps.introDuration,
+        stopMarksOverride: ps.stopMarksOverride,
+      );
     }).toList();
   }
 
@@ -2124,6 +2409,16 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> importFromJson(Map<String, dynamic> data) async {
+    // Ochrana proti záměně formátů (T-13F): importFromJson je PLNÁ záloha
+    // (v12/v13) a v transakci maže celou knihovnu. Setlist (formát v5,
+    // `type: playlist`) se takto importovat NESMÍ – jinak by smazal songs
+    // i playlists a místo setlistu vytvořil prázdnou databázi.
+    if (data['type'] == 'playlist' || data['playlists'] == null) {
+      throw const FormatException(
+          'Nejde o plnou zálohu databáze (chybí seznam playlists). '
+          'Toto je soubor setlistu – importuj jej v PlaylistsPage '
+          '(synchronizace setlistu), nikoli jako zálohu.');
+    }
     // Zachytit cesty pro obnovu souborů před transakcí
     final List<dynamic> rawSongs = (data['songs'] as List?) ?? const [];
     await transaction(() async {

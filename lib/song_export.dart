@@ -114,19 +114,24 @@ String buildSongPackageJson({
   return jsonEncode(map);
 }
 
-/// Balíček setlistu – názvy, interpreti, časy, volitelně texty a zarážky (v4).
-/// v4 přidává per-song scrollSpeed/fontSize/introDuration/transpose/duration.
+/// Balíček setlistu – názvy, interpreti, časy, volitelně texty a zarážky.
+/// v5 přidává `playlistUid` na úroveň setlistu a `occurrenceId` u položek
+/// (typicky již obsažené v předaných songs z exportPlaylistToJson).
+/// Bez `playlistUid` zůstává soubor zpracovatelný jako starší (bez identit).
 String buildPlaylistPackageJson({
   required String name,
   required List<Map<String, dynamic>> songs,
   required int totalDuration,
   required int unknownCount,
   String? exportedAt,
-  int version = 4,
+  String? playlistUid,
+  int version = 5,
 }) {
   return jsonEncode({
     'type': 'playlist',
     'version': version,
+    if (playlistUid != null && playlistUid.isNotEmpty)
+      'playlistUid': playlistUid,
     'name': name,
     'exportedAt': exportedAt ?? DateTime.now().toIso8601String(),
     'totalDuration': totalDuration,
@@ -426,6 +431,7 @@ Future<void> showPlaylistShareDialog(
   required int unknownCount,
   dynamic db,
   int? playlistId,
+  String? playlistUid,
 }) async {
   final tts = FlutterTts();
   await tts.setLanguage("cs-CZ");
@@ -490,14 +496,26 @@ Future<void> showPlaylistShareDialog(
 
   if (choice == null || !context.mounted) return;
 
+  // Přenosová identita setlistu: pokud ji volající nedodal, pokusit se
+  // ji získat z DB podle playlistId (defenzivní cesta pro v5 exporty).
+  String? resolvedUid = playlistUid;
+  if ((resolvedUid == null || resolvedUid.isEmpty) && db != null && playlistId != null) {
+    try {
+      final pl = await db.getAllPlaylists();
+      for (final p in pl) {
+        if (p.id == playlistId) { resolvedUid = p.playlistUid as String?; break; }
+      }
+    } catch (_) {}
+  }
+
   switch (choice) {
     case 'package':
       await _sharePlaylistPackage(context, tts,
-          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount, includeContents: false);
+          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount, includeContents: false, playlistUid: resolvedUid);
       break;
     case 'package_with_contents':
       await _sharePlaylistPackage(context, tts,
-          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount, includeContents: true);
+          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount, includeContents: true, playlistUid: resolvedUid);
       break;
     case 'html':
       await _sharePlaylistHtml(context, tts,
@@ -505,7 +523,7 @@ Future<void> showPlaylistShareDialog(
       break;
     case 'qr':
       await _showPlaylistQrDialog(context, tts,
-          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount);
+          playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount, playlistUid: resolvedUid);
       break;
     case 'nearby':
       if (db != null) {
@@ -523,7 +541,7 @@ Future<void> showPlaylistShareDialog(
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => NearbySharePage(db: db, playlistId: resolvedId, playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount),
+              builder: (_) => NearbySharePage(db: db, playlistId: resolvedId, playlistName: playlistName, songs: songs, totalDuration: totalDuration, unknownCount: unknownCount, playlistUid: resolvedUid),
             ),
           );
         }
@@ -542,6 +560,7 @@ Future<void> _sharePlaylistPackage(
   required int totalDuration,
   required int unknownCount,
   required bool includeContents,
+  String? playlistUid,
 }) async {
   try {
     // Pokud uživatel zvolil včetně textů a payload zatím neobsahuje content, doplnit z filePath
@@ -578,6 +597,7 @@ Future<void> _sharePlaylistPackage(
       songs: payload,
       totalDuration: totalDuration,
       unknownCount: unknownCount,
+      playlistUid: playlistUid,
     );
     await file.writeAsString(jsonStr, encoding: utf8);
     await Share.shareXFiles(
@@ -623,6 +643,7 @@ Future<void> _showPlaylistQrDialog(
   required List<Map<String, dynamic>> songs,
   required int totalDuration,
   required int unknownCount,
+  String? playlistUid,
 }) async {
   final cleanSongs = songs.map((e) { final m = Map<String, dynamic>.from(e); m.remove('filePath'); m.remove('content'); return m; }).toList();
   final jsonStr = buildPlaylistPackageJson(
@@ -630,6 +651,7 @@ Future<void> _showPlaylistQrDialog(
     songs: cleanSongs,
     totalDuration: totalDuration,
     unknownCount: unknownCount,
+    playlistUid: playlistUid,
   );
   if (jsonStr.length > maxQrContentLength) {
     tts.speak(AppStrings.sharePlaylistQrTooLong);
