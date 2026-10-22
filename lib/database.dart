@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'song_entry.dart';
 import 'text_normalizer.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -146,16 +147,46 @@ class DiacriticUnrepairedEntry {
 class Playlists extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
+
+  /// Přenosová identita setlistu (UUID v4).
+  /// Unikátnost i neprázdnost vynucuje SQL (UNIQUE + CHECK), ne jen kód –
+  /// viz schéma v13 (etapa A1.2).
+  TextColumn get playlistUid =>
+      text()
+          .unique()
+          .check(playlistUid.length.isBiggerThan(const Constant(0)))();
 }
 
 class PlaylistSongs extends Table {
-  IntColumn get playlistId => integer().references(Playlists, #id, onDelete: KeyAction.cascade)();
-  IntColumn get songId => integer().references(Songs, #id, onDelete: KeyAction.cascade)();
+  IntColumn get id => integer().autoIncrement()();
+
+  /// Stabilní přenosový identifikátor výskytu (UUID v4).
+  /// Unikátnost i neprázdnost vynucuje SQL (UNIQUE + CHECK).
+  TextColumn get occurrenceId =>
+      text()
+          .unique()
+          .check(occurrenceId.length.isBiggerThan(const Constant(0)))();
+
+  IntColumn get playlistId =>
+      integer().references(Playlists, #id, onDelete: KeyAction.cascade)();
+  IntColumn get songId =>
+      integer().references(Songs, #id, onDelete: KeyAction.cascade)();
   IntColumn get orderIndex => integer().withDefault(const Constant(0))();
   RealColumn get tempo => real().nullable()(); // Tempo specifické pro setlist (BPM), null = globální z Songs.tempo
 
-  @override
-  Set<Column> get primaryKey => {playlistId, songId};
+  /// Per-výskytové rychlosti posuvu (null = zděděné ze skladby/globální).
+  RealColumn get scrollSpeed => real().nullable()();
+
+  /// Per-výskytová délka úvodu v sekundách (null = zděděné ze skladby).
+  RealColumn get introDuration => real().nullable()();
+
+  /// Tri-stav výskytových zarážek:
+  ///  * null  – zarážky zděděné ze skladby (výchozí stav, stav 1),
+  ///  * false – pro daný výskyt výslovně žádné zarážky (stav 3),
+  ///  * true  – použít vlastní seznam zarážek daného výskytu,
+  ///            seznam může být prázdný nebo obsahovat více položek (stav 2).
+  /// Samotná absence řádků v stop_marks první a třetí stav nerozlišuje.
+  BoolColumn get stopMarksOverride => boolean().nullable()();
 }
 
 /// Obálka písně v setlistu včetně per-setlist tempa.
@@ -179,6 +210,14 @@ class StopMarks extends Table {
   IntColumn get durationBars => integer()(); // Délka pauzy v taktech
   IntColumn get lineIndex => integer().nullable()(); // Index kotevního řádku textu
   TextColumn get lineText => text().nullable()(); // Text kotevního řádku (pro stabilitu)
+
+  /// Konkrétní výskyt písně v setlistu (etapa A1.2).
+  ///  * null  – zarážka patří skladbě a je sdílená všemi výskyty (stav po migraci),
+  ///  * != null – zarážka patří konkrétnímu výskytu.
+  /// Musí zůstat posledním sloupcem – migrace v13 jej přidává přes ALTER TABLE
+  /// ADD COLUMN (na konci) a testy porovnávají schéma s čerstvou definicí Driftu.
+  IntColumn get playlistSongId =>
+      integer().nullable().references(PlaylistSongs, #id, onDelete: KeyAction.cascade)();
 }
 
 class CustomStrings extends Table {
@@ -202,8 +241,20 @@ class AppDatabase extends _$AppDatabase {
 
   AppDatabase._testing() : super(NativeDatabase.memory());
 
+  /// Konstruktor nad konkrétním executorem – používají regresní testy migrace
+  /// (souborová testovací databáze se skutečným schématem v12, viz
+  /// test/database_migration_test.dart).
+  AppDatabase.forExecutor(super.executor);
+
+  /// Testovací hák pro simulaci selhání uvnitř migrační transakce v12→v13.
+  ///
+  /// V produkci zůstává null a chování migrace neovlivňuje. Regresní test
+  /// T-12I jej nastaví, aby ověřil rollback (databáze nesmí zůstat v
+  /// nekonzistentním částečném stavu).
+  static Future<void> Function(String phase)? testMigrationFault;
+
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration {
@@ -253,6 +304,9 @@ class AppDatabase extends _$AppDatabase {
             }
           }
         }
+        if (from < 13) {
+          await _migrateV12toV13(m);
+        }
       },
       beforeOpen: (details) async {
         // pojistka i bez migrace (např. už verze 12 ale starý poisoned obsah) – tiché vyčištění při každém startu
@@ -269,6 +323,256 @@ class AppDatabase extends _$AppDatabase {
         } catch (_) {}
       },
     );
+  }
+
+  // --- MIGRACE v12 → v13 (etapa A1.2) ---
+
+  static final Random _secureRandom = Random.secure();
+
+  /// Vygeneruje UUID verze 4 ve tvaru shodném s Pythonem `str(uuid.uuid4())`
+  /// (stejný formát používá i PC editor, etapa A1.1) – malá písmena,
+  /// tvar 8-4-4-4-12. Bez nové závislosti, jen `dart:math` Random.secure().
+  static String _newUuidV4() {
+    final bytes = List<int>.generate(16, (_) => _secureRandom.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // UUID verze 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant RFC 4122
+    String hex(int start, int count) => bytes
+        .sublist(start, start + count)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${hex(0, 4)}-${hex(4, 2)}-${hex(6, 2)}-${hex(8, 2)}-${hex(10, 6)}';
+  }
+
+  /// Vygeneruje další jedinečné UUID a ověří před přidáním do sady [seen],
+  /// že není prázdné a ještě se v sadě nevyskytuje (obrana proti kolizi).
+  static String _freshUniqueUid(Set<String> seen) {
+    for (var attempt = 0; attempt < 100; attempt++) {
+      final uid = _newUuidV4();
+      if (uid.isNotEmpty && seen.add(uid)) return uid;
+    }
+    throw StateError('Nepodařilo se vygenerovat jedinečné UUID (opakovaná kolize).');
+  }
+
+  /// Migrace schématu v12 → v13 (etapa A1.2).
+  ///
+  /// Postup odpovídá skutečným možnostem SQLite:
+  ///  * `playlists` a `playlist_songs` nelze převést běžným ALTER TABLE
+  ///    (sloupec s UNIQUE/CHECK bez konstantního defaultu nelze přidat,
+  ///    kompozitní primární klíč nelze změnit) → přestavba
+  ///    RENAME + CREATE + INSERT...SELECT + DROP;
+  ///  * `stop_marks` jen přibývá nullable sloupec → postačí ADD COLUMN.
+  ///
+  /// Všechny kroky včetně závěrečných validací běží v JEDNÉ transakci:
+  /// při selhání (včetně validace) dojde k rollbacku celé přestavby a
+  /// databáze zůstane konzistentně ve verzi 12 – drift nastaví
+  /// `user_version` až po úspěšném dokončení migrace.
+  ///
+  /// Cizí klíče jsou na dobu přestavby vypnuté MIMO transakci (PRAGMA
+  /// foreign_keys nelze měnit uvnitř transakce) a v `finally` se vrátí
+  /// předchozí stav, včetně ověření skutečného stavu načtením ze SQLite.
+  Future<void> _migrateV12toV13(Migrator m) async {
+    final fkBefore =
+        (await customSelect('PRAGMA foreign_keys').getSingle()).read<bool>('foreign_keys');
+    if (fkBefore) {
+      await customStatement('PRAGMA foreign_keys = OFF');
+    }
+    try {
+      await transaction(() async {
+        await _v13RebuildPlaylists(m);
+        await _v13RebuildPlaylistSongs(m);
+        await _v13AddOccurrenceLinkToStopMarks();
+        await _v13VerifyMigrationResult();
+      });
+    } finally {
+      // Obnoví předchozí stav i při výjimce (v této aplikaci je výchozí OFF).
+      await customStatement('PRAGMA foreign_keys = ${fkBefore ? 'ON' : 'OFF'}');
+      // Ověřit skutečný stav podle SQLite, ne jen podle předpokladu.
+      final fkAfter =
+          (await customSelect('PRAGMA foreign_keys').getSingle()).read<bool>('foreign_keys');
+      if (fkAfter != fkBefore) {
+        throw StateError('Nepodařilo se obnovit PRAGMA foreign_keys '
+            '(před migrací: $fkBefore, po obnovení: $fkAfter).');
+      }
+    }
+  }
+
+  /// Přestavba `playlists`: přidá stabilní přenosové `playlist_uid`.
+  /// Lokální `id` se zachovávají beze změny.
+  Future<void> _v13RebuildPlaylists(Migrator m) async {
+    await testMigrationFault?.call('playlists:beforeCopy');
+    await customStatement('ALTER TABLE playlists RENAME TO playlists_v12_old');
+    await m.createTable(playlists);
+    final oldRows =
+        await customSelect('SELECT id, name FROM playlists_v12_old ORDER BY id').get();
+    final seenUids = <String>{};
+    for (final row in oldRows) {
+      // Každý stávající setlist dostane vlastní nové přenosové ID.
+      final uid = _freshUniqueUid(seenUids);
+      await into(playlists).insert(PlaylistsCompanion.insert(
+            id: Value(row.read<int>('id')),
+            name: row.read<String>('name'),
+            playlistUid: uid,
+          ));
+    }
+    await customStatement('DROP TABLE playlists_v12_old');
+    await testMigrationFault?.call('playlists:done');
+  }
+
+  /// Přestavba `playlist_songs`: nový lokální primární klíč `id`,
+  /// `occurrence_id` a nová volitelná nastavení. Zachovává všechny řádky,
+  /// jejich pořadí (`order_index`) i `tempo`; žádné duplicity se nepřidávají.
+  Future<void> _v13RebuildPlaylistSongs(Migrator m) async {
+    await testMigrationFault?.call('playlistSongs:beforeCopy');
+    await customStatement(
+        'ALTER TABLE playlist_songs RENAME TO playlist_songs_v12_old');
+    await m.createTable(playlistSongs);
+    final oldRows = await customSelect(
+            'SELECT playlist_id, song_id, order_index, tempo FROM playlist_songs_v12_old '
+            'ORDER BY playlist_id, order_index, song_id')
+        .get();
+    final seenOccurrenceIds = <String>{};
+    for (final row in oldRows) {
+      // Každý stávající výskyt dostane vlastní nové přenosové ID.
+      final occurrenceId = _freshUniqueUid(seenOccurrenceIds);
+      await into(playlistSongs).insert(PlaylistSongsCompanion.insert(
+            playlistId: row.read<int>('playlist_id'),
+            songId: row.read<int>('song_id'),
+            orderIndex: Value(row.read<int>('order_index')),
+            tempo: Value(row.readNullable<double>('tempo')),
+            occurrenceId: occurrenceId,
+            // scrollSpeed / introDuration / stopMarksOverride záměrně absent:
+            // v13 výchozí stav = zděděné (NULL).
+          ));
+    }
+    await customStatement('DROP TABLE playlist_songs_v12_old');
+    await testMigrationFault?.call('playlistSongs:done');
+  }
+
+  /// Přidá `stop_marks.playlist_song_id` (nullable). Všechny staré zarážky
+  /// zůstávají sdílené (NULL = patří skladbě), ostatní pole se nemění.
+  Future<void> _v13AddOccurrenceLinkToStopMarks() async {
+    await testMigrationFault?.call('stopMarks:beforeAlter');
+    await customStatement(
+        'ALTER TABLE stop_marks ADD COLUMN playlist_song_id INTEGER '
+        'REFERENCES playlist_songs (id) ON DELETE CASCADE');
+    await testMigrationFault?.call('stopMarks:done');
+  }
+
+  /// Validace migrace uvnitř migrační transakce – při nesouladu migrace
+  /// NEPROBĚHNE (rollback, DB zůstane ve v12).
+  Future<void> _v13VerifyMigrationResult() async {
+    await testMigrationFault?.call('verify:before');
+
+    // (1) Přenosová identita: neprázdné a unikátní hodnoty.
+    Future<void> assertUniqueNonEmpty(String table, String column) async {
+      final row = await customSelect(
+        'SELECT COUNT(*) AS total, COUNT(DISTINCT "$column") AS uniq, '
+        'SUM(CASE WHEN "$column" IS NULL OR length(trim("$column")) = 0 '
+        'THEN 1 ELSE 0 END) AS emptyCount FROM "$table"',
+      ).getSingle();
+      final total = row.read<int>('total');
+      final uniq = row.read<int>('uniq');
+      final emptyCount = row.read<int?>('emptyCount') ?? 0;
+      if (total != uniq || emptyCount != 0) {
+        throw StateError('Validace v13 selhala: $table.$column '
+            '(řádků: $total, unikátních: $uniq, prázdných: $emptyCount).');
+      }
+    }
+
+    await assertUniqueNonEmpty('playlists', 'playlist_uid');
+    await assertUniqueNonEmpty('playlist_songs', 'occurrence_id');
+
+    // (2) Skutečné schéma vs definice Drift (čerstvá v13 databáze).
+    await _v13AssertSchemaMatchesFreshDriftSchema();
+
+    // (3) Integrita databáze.
+    final integrity = await customSelect('PRAGMA integrity_check').getSingle();
+    final integrityResult = integrity.read<String>('integrity_check');
+    if (integrityResult != 'ok') {
+      throw StateError('PRAGMA integrity_check selhal: $integrityResult');
+    }
+
+    // (4) Cizí klíče – pragma funguje i bez jejich vynucení.
+    final violations = await customSelect('PRAGMA foreign_key_check').get();
+    if (violations.isNotEmpty) {
+      final detail = violations
+          .take(5)
+          .map((r) => r.data.values.join('/'))
+          .join('; ');
+      throw StateError(
+          'PRAGMA foreign_key_check hlásí ${violations.length} porušení: $detail');
+    }
+
+    await testMigrationFault?.call('verify:done');
+  }
+
+  /// Porovná skutečné schéma migrované databáze s definicemi Drift
+  /// (čerstvě vytvořená v13 databáze z těchže tabulkových tříd).
+  /// Porovnává se množina atributů přes PRAGMA (ne text DDL), takže je
+  /// nezávislá na pořadí sloupců (historické migrace přidávají sloupce na
+  /// konec) – přesto odhalí chybějící sloupce, typy, defaulty i unikátní
+  /// omezení.
+  Future<void> _v13AssertSchemaMatchesFreshDriftSchema() async {
+    // Druhá instance slouží JEN pro porovnání schématu, proto lokálně
+    // potlačíme varování driftu o vícenásobném vytvoření databázové třídy.
+    final prevDontWarn = driftRuntimeOptions.dontWarnAboutMultipleDatabases;
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    final AppDatabase fresh;
+    try {
+      fresh = AppDatabase.forExecutor(NativeDatabase.memory());
+    } finally {
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = prevDontWarn;
+    }
+    try {
+      const tables = [
+        'songs',
+        'playlists',
+        'playlist_songs',
+        'stop_marks',
+        'custom_strings',
+        'diacritic_mappings',
+      ];
+      Future<String> columns(DatabaseConnectionUser db, String table) async {
+        final rows = await db.customSelect('PRAGMA table_info("$table")').get();
+        final items = rows
+            .map((r) => '${r.data['name']}|${r.data['type']}|${r.data['notnull']}|'
+                '${r.data['dflt_value']}|${r.data['pk']}')
+            .toList()
+          ..sort();
+        return items.join('\n');
+      }
+
+      Future<String> indexes(DatabaseConnectionUser db, String table) async {
+        final idxRows = await db.customSelect('PRAGMA index_list("$table")').get();
+        final out = <String>[];
+        for (final idx in idxRows) {
+          final name = idx.data['name'] as String;
+          final cols = await db.customSelect('PRAGMA index_info("$name")').get();
+          out.add('${idx.data['unique']}|${idx.data['origin']}|'
+              '${idx.data['partial']}|${cols.map((c) => c.data['name']).join(',')}');
+        }
+        return (out..sort()).join('\n');
+      }
+
+      for (final table in tables) {
+        final expectedColumns = await columns(fresh, table);
+        final actualColumns = await columns(this, table);
+        if (expectedColumns != actualColumns) {
+          throw StateError('Schéma "$table" po migraci neodpovídá definici Driftu.\n'
+              'Očekáváno (čerstvá v13):\n$expectedColumns\n'
+              'Skutečnost (migrovaná):\n$actualColumns');
+        }
+        final expectedIndexes = await indexes(fresh, table);
+        final actualIndexes = await indexes(this, table);
+        if (expectedIndexes != actualIndexes) {
+          throw StateError(
+              'Indexy/omezení "$table" po migraci neodpovídají definici Driftu.\n'
+              'Očekáváno:\n$expectedIndexes\nSkutečnost:\n$actualIndexes');
+        }
+      }
+    } finally {
+      await fresh.close();
+    }
   }
 
   // Metody pro písně
@@ -861,6 +1165,9 @@ class AppDatabase extends _$AppDatabase {
     final notFound = <String>[];
     final matchedIds = <int>[];
     final matchedEntries = <SongEntry>[];
+    // Písně už vložené do tohoto setlistu – nahrazuje starou deduplikaci
+    // přes InsertMode.insertOrIgnore nad kompozitním PK (v13 PK je id).
+    final insertedSongIds = <int>{};
     // Kandidáti na doplnění budou spočítáni až po transakci, kdy máme matchedEntries
     final Map<int, int> sharedDurationBySongId = {};
     final Map<int, Map<String, String>> sharedDiacriticBySongId = {};
@@ -877,7 +1184,8 @@ class AppDatabase extends _$AppDatabase {
       Playlist? playlist = await (select(playlists)..where((t) => t.name.equals(playlistName))).getSingleOrNull();
       int playlistId;
       if (playlist == null) {
-        playlistId = await into(playlists).insert(PlaylistsCompanion.insert(name: playlistName));
+        playlistId = await into(playlists).insert(
+            PlaylistsCompanion.insert(name: playlistName, playlistUid: _newUuidV4()));
       } else {
         playlistId = playlist.id;
         await (delete(playlistSongs)..where((t) => t.playlistId.equals(playlistId))).go();
@@ -925,15 +1233,20 @@ class AppDatabase extends _$AppDatabase {
             final marks = (entry['stopMarks'] as List<Map<String, dynamic>>?) ?? const [];
             sharedStopMarksBySongId[song.id] = List<Map<String, dynamic>>.from(marks);
           }
-          await into(playlistSongs).insert(
-            PlaylistSongsCompanion.insert(
-              playlistId: playlistId,
-              songId: song.id,
-              orderIndex: Value(order++),
-              tempo: Value(tempo),
-            ),
-            mode: InsertMode.insertOrIgnore,
-          );
+          // vložit jen první výskyt téže písně (staré chování insertOrIgnore)
+          final currentOrder = order++;
+          if (insertedSongIds.add(song.id)) {
+            await into(playlistSongs).insert(
+              PlaylistSongsCompanion.insert(
+                playlistId: playlistId,
+                songId: song.id,
+                orderIndex: Value(currentOrder),
+                tempo: Value(tempo),
+                occurrenceId: _newUuidV4(),
+              ),
+              mode: InsertMode.insertOrIgnore,
+            );
+          }
           // content pro existující aktualizujeme po transakci (aktualizovat case 2)
         } else {
           notFound.add(label);
@@ -957,10 +1270,16 @@ class AppDatabase extends _$AppDatabase {
           if (created != null) {
             // Najít playlistId znovu
             final pl = await (select(playlists)..where((t) => t.name.equals(playlistName))).getSingle();
-            await into(playlistSongs).insert(
-              PlaylistSongsCompanion.insert(playlistId: pl.id, songId: created.id, orderIndex: Value(matchedCount++), tempo: Value(tempo)),
-              mode: InsertMode.insertOrIgnore,
-            );
+            if (insertedSongIds.add(created.id)) {
+              await into(playlistSongs).insert(
+                  PlaylistSongsCompanion.insert(
+                      playlistId: pl.id,
+                      songId: created.id,
+                      orderIndex: Value(matchedCount++),
+                      tempo: Value(tempo),
+                      occurrenceId: _newUuidV4()),
+                  mode: InsertMode.insertOrIgnore);
+            }
             notFound.remove(label);
             matchedIds.add(created.id);
             matchedEntries.add(created);
@@ -1594,13 +1913,20 @@ class AppDatabase extends _$AppDatabase {
     return DiacriticCsvImportResult(imported: count, skipped: skipped, errors: errors);
   }
 
-  Future<int> createPlaylist(String name) => into(playlists).insert(PlaylistsCompanion.insert(name: name));
+  Future<int> createPlaylist(String name) => into(playlists).insert(
+      PlaylistsCompanion.insert(name: name, playlistUid: _newUuidV4()));
   
   Future<List<Playlist>> getAllPlaylists() => select(playlists).get();
   Future<int> deletePlaylist(int id) => (delete(playlists)..where((t) => t.id.equals(id))).go();
   Future<int> renamePlaylist(int id, String newName) =>
       (update(playlists)..where((t) => t.id.equals(id))).write(PlaylistsCompanion(name: Value(newName)));
   Future<int> addSongToPlaylist(int playlistId, int songId) async {
+    // Zachování starého chování (dříve InsertMode.insertOrIgnore nad
+    // kompozitním PK): píseň, která už v setlistu je, se znovu nepřidá.
+    final alreadyThere = await (select(playlistSongs)
+          ..where((t) => t.playlistId.equals(playlistId) & t.songId.equals(songId)))
+        .getSingleOrNull();
+    if (alreadyThere != null) return 0;
     final lastEntry = await (select(playlistSongs)
           ..where((t) => t.playlistId.equals(playlistId))
           ..orderBy([(t) => OrderingTerm.desc(t.orderIndex)])
@@ -1608,7 +1934,11 @@ class AppDatabase extends _$AppDatabase {
         .getSingleOrNull();
     final nextIndex = (lastEntry?.orderIndex ?? -1) + 1;
     return into(playlistSongs).insert(
-        PlaylistSongsCompanion.insert(playlistId: playlistId, songId: songId, orderIndex: Value(nextIndex)),
+        PlaylistSongsCompanion.insert(
+            playlistId: playlistId,
+            songId: songId,
+            orderIndex: Value(nextIndex),
+            occurrenceId: _newUuidV4()),
         mode: InsertMode.insertOrIgnore);
   }
 
@@ -1621,14 +1951,25 @@ class AppDatabase extends _$AppDatabase {
     
     int nextIndex = (lastEntry?.orderIndex ?? -1) + 1;
 
+    // Zachování starého chování (dříve insertOrIgnore nad kompozitním PK):
+    // duplicity proti stávajícím řádkům i uvnitř vstupu se přeskočí.
+    final present = (await (select(playlistSongs)
+              ..where((t) => t.playlistId.equals(playlistId)))
+            .get())
+        .map((r) => r.songId)
+        .toSet();
+
     await batch((batch) {
       for (final songId in songIds) {
+        final order = nextIndex++;
+        if (!present.add(songId)) continue;
         batch.insert(
           playlistSongs,
           PlaylistSongsCompanion.insert(
             playlistId: playlistId,
             songId: songId,
-            orderIndex: Value(nextIndex++),
+            orderIndex: Value(order),
+            occurrenceId: _newUuidV4(),
           ),
           mode: InsertMode.insertOrIgnore,
         );
@@ -1799,13 +2140,34 @@ class AppDatabase extends _$AppDatabase {
         await into(songs).insert(SongEntry.fromJson(map));
       }
       for (final p in data['playlists'] ?? const []) {
-        await into(playlists).insert(Playlist.fromJson(Map<String, dynamic>.from(p as Map)));
+        final map = Map<String, dynamic>.from(p as Map);
+        // Zálohy v12 neobsahují playlistUid – doplníme nové, aby obnova
+        // staré zálohy po migraci fungovala (v13 již jinak nelze řádek vložit).
+        final rawUid =
+            (map['playlistUid'] ?? map['playlist_uid'] ?? '').toString().trim();
+        await into(playlists).insert(PlaylistsCompanion.insert(
+              id: map['id'] is int ? Value(map['id'] as int) : const Value.absent(),
+              name: (map['name'] ?? '').toString(),
+              playlistUid: rawUid.isEmpty ? _newUuidV4() : rawUid,
+            ));
       }
       for (final sm in data['stopMarks'] ?? const []) {
         await into(stopMarks).insert(StopMark.fromJson(Map<String, dynamic>.from(sm as Map)));
       }
       for (final ps in data['playlistSongs'] ?? const []) {
-        await into(playlistSongs).insert(PlaylistSong.fromJson(Map<String, dynamic>.from(ps as Map)));
+        final map = Map<String, dynamic>.from(ps as Map);
+        // Zálohy v12 nemají id/occurrenceId – id přidělí SQLite (autoincrement),
+        // occurrenceId vygenerujeme; nové zálohy si zachovají oba údaje.
+        final rawOcc =
+            (map['occurrenceId'] ?? map['occurrence_id'] ?? '').toString().trim();
+        await into(playlistSongs).insert(PlaylistSongsCompanion.insert(
+              id: map['id'] is int ? Value(map['id'] as int) : const Value.absent(),
+              playlistId: (map['playlistId'] as num).toInt(),
+              songId: (map['songId'] as num).toInt(),
+              orderIndex: Value((map['orderIndex'] as num?)?.toInt() ?? 0),
+              tempo: Value((map['tempo'] as num?)?.toDouble()),
+              occurrenceId: rawOcc.isEmpty ? _newUuidV4() : rawOcc,
+            ));
       }
       if (data['diacriticMappings'] is List) {
         for (final r in data['diacriticMappings'] as List) {
