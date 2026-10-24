@@ -184,7 +184,22 @@ class _QrScanPageState extends State<QrScanPage> {
 
   Future<void> _openPlaylistSong(int songId, List<int> ids, int pid) async {
     if (!mounted) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerPage(songId: songId, db: widget.db, setlistIds: ids, playlistId: pid)));
+    final occurrences = await widget.db.getPlaylistOccurrences(pid);
+    if (!mounted) return;
+    final first = occurrences.isNotEmpty ? occurrences.first : null;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayerPage(
+          songId: songId,
+          db: widget.db,
+          setlistEntries: occurrences,
+          playlistId: pid,
+          playlistSongId: first?.playlistSongId,
+          occurrenceId: first?.occurrenceId,
+        ),
+      ),
+    );
   }
 
   Future<bool> _confirmPlainTextImport(String rawText) async {

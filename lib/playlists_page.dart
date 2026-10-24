@@ -551,8 +551,9 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     }
   }
 
-  Future<void> _showMoveDialog(SongEntry song, int currentIndex, int totalSongs) async {
-    final controller = TextEditingController();
+  Future<void> _showMoveDialog(PlaylistSongWithTempo item, int currentIndex, int totalSongs) async {
+    final song = item.song;
+    final controller = TextEditingController(text: (currentIndex + 1).toString());
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -569,7 +570,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
             onPressed: () async {
               final newPos = int.tryParse(controller.text);
               if (newPos != null && newPos >= 1 && newPos <= totalSongs) {
-                await widget.db.movePlaylistSong(widget.playlist.id, song.id, newPos - 1);
+                await widget.db.movePlaylistSongRow(item.playlistSongId, newPos - 1);
                 tts.speak("Píseň ${song.title} přesunuta na ${newPos}. místo");
                 if (mounted) Navigator.pop(context);
               }
@@ -696,7 +697,9 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     );
   }
 
-  Future<void> _confirmStartSetlist(List<SongEntry> songs) async {
+  Future<void> _confirmStartSetlist(List<PlaylistSongWithTempo> items) async {
+    if (items.isEmpty) return;
+    final songs = items.map((e) => e.song).toList();
     final totalSec = songs.fold<int>(0, (sum, s) => sum + (s.duration ?? 0));
     final unknown = songs.where((s) => s.duration == null || s.duration == 0).length;
     final timeText = _formatTotalTimeWithUnknown(totalSec, unknown);
@@ -729,23 +732,30 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
     );
     if (confirm == 'read') return; // už přečteno, uživatel může znovu dát Spustit
     if (confirm != 'start') return;
-    final ids = songs.map((s) => s.id).toList();
+    final entries = items.map((w) => PlaylistOccurrenceRef(
+          playlistSongId: w.playlistSongId,
+          songId: w.song.id,
+          occurrenceId: w.occurrenceId,
+        )).toList();
     tts.speak(AppStrings.startSetlistMessage(widget.playlist.name, first.title));
     if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => PlayerPage(
-          songId: ids.first,
+          songId: entries.first.songId,
           db: widget.db,
-          setlistIds: ids,
+          setlistEntries: entries,
           playlistId: widget.playlist.id,
+          playlistSongId: entries.first.playlistSongId,
+          occurrenceId: entries.first.occurrenceId,
         ),
       ),
     );
   }
 
-  void _showSongOptions(SongEntry song, int index, int total) {
+  void _showSongOptions(PlaylistSongWithTempo item, int index, int total) {
+    final song = item.song;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -754,7 +764,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
         actions: [
           TextButton(
             onPressed: () async {
-              await widget.db.removeSongFromPlaylist(widget.playlist.id, song.id);
+              await widget.db.removePlaylistSongRow(item.playlistSongId);
               tts.speak(AppStrings.songRemovedFromPlaylist(song.title));
               if (mounted) Navigator.pop(context);
             },
@@ -763,7 +773,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _showMoveDialog(song, index, total);
+              _showMoveDialog(item, index, total);
             },
             child: const Text("Přesunout"),
           ),
@@ -1018,7 +1028,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
                 child: IconButton(
                   icon: const Icon(Icons.play_circle_fill, color: Colors.green),
                   tooltip: "Spustit setlist",
-                  onPressed: () => _confirmStartSetlist(songs),
+                  onPressed: () => _confirmStartSetlist(items),
                 ),
               );
             },
@@ -1081,10 +1091,26 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
                       style: TextStyle(color: hasOverride ? Theme.of(context).colorScheme.primary : null, fontWeight: hasOverride ? FontWeight.w600 : null),
                     ),
                   ),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => PlayerPage(songId: song.id, db: widget.db, playlistId: widget.playlist.id)),
-                  ),
+                  onTap: () {
+                    final entries = items.map((w) => PlaylistOccurrenceRef(
+                          playlistSongId: w.playlistSongId,
+                          songId: w.song.id,
+                          occurrenceId: w.occurrenceId,
+                        )).toList();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => PlayerPage(
+                          songId: song.id,
+                          db: widget.db,
+                          setlistEntries: entries,
+                          playlistId: widget.playlist.id,
+                          playlistSongId: item.playlistSongId,
+                          occurrenceId: item.occurrenceId,
+                        ),
+                      ),
+                    );
+                  },
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1122,7 +1148,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
                             icon: const Icon(Icons.arrow_upward, size: 20),
                             tooltip: "Posunout výše",
                             onPressed: () async {
-                              await widget.db.reorderPlaylistSongs(widget.playlist.id, song.id, true);
+                              await widget.db.reorderPlaylistSongRow(item.playlistSongId, true);
                               tts.speak("Přesunuto výše: ${song.title}");
                             },
                           ),
@@ -1135,7 +1161,7 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
                             icon: const Icon(Icons.arrow_downward, size: 20),
                             tooltip: "Posunout níže",
                             onPressed: () async {
-                              await widget.db.reorderPlaylistSongs(widget.playlist.id, song.id, false);
+                              await widget.db.reorderPlaylistSongRow(item.playlistSongId, false);
                               tts.speak("Přesunuto níže: ${song.title}");
                             },
                           ),
@@ -1146,12 +1172,12 @@ class _PlaylistSongsPageState extends State<PlaylistSongsPage> {
                           if (v == 'tempo') {
                             _showTempoDialog(item);
                           } else if (v == 'remove') {
-                            widget.db.removeSongFromPlaylist(widget.playlist.id, song.id);
+                            widget.db.removePlaylistSongRow(item.playlistSongId);
                             tts.speak(AppStrings.songRemovedFromPlaylist(song.title));
                           } else if (v == 'move') {
-                            _showMoveDialog(song, i, items.length);
+                            _showMoveDialog(item, i, items.length);
                           } else if (v == 'options') {
-                            _showSongOptions(song, i, items.length);
+                            // _showSongOptions(item, i, items.length);
                           }
                         },
                         itemBuilder: (_) => const [

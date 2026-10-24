@@ -207,8 +207,22 @@ class PlaylistSongs extends Table {
   BoolColumn get stopMarksOverride => boolean().nullable()();
 }
 
+/// Odkaz na konkrétní výskyt písně v setlistu (etapa E1).
+class PlaylistOccurrenceRef {
+  final int playlistSongId;
+  final int songId;
+  final String occurrenceId;
+
+  const PlaylistOccurrenceRef({
+    required this.playlistSongId,
+    required this.songId,
+    required this.occurrenceId,
+  });
+}
+
 /// Obálka písně v setlistu včetně per-setlist tempa.
 class PlaylistSongWithTempo {
+  final int playlistSongId;
   final SongEntry song;
   final double? playlistTempo;
   final int orderIndex;
@@ -227,6 +241,7 @@ class PlaylistSongWithTempo {
   final bool? stopMarksOverride;
 
   const PlaylistSongWithTempo({
+    required this.playlistSongId,
     required this.song,
     this.playlistTempo,
     required this.orderIndex,
@@ -2298,6 +2313,19 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
+  /// Vrátí seřazené odkazy na výskyty písní v setlistu (etapa E1).
+  Future<List<PlaylistOccurrenceRef>> getPlaylistOccurrences(int playlistId) async {
+    final rows = await (select(playlistSongs)
+          ..where((t) => t.playlistId.equals(playlistId))
+          ..orderBy([(t) => OrderingTerm(expression: t.orderIndex)]))
+        .get();
+    return rows.map((r) => PlaylistOccurrenceRef(
+          playlistSongId: r.id,
+          songId: r.songId,
+          occurrenceId: r.occurrenceId,
+        )).toList();
+  }
+
   Stream<List<SongEntry>> watchSongsInPlaylist(int playlistId) {
 
     final query = select(songs).join([innerJoin(playlistSongs, playlistSongs.songId.equalsExp(songs.id))])
@@ -2315,6 +2343,7 @@ class AppDatabase extends _$AppDatabase {
           final song = row.readTable(songs);
           final ps = row.readTable(playlistSongs);
           return PlaylistSongWithTempo(
+            playlistSongId: ps.id,
             song: song,
             playlistTempo: ps.tempo,
             orderIndex: ps.orderIndex,
@@ -2335,6 +2364,7 @@ class AppDatabase extends _$AppDatabase {
       final song = row.readTable(songs);
       final ps = row.readTable(playlistSongs);
       return PlaylistSongWithTempo(
+        playlistSongId: ps.id,
         song: song,
         playlistTempo: ps.tempo,
         orderIndex: ps.orderIndex,
@@ -2344,6 +2374,92 @@ class AppDatabase extends _$AppDatabase {
         stopMarksOverride: ps.stopMarksOverride,
       );
     }).toList();
+  }
+
+  /// Odstraní konkrétní výskyt písně v setlistu podle playlistSongs.id (etapa E2).
+  Future<int> removePlaylistSongRow(int playlistSongId) async {
+    return transaction(() async {
+      // 1. Zjistíme playlistId a orderIndex mazaného řádku, abychom mohli znormalizovat zbytek
+      final row = await (select(playlistSongs)..where((t) => t.id.equals(playlistSongId))).getSingleOrNull();
+      if (row == null) return 0;
+      final pid = row.playlistId;
+
+      final count = await (delete(playlistSongs)..where((t) => t.id.equals(playlistSongId))).go();
+
+      // Normalizace orderIndex zbývajících položek
+      await _normalizePlaylistOrder(pid);
+      return count;
+    });
+  }
+
+  /// Prohodí nebo posune konkrétní řádek nahoru/dolů (etapa E2).
+  Future<void> reorderPlaylistSongRow(int playlistSongId, bool moveUp) async {
+    return transaction(() async {
+      final rows = await (select(playlistSongs)
+            ..orderBy([(t) => OrderingTerm(expression: t.orderIndex)]))
+          .get();
+      
+      final index = rows.indexWhere((r) => r.id == playlistSongId);
+      if (index == -1) return;
+      final targetIndex = moveUp ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= rows.length) return;
+
+      // Prohodíme položky v lokálním seznamu
+      final temp = rows[index];
+      rows[index] = rows[targetIndex];
+      rows[targetIndex] = temp;
+
+      // Uložíme nový deterministický orderIndex (0, 1, 2, ...)
+      for (int i = 0; i < rows.length; i++) {
+        await (update(playlistSongs)..where((t) => t.id.equals(rows[i].id)))
+            .write(PlaylistSongsCompanion(orderIndex: Value(i)));
+      }
+    });
+  }
+
+  /// Přesune konkrétní řádek na novou pozici [newOrderIndex] (etapa E2).
+  Future<void> movePlaylistSongRow(int playlistSongId, int newOrderIndex) async {
+    return transaction(() async {
+      final rows = await (select(playlistSongs)
+            ..orderBy([(t) => OrderingTerm(expression: t.orderIndex)]))
+          .get();
+
+      final index = rows.indexWhere((r) => r.id == playlistSongId);
+      if (index == -1) return;
+
+      final item = rows.removeAt(index);
+      final clampedIndex = newOrderIndex.clamp(0, rows.length);
+      rows.insert(clampedIndex, item);
+
+      for (int i = 0; i < rows.length; i++) {
+        await (update(playlistSongs)..where((t) => t.id.equals(rows[i].id)))
+            .write(PlaylistSongsCompanion(orderIndex: Value(i)));
+      }
+    });
+  }
+
+  Future<double?> getPlaylistSongTempoById(int playlistSongId) async {
+    final row = await (select(playlistSongs)..where((t) => t.id.equals(playlistSongId))).getSingleOrNull();
+    return row?.tempo;
+  }
+
+  Future<int> updatePlaylistSongTempoById(int playlistSongId, double? tempo) =>
+      (update(playlistSongs)..where((t) => t.id.equals(playlistSongId)))
+          .write(PlaylistSongsCompanion(tempo: Value(tempo)));
+
+  /// Pomocná metoda pro normalizaci orderIndex v playlistu (etapa E2).
+  Future<void> _normalizePlaylistOrder(int playlistId) async {
+    final rows = await (select(playlistSongs)
+          ..where((t) => t.playlistId.equals(playlistId))
+          ..orderBy([(t) => OrderingTerm(expression: t.orderIndex)]))
+        .get();
+
+    for (int i = 0; i < rows.length; i++) {
+      if (rows[i].orderIndex != i) {
+        await (update(playlistSongs)..where((t) => t.id.equals(rows[i].id)))
+            .write(PlaylistSongsCompanion(orderIndex: Value(i)));
+      }
+    }
   }
 
   Future<double?> getPlaylistSongTempo(int playlistId, int songId) async {

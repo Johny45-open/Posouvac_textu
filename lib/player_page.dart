@@ -216,10 +216,22 @@ List<StopMarkTarget> buildStopMarkTargets({
 class PlayerPage extends StatefulWidget {
   final int songId;
   final AppDatabase db;
+  final List<PlaylistOccurrenceRef>? setlistEntries;
   final List<int>? setlistIds;
   final int? playlistId;
+  final int? playlistSongId;
+  final String? occurrenceId;
 
-  const PlayerPage({super.key, required this.songId, required this.db, this.setlistIds, this.playlistId});
+  const PlayerPage({
+    super.key,
+    required this.songId,
+    required this.db,
+    this.setlistEntries,
+    this.setlistIds,
+    this.playlistId,
+    this.playlistSongId,
+    this.occurrenceId,
+  });
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -272,12 +284,45 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
   /// Kurzor ručního náhledu - index dalšího řádku k ohlášení při zastaveném posuvu.
   int? _manualPreviewCursor;
 
+  /// Pomocná metoda pro nalezení aktuálního indexu v setlistEntries (etapa E1).
+  int _getCurrentSetlistIndex() {
+    if (widget.setlistEntries == null || widget.setlistEntries!.isEmpty) return -1;
+    if (widget.playlistSongId != null) {
+      final idx = widget.setlistEntries!.indexWhere((e) => e.playlistSongId == widget.playlistSongId);
+      if (idx != -1) return idx;
+    }
+    if (widget.occurrenceId != null && widget.occurrenceId!.isNotEmpty) {
+      final idx = widget.setlistEntries!.indexWhere((e) => e.occurrenceId == widget.occurrenceId);
+      if (idx != -1) return idx;
+    }
+    // Fallback: první výskyt songId
+    return widget.setlistEntries!.indexWhere((e) => e.songId == widget.songId);
+  }
+
+  /// Bezpečné získání playlistSongId pro čtení/zápis tempa, pokud není přímo zadán (etapa E1).
+  Future<int?> _resolvePlaylistSongId() async {
+    if (widget.playlistSongId != null) return widget.playlistSongId;
+    if (widget.playlistId == null) return null;
+    if (widget.setlistEntries != null && widget.setlistEntries!.isNotEmpty) {
+      final match = widget.setlistEntries!.where((e) => e.songId == widget.songId).toList();
+      if (match.isNotEmpty) return match.first.playlistSongId;
+    }
+    try {
+      final occurrences = await widget.db.getPlaylistOccurrences(widget.playlistId!);
+      final match = occurrences.where((e) => e.songId == widget.songId).toList();
+      if (match.isNotEmpty) return match.first.playlistSongId;
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> _saveSettings({double? customFontSize}) async {
-    // Pokud jsme v setlistu s playlistId, ulož tempo per-setlist (globální ostatní)
-    if (widget.playlistId != null) {
-      await widget.db.updatePlaylistSongTempo(widget.playlistId!, widget.songId, _bpm);
-      // ostatní nastavení (font, rychlost, intro) stále globálně na písni
+    final psId = await _resolvePlaylistSongId();
+    if (psId != null) {
+      await widget.db.updatePlaylistSongTempoById(psId, _bpm);
       await widget.db.updateSongSettings(widget.songId, null, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);
+    } else if (widget.playlistId != null) {
+      // Fallback, pokud nelze bezpečně určit konkrétní výskyt, nevoláme nejednoznačnou metodu pro setlist – uložení tempa pro setlist se přeskočí, globální nastavení písně se uloží bezpečně.
+      await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);
     } else {
       await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);
     }
@@ -726,8 +771,9 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
       final globalFontSize = prefs.getDouble('fontSize') ?? 24.0;
 
       double? effectiveTempo = song.tempo;
-      if (widget.playlistId != null) {
-        final pt = await widget.db.getPlaylistSongTempo(widget.playlistId!, widget.songId);
+      final psId = await _resolvePlaylistSongId();
+      if (psId != null) {
+        final pt = await widget.db.getPlaylistSongTempoById(psId);
         if (pt != null) effectiveTempo = pt;
       }
 
@@ -1111,7 +1157,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     });
 
     // Pokud jsme v režimu Setlist a došli jsme na konec, nabídneme další píseň
-    final bool setlistEndReached = widget.setlistIds != null &&
+    final bool setlistEndReached = (widget.setlistEntries != null || widget.setlistIds != null) &&
         _scrollController.hasClients &&
         _scrollController.offset >= _scrollController.position.maxScrollExtent - 10;
 
@@ -1125,42 +1171,63 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _navigateToSetlistSong(int targetSongId) async {
+  Future<void> _navigateToSetlistEntry(PlaylistOccurrenceRef targetEntry) async {
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (context) => PlayerPage(
-          songId: targetSongId,
+          songId: targetEntry.songId,
           db: widget.db,
-          setlistIds: widget.setlistIds,
+          setlistEntries: widget.setlistEntries,
           playlistId: widget.playlistId,
+          playlistSongId: targetEntry.playlistSongId,
+          occurrenceId: targetEntry.occurrenceId,
         ),
       ),
     );
   }
 
   Future<void> _handleNextInSetlist({bool manual = false}) async {
-    if (widget.setlistIds == null) return;
-    final currentIndex = widget.setlistIds!.indexOf(widget.songId);
-    // Pokud je automatický přechod zrušen manuálním zásahem, ignoruj
+    final entries = widget.setlistEntries;
+    if (entries == null || entries.isEmpty) {
+      if (widget.setlistIds != null) {
+        final currentIndex = widget.setlistIds!.indexOf(widget.songId);
+        if (!manual && _setlistCancelled) {
+          _setlistCancelled = false;
+          return;
+        }
+        if (currentIndex != -1 && currentIndex < widget.setlistIds!.length - 1) {
+          final nextSongId = widget.setlistIds![currentIndex + 1];
+          final nextSong = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(nextSongId))).getSingle();
+          if (!mounted) return;
+          final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex + 2, widget.setlistIds!.length);
+          _tts.speak("${AppStrings.nextSongMessage(nextSong.title, nextSong.artist)} $posMsg");
+          HapticFeedback.vibrate();
+          await _navigateToSetlistSongLegacy(nextSongId);
+        } else {
+          _tts.speak(AppStrings.setlistEndMessage);
+          HapticFeedback.heavyImpact();
+        }
+      }
+      return;
+    }
+
+    final currentIndex = _getCurrentSetlistIndex();
     if (!manual && _setlistCancelled) {
       _setlistCancelled = false;
       return;
     }
-    if (currentIndex != -1 && currentIndex < widget.setlistIds!.length - 1) {
-      final nextSongId = widget.setlistIds![currentIndex + 1];
-      final nextSong = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(nextSongId))).getSingle();
-      
+    if (currentIndex != -1 && currentIndex < entries.length - 1) {
+      final nextEntry = entries[currentIndex + 1];
+      final nextSong = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(nextEntry.songId))).getSingle();
       if (!mounted) return;
 
-      // Oznámit pozici v setlistu (B2)
-      final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex + 2, widget.setlistIds!.length);
+      final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex + 2, entries.length);
       _tts.speak("${AppStrings.nextSongMessage(nextSong.title, nextSong.artist)} $posMsg");
-      HapticFeedback.vibrate(); 
+      HapticFeedback.vibrate();
 
       if (_setlistDelay < 0) {
-        // Režim čekat na stisk (C2)
         if (!mounted) return;
         setState(() => _setlistAutoPending = true);
         _tts.speak(AppStrings.setlistNextReady);
@@ -1173,7 +1240,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
                 label: "Spustit hned",
                 onPressed: () {
                   ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  _navigateToSetlistSong(nextSongId);
+                  _navigateToSetlistEntry(nextEntry);
                 },
               ),
             ),
@@ -1182,7 +1249,6 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
         return;
       }
 
-      // Auto režim s nastavitelnou prodlevou + možnost zrušit
       _setlistCancelled = false;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1205,7 +1271,7 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
         _setlistCancelled = false;
         return;
       }
-      await _navigateToSetlistSong(nextSongId);
+      await _navigateToSetlistEntry(nextEntry);
     } else {
       _tts.speak(AppStrings.setlistEndMessage);
       HapticFeedback.heavyImpact();
@@ -1217,36 +1283,82 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     }
   }
 
+  Future<void> _navigateToSetlistSongLegacy(int targetSongId) async {
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PlayerPage(
+          songId: targetSongId,
+          db: widget.db,
+          setlistIds: widget.setlistIds,
+          playlistId: widget.playlistId,
+        ),
+      ),
+    );
+  }
+
   Future<void> _handlePreviousInSetlist() async {
-    if (widget.setlistIds == null) return;
-    final currentIndex = widget.setlistIds!.indexOf(widget.songId);
+    final entries = widget.setlistEntries;
+    if (entries == null || entries.isEmpty) {
+      if (widget.setlistIds != null) {
+        final currentIndex = widget.setlistIds!.indexOf(widget.songId);
+        if (currentIndex > 0) {
+          final prevSongId = widget.setlistIds![currentIndex - 1];
+          final prevSong = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(prevSongId))).getSingle();
+          if (!mounted) return;
+          final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex, widget.setlistIds!.length);
+          _tts.speak("${AppStrings.setlistPrevSongAnnouncement(prevSong.title, prevSong.artist)} $posMsg");
+          HapticFeedback.vibrate();
+          _setlistCancelled = true;
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          setState(() => _setlistAutoPending = false);
+          await _navigateToSetlistSongLegacy(prevSongId);
+        } else {
+          _tts.speak("Jste na první písni setlistu");
+          HapticFeedback.vibrate();
+        }
+      }
+      return;
+    }
+
+    final currentIndex = _getCurrentSetlistIndex();
     if (currentIndex > 0) {
-      final prevSongId = widget.setlistIds![currentIndex - 1];
-      final prevSong = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(prevSongId))).getSingle();
+      final prevEntry = entries[currentIndex - 1];
+      final prevSong = await (widget.db.select(widget.db.songs)..where((s) => s.id.equals(prevEntry.songId))).getSingle();
       if (!mounted) return;
-      final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex, widget.setlistIds!.length);
+      final posMsg = AppStrings.setlistPositionAnnouncement(currentIndex, entries.length);
       _tts.speak("${AppStrings.setlistPrevSongAnnouncement(prevSong.title, prevSong.artist)} $posMsg");
-      HapticFeedback.vibrate(); 
-      // Zrušit případný čekající auto-přechod
+      HapticFeedback.vibrate();
       _setlistCancelled = true;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       setState(() => _setlistAutoPending = false);
-      await _navigateToSetlistSong(prevSongId);
+      await _navigateToSetlistEntry(prevEntry);
     } else {
       _tts.speak("Jste na první písni setlistu");
-      HapticFeedback.vibrate(); 
+      HapticFeedback.vibrate();
     }
   }
 
   void _toggleScrolling() {
-    // Pokud čekáme na potvrzení další písně (režim čekat na stisk), poklep spustí další
-    if (_setlistAutoPending && widget.setlistIds != null) {
-      final idx = widget.setlistIds!.indexOf(widget.songId);
-      if (idx != -1 && idx < widget.setlistIds!.length - 1) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        setState(() => _setlistAutoPending = false);
-        _navigateToSetlistSong(widget.setlistIds![idx + 1]);
-        return;
+    if (_setlistAutoPending && (widget.setlistEntries != null || widget.setlistIds != null)) {
+      final entries = widget.setlistEntries;
+      if (entries != null && entries.isNotEmpty) {
+        final currentIndex = _getCurrentSetlistIndex();
+        if (currentIndex != -1 && currentIndex < entries.length - 1) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          setState(() => _setlistAutoPending = false);
+          _navigateToSetlistEntry(entries[currentIndex + 1]);
+          return;
+        }
+      } else if (widget.setlistIds != null) {
+        final idx = widget.setlistIds!.indexOf(widget.songId);
+        if (idx != -1 && idx < widget.setlistIds!.length - 1) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          setState(() => _setlistAutoPending = false);
+          _navigateToSetlistSongLegacy(widget.setlistIds![idx + 1]);
+          return;
+        }
       }
     }
     if (_isScrolling || _isPreparing) {

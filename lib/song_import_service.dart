@@ -81,10 +81,26 @@ class SongImportService {
   static Future<void> _openPlayer(GlobalKey<NavigatorState> nav, AppDatabase db, int songId, List<int>? setlistIds, int? playlistId) async {
     final n = nav.currentState;
     if (n == null) return;
-    // small delay to let dialog close
+    List<PlaylistOccurrenceRef>? occurrences;
+    int? playlistSongId;
+    String? occurrenceId;
+    if (playlistId != null) {
+      occurrences = await db.getPlaylistOccurrences(playlistId);
+      if (occurrences.isNotEmpty) {
+        playlistSongId = occurrences.first.playlistSongId;
+        occurrenceId = occurrences.first.occurrenceId;
+      }
+    }
     await Future.delayed(const Duration(milliseconds: 200));
     n.push(MaterialPageRoute(
-      builder: (_) => PlayerPage(songId: songId, db: db, setlistIds: setlistIds, playlistId: playlistId),
+      builder: (_) => PlayerPage(
+        songId: songId,
+        db: db,
+        setlistEntries: occurrences,
+        playlistId: playlistId,
+        playlistSongId: playlistSongId,
+        occurrenceId: occurrenceId,
+      ),
     ));
   }
 
