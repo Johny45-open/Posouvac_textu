@@ -2447,6 +2447,17 @@ class AppDatabase extends _$AppDatabase {
       (update(playlistSongs)..where((t) => t.id.equals(playlistSongId)))
           .write(PlaylistSongsCompanion(tempo: Value(tempo)));
 
+  Future<PlaylistSong?> getPlaylistSongRowById(int playlistSongId) async {
+    return await (select(playlistSongs)..where((t) => t.id.equals(playlistSongId))).getSingleOrNull();
+  }
+
+  Future<int> updatePlaylistSongSettingsById(int playlistSongId, {double? scrollSpeed, double? introDuration}) =>
+      (update(playlistSongs)..where((t) => t.id.equals(playlistSongId)))
+          .write(PlaylistSongsCompanion(
+            scrollSpeed: scrollSpeed != null ? Value(scrollSpeed) : const Value.absent(),
+            introDuration: introDuration != null ? Value(introDuration) : const Value.absent(),
+          ));
+
   /// Pomocná metoda pro normalizaci orderIndex v playlistu (etapa E2).
   Future<void> _normalizePlaylistOrder(int playlistId) async {
     final rows = await (select(playlistSongs)

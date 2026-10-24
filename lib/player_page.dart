@@ -319,9 +319,11 @@ class _PlayerPageState extends State<PlayerPage> with SingleTickerProviderStateM
     final psId = await _resolvePlaylistSongId();
     if (psId != null) {
       await widget.db.updatePlaylistSongTempoById(psId, _bpm);
-      await widget.db.updateSongSettings(widget.songId, null, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);
+      await widget.db.updatePlaylistSongSettingsById(psId, scrollSpeed: _scrollMultiplier, introDuration: _introDuration);
+      if (customFontSize != null) {
+        await widget.db.updateSongSettings(widget.songId, null, null, customFontSize, _scrollMultiplier);
+      }
     } else if (widget.playlistId != null) {
-      // Fallback, pokud nelze bezpečně určit konkrétní výskyt, nevoláme nejednoznačnou metodu pro setlist – uložení tempa pro setlist se přeskočí, globální nastavení písně se uloží bezpečně.
       await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);
     } else {
       await widget.db.updateSongSettings(widget.songId, _bpm, _introDuration, customFontSize ?? _fontSize, _scrollMultiplier);

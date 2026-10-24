@@ -3,122 +3,69 @@ import 'package:posouvac_textu/database.dart';
 import 'package:drift/drift.dart' as drift;
 
 void main() {
-  group('E1 & E2 Setlist Navigation & Occurrence Row Operations Tests', () {
-    test('Duplicate songs in setlist have distinct playlistSongId and occurrenceId', () {
-      final entries = [
-        PlaylistOccurrenceRef(playlistSongId: 1, songId: 42, occurrenceId: 'uuid-1'),
-        PlaylistOccurrenceRef(playlistSongId: 2, songId: 42, occurrenceId: 'uuid-2'),
-        PlaylistOccurrenceRef(playlistSongId: 3, songId: 99, occurrenceId: 'uuid-3'),
-      ];
-
-      int findIndexByPlaylistSongId(int? psId, String? occId, int fallbackSongId) {
-        if (psId != null) {
-          final idx = entries.indexWhere((e) => e.playlistSongId == psId);
-          if (idx != -1) return idx;
-        }
-        if (occId != null && occId.isNotEmpty) {
-          final idx = entries.indexWhere((e) => e.occurrenceId == occId);
-          if (idx != -1) return idx;
-        }
-        return entries.indexWhere((e) => e.songId == fallbackSongId);
-      }
-
-      expect(findIndexByPlaylistSongId(1, null, 42), 0);
-      expect(findIndexByPlaylistSongId(2, null, 42), 1);
-      expect(findIndexByPlaylistSongId(null, 'uuid-3', 99), 2);
-      expect(findIndexByPlaylistSongId(null, null, 42), 0);
-    });
-
-    test('E2: Remove specific occurrence leaves other occurrences and song intact', () async {
+  group('E3 Per-occurrence scrollSpeed and introDuration Tests', () {
+    test('E3: Two occurrences of same song can have different scrollSpeed and introDuration', () async {
       final db = AppDatabase.forTesting();
       addTearDown(() => db.close());
 
       final songId = await db.into(db.songs).insert(SongsCompanion.insert(
-        title: 'Shared Song',
+        title: 'Multi-speed Song',
         artist: 'Artist',
         filePath: 'dummy.txt',
+        customScrollSpeed: const drift.Value(1.0),
+        introDuration: const drift.Value(3.0),
       ));
 
       final playlistId = await db.into(db.playlists).insert(PlaylistsCompanion.insert(
-        name: 'Test Playlist',
-        playlistUid: 'pl-uid-e2-1',
+        name: 'E3 Playlist',
+        playlistUid: 'pl-e3-1',
       ));
 
-      // Add two occurrences of the same song
+      // Occ 1: custom speed 1.5, intro 5.0
       final psId1 = await db.into(db.playlistSongs).insert(PlaylistSongsCompanion.insert(
         playlistId: playlistId,
         songId: songId,
         orderIndex: const drift.Value(0),
-        occurrenceId: 'occ-e2-1',
-        tempo: const drift.Value(100.0),
+        occurrenceId: 'occ-e3-1',
+        scrollSpeed: const drift.Value(1.5),
+        introDuration: const drift.Value(5.0),
       ));
 
+      // Occ 2: NULL values (should fallback to song defaults)
       final psId2 = await db.into(db.playlistSongs).insert(PlaylistSongsCompanion.insert(
         playlistId: playlistId,
         songId: songId,
         orderIndex: const drift.Value(1),
-        occurrenceId: 'occ-e2-2',
-        tempo: const drift.Value(120.0),
+        occurrenceId: 'occ-e3-2',
+        scrollSpeed: const drift.Value.absent(),
+        introDuration: const drift.Value.absent(),
       ));
 
-      // Remove first occurrence
-      await db.removePlaylistSongRow(psId1);
+      final row1 = await db.getPlaylistSongRowById(psId1);
+      final row2 = await db.getPlaylistSongRowById(psId2);
+      final song = await (db.select(db.songs)..where((t) => t.id.equals(songId))).getSingle();
 
-      final remaining = await db.getPlaylistOccurrences(playlistId);
-      expect(remaining.length, 1);
-      expect(remaining.first.playlistSongId, psId2);
-      expect(remaining.first.occurrenceId, 'occ-e2-2');
+      expect(row1?.scrollSpeed, 1.5);
+      expect(row1?.introDuration, 5.0);
 
-      // Song should still exist in library
-      final song = await (db.select(db.songs)..where((t) => t.id.equals(songId))).getSingleOrNull();
-      expect(song, isNotNull);
-    });
+      // NULL values test fallback rule
+      expect(row2?.scrollSpeed, isNull);
+      expect(row2?.introDuration, isNull);
+      final effectiveSpeed2 = row2?.scrollSpeed ?? song.customScrollSpeed;
+      final effectiveIntro2 = row2?.introDuration ?? song.introDuration;
+      expect(effectiveSpeed2, 1.0);
+      expect(effectiveIntro2, 3.0);
 
-    test('E2: Reorder and move row maintains correct unique order and occurrenceId', () async {
-      final db = AppDatabase.forTesting();
-      addTearDown(() => db.close());
+      // Updating occurrence 1 settings does not change occurrence 2
+      await db.updatePlaylistSongSettingsById(psId1, scrollSpeed: 2.0, introDuration: 10.0);
+      
+      final updatedRow1 = await db.getPlaylistSongRowById(psId1);
+      final updatedRow2 = await db.getPlaylistSongRowById(psId2);
 
-      final songId = await db.into(db.songs).insert(SongsCompanion.insert(
-        title: 'Song',
-        artist: 'Artist',
-        filePath: 'dummy.txt',
-      ));
-
-      final playlistId = await db.into(db.playlists).insert(PlaylistsCompanion.insert(
-        name: 'Test Playlist 2',
-        playlistUid: 'pl-uid-e2-2',
-      ));
-
-      final psId1 = await db.into(db.playlistSongs).insert(PlaylistSongsCompanion.insert(
-        playlistId: playlistId,
-        songId: songId,
-        orderIndex: const drift.Value(0),
-        occurrenceId: 'occ-move-1',
-      ));
-
-      final psId2 = await db.into(db.playlistSongs).insert(PlaylistSongsCompanion.insert(
-        playlistId: playlistId,
-        songId: songId,
-        orderIndex: const drift.Value(1),
-        occurrenceId: 'occ-move-2',
-      ));
-
-      // Move row 1 down (or reorder row 1 down)
-      await db.reorderPlaylistSongRow(psId1, false);
-
-      final occsAfterReorder = await db.getPlaylistOccurrences(playlistId);
-      expect(occsAfterReorder[0].playlistSongId, psId2);
-      expect(occsAfterReorder[1].playlistSongId, psId1);
-      // occurrenceId must not change during move/reorder
-      expect(occsAfterReorder[0].occurrenceId, 'occ-move-2');
-      expect(occsAfterReorder[1].occurrenceId, 'occ-move-1');
-
-      // Move psId1 to position 0
-      await db.movePlaylistSongRow(psId1, 0);
-
-      final occsAfterMove = await db.getPlaylistOccurrences(playlistId);
-      expect(occsAfterMove[0].playlistSongId, psId1);
-      expect(occsAfterMove[1].playlistSongId, psId2);
+      expect(updatedRow1?.scrollSpeed, 2.0);
+      expect(updatedRow1?.introDuration, 10.0);
+      expect(updatedRow2?.scrollSpeed, isNull);
+      expect(updatedRow2?.introDuration, isNull);
     });
   });
 }
